@@ -71,7 +71,11 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   assert.equal(win.nect.document.layers[0].nodes[0].params.radius.source, undefined);
   let old = win.nect.export(),
     serialized = JSON.stringify(win.nect.document);
+  document.querySelector('.graph-scroll').scrollLeft = 250;
+  document.querySelector('.graph-scroll').scrollTop = 500;
   win.nect.load(serialized);
+  assert.equal(document.querySelector('.graph-scroll').scrollLeft, 0);
+  assert.equal(document.querySelector('.graph-scroll').scrollTop, 0);
   assert.equal(win.nect.export(), old);
   assert.throws(() => win.nect.load('{"schemaVersion":99}'));
   assert.equal(win.nect.export(), old);

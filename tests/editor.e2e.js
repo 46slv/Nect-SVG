@@ -326,6 +326,13 @@ try {
   await (await choosing).setFiles('examples/vr-converters.json');
   await page.waitForFunction(() => window.nect.document.name.includes('V/R Converters'));
   assert.equal(await page.locator('.shape').count(), 4);
+  assert.deepEqual(
+    await page.locator('.graph-scroll').evaluate((el) => [el.scrollLeft, el.scrollTop]),
+    [0, 0],
+  );
+  const firstLoadedCard = await page.locator('.node').first().boundingBox();
+  const loadedViewport = await page.locator('.graph-scroll').boundingBox();
+  assert.ok(firstLoadedCard.x >= loadedViewport.x && firstLoadedCard.y >= loadedViewport.y);
   const practiceBefore = await page.evaluate(() => window.nect.export());
   const vId = await page.evaluate(() => window.nect.document.layers[0].nodes[0].id);
   const pointX = page

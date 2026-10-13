@@ -193,14 +193,14 @@ function nodeHTML(n, result) {
       '',
     )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${outputType(n) === 'Path' && n.type !== 'Output' ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${n.type !== 'Output' ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div></section>`;
 }
-function render() {
+function render(resetView = false) {
   needsRender = false;
   if (pendingRender !== null) {
     clearTimeout(pendingRender);
     pendingRender = null;
   }
-  const focused = captureFocus(app);
-  const inspectorScroll = document.querySelector('.inspector-body')?.scrollTop || 0;
+  const focused = resetView ? null : captureFocus(app);
+  const inspectorScroll = resetView ? 0 : document.querySelector('.inspector-body')?.scrollTop || 0;
   for (const el of document.querySelectorAll('.graph details[data-detail]'))
     detailsState.set(`${el.closest('.node').dataset.id}/${el.dataset.detail}`, el.open);
   if (selected && !current().nodes.some((n) => n.id === selected)) selected = null;
@@ -208,7 +208,7 @@ function render() {
   if (!selection.has(selected)) selection = new Set(selected ? [selected] : []);
   selection = new Set([...selection].filter((id) => current().nodes.some((n) => n.id === id)));
   let scroll = document.querySelector('.graph-scroll'),
-    oldScroll = scroll ? [scroll.scrollLeft, scroll.scrollTop] : [0, 0];
+    oldScroll = scroll && !resetView ? [scroll.scrollLeft, scroll.scrollTop] : [0, 0];
   const doc = history.doc,
     l = current();
   activeLayer = l.id;
@@ -472,7 +472,7 @@ app.addEventListener('click', async (e) => {
               activeLayer = next.layers[0].id;
               selected = current().nodes[0]?.id;
               savedSnapshot = serialize(next);
-              render();
+              render(true);
               notify('Project restored');
             }
           } else document.querySelector('#open-file').click();
@@ -483,7 +483,7 @@ app.addEventListener('click', async (e) => {
             history = new History(newDocument());
             activeLayer = current().id;
             selected = current().nodes[0].id;
-            render();
+            render(true);
           }
           break;
         case 'add-layer':
@@ -493,7 +493,7 @@ app.addEventListener('click', async (e) => {
             activeLayer = l.id;
             selected = l.nodes[0].id;
           });
-          render();
+          render(true);
           break;
         case 'zoom-in':
           zoom = Math.min(8, zoom * 1.2);
@@ -547,7 +547,7 @@ app.addEventListener('click', async (e) => {
     resetTransient();
     activeLayer = d.selectLayer;
     selected = current().nodes[0]?.id;
-    render();
+    render(true);
     return;
   }
   if (d.visible || d.layerLock || d.upLayer) {
@@ -710,7 +710,7 @@ app.addEventListener('change', async (e) => {
       selected = current().nodes[0]?.id;
       if (el.id === 'open-file') savedSnapshot = serialize(next);
       notify('Project restored');
-      render();
+      render(true);
     } catch (err) {
       notify(`Open rejected; current document preserved: ${err.message}`, true);
     }
@@ -1211,7 +1211,7 @@ window.nect = {
     history = new History(d);
     activeLayer = d.layers[0].id;
     selected = current().nodes[0]?.id;
-    render();
+    render(true);
   },
   export: () => exportSVG(history.doc, fonts),
 };
