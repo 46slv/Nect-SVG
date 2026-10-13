@@ -57,3 +57,17 @@ The next acceptance extension covers atomic multi-point Remap editing plus brows
 Run [38435675197](https://github.com/46slv/Nect-SVG/actions/runs/38435675197), commit `e535b7119535796a40143be47866e950bfcb081a`, passed 33 tests, the actual Chrome multi-point/V/R acceptance and NSIS. The installer is 2,372,235 bytes; artifact ZIP SHA256 is `8f12725cd744cd5902b32f5b6e396308dc2f479299934c1a3dde47aa8b7a7417` and matched after download. The V/R 1920×1080 image was visually checked for editable V outline, R counter, text and four compositions. It exposed retained graph scroll from the prior document: document/composition replacement now resets the graph viewport and old focus, while ordinary edits/Undo retain them. A browser regression asserts the newly opened first card is visible.
 
 The current Node CLI also exported the unmodified four-composition V/R fixture without UI: 5,821 bytes, SHA256 `d8380931f15d239783b8b3ad7116744e87d4df39c9efc532338f9cb8bd4890e3`. The [native Windows checklist](windows-acceptance.md) is the remaining platform acceptance handoff.
+
+## Latest accepted development checkpoint
+
+Run [38436901526](https://github.com/46slv/Nect-SVG/actions/runs/38436901526), code commit `e703332ca79b70da0c2077e04f0e6cc68a41a827`, passed all stages: 33 tests, format/build, actual Windows Chrome interaction and Rust/NSIS. The corrected 1920×1080 V/R screenshot visibly starts with the Curve card/header and Output in view; the prior stale-scroll issue is resolved. The unsigned installer is 2,372,212 bytes. Downloaded artifact ZIP SHA256 matched `1abdca73b170d01d50a705e35af1c944d268b66e19df4a515f10591c9cec72f4`.
+
+M0–M5 **primary development flows** are operational: UI-independent evaluation and persistence, typed graph editing, Curve/Pen/canvas synchronization, Text outlines, safe Remap and batch edits, JSON/SVG interoperability, and the editable V/R browser exercise. This is not a declaration that every edge case, deferred gesture or native Windows acceptance has passed. The V/R fixture remains a practice example rather than approved final branding.
+
+Resume conditions:
+
+- An authorized available Windows native environment: follow [windows-acceptance.md](windows-acceptance.md), especially close/save interruption and dialog durability.
+- Explicit resolution of the cancelled dependency-network update before retrying the documented dev patches. No alternate install route was used.
+- Future scope may add user fonts/shaping, broader SVG fidelity, richer graph navigation and cloud isolation; none is claimed complete or required to operate this first usable editor.
+
+No protected-main merge, public release, deployment, signing or permission/billing change was performed. Draft PR #1 is the review/handoff point. Documentation-only result updates do not alter the tested application code.
