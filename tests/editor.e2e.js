@@ -27,6 +27,39 @@ try {
   assert.ok(Math.abs(vectorBoxes[0].y - vectorBoxes[1].y) < 1);
   assert.ok(vectorBoxes.every((b) => b.width >= 60));
   assert.equal(await page.locator('.node').count(), 5);
+  // Editing commits once on change and preserves Tab focus across structural redraws.
+  const inspectorX = page.locator('.inspector-body').getByLabel('Circle center X', { exact: true });
+  await inspectorX.fill('370');
+  assert.equal(
+    await page.evaluate(() => window.nect.document.layers[0].nodes[0].params.center.value[0]),
+    350,
+  );
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(30);
+  await page.waitForTimeout(50);
+  assert.equal(
+    await page.evaluate(() => document.activeElement.getAttribute('aria-label')),
+    'Circle center Y',
+  );
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('270');
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(30);
+  await page.waitForTimeout(50);
+  assert.deepEqual(
+    await page.evaluate(() => window.nect.document.layers[0].nodes[0].params.center.value),
+    [370, 270],
+  );
+  await page.getByTitle('Ctrl+Z', { exact: true }).click();
+  assert.deepEqual(
+    await page.evaluate(() => window.nect.document.layers[0].nodes[0].params.center.value),
+    [370, 250],
+  );
+  await page.getByTitle('Ctrl+Z', { exact: true }).click();
+  assert.deepEqual(
+    await page.evaluate(() => window.nect.document.layers[0].nodes[0].params.center.value),
+    [350, 250],
+  );
   let initial = await page.locator('.shape').getAttribute('d');
   await page
     .locator('.node')
@@ -34,16 +67,24 @@ try {
     .getByLabel('Circle radius', { exact: true })
     .fill('90');
   await page.keyboard.press('Tab');
+  await page.waitForTimeout(30);
   assert.notEqual(await page.locator('.shape').getAttribute('d'), initial);
   await page.getByTitle('Ctrl+Z', { exact: true }).click();
   assert.equal(await page.locator('.shape').getAttribute('d'), initial);
   await page.getByTitle('Ctrl+Shift+Z', { exact: true }).click();
   assert.notEqual(await page.locator('.shape').getAttribute('d'), initial);
+  for (const action of ['Open', 'Import SVG', 'New']) {
+    const beforeCancel = await page.evaluate(() => JSON.stringify(window.nect.document));
+    page.once('dialog', (dialog) => dialog.dismiss());
+    await page.getByRole('button', { name: action, exact: true }).click();
+    assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeCancel);
+  }
   await page.getByLabel('Add node', { exact: true }).selectOption('Value');
   const valId = await page.evaluate(() => window.nect.document.layers[0].nodes.at(-1).id);
   let valueNode = page.locator(`.node[data-id="${valId}"]`);
   await valueNode.getByLabel('Value value', { exact: true }).fill('45');
   await page.keyboard.press('Tab');
+  await page.waitForTimeout(30);
   const circleId = await page.evaluate(() => window.nect.document.layers[0].nodes[0].id);
   await page.locator('.graph-scroll').evaluate((el) => {
     el.scrollTop = 0;
@@ -151,11 +192,13 @@ try {
     .getByLabel('Vector value X', { exact: true })
     .fill('10');
   await page.keyboard.press('Tab');
+  await page.waitForTimeout(30);
   await page
     .locator(`.node[data-id="${vectorId}"]`)
     .getByLabel('Vector value Y', { exact: true })
     .fill('20');
   await page.keyboard.press('Tab');
+  await page.waitForTimeout(30);
   await remapField.locator('[data-connect-menu]').click();
   await page.getByRole('dialog').getByLabel('Input source').selectOption(vectorId);
   await page.getByRole('dialog').getByRole('button', { name: 'Apply', exact: true }).click();
@@ -190,6 +233,7 @@ try {
     .getByLabel('Rectangle size X', { exact: true })
     .fill('190');
   await page.keyboard.press('Tab');
+  await page.waitForTimeout(30);
   assert.ok(
     (await page.evaluate(() => window.nect.evaluate().warnings)).some((w) =>
       w.includes('suspended'),

@@ -17,7 +17,7 @@ The workspace uses a white/silver interface, lower resizable graph, right Layers
 - Pen: click corner points, drag Bézier handles, click the first point to close, Escape to finish open.
 - Select a generator node, then drag the canvas to move its own parameters. Locked, connected or expression-driven positions refuse movement.
 - Drag an output to a matching field. Connected inputs appear alongside that field. Drag input to empty graph space or right-click it to disconnect and restore fallback.
-- JSON saves editing history/model state; SVG exports evaluated paths, not the graph.
+- JSON saves the current editable model (the Undo/Redo stack is session-only); SVG exports evaluated paths, not the graph.
 - Undo/redo: Ctrl+Z / Ctrl+Shift+Z. Space-drag or middle-drag pans. Fit resets zoom/pan.
 
 ## Windows application
@@ -32,7 +32,7 @@ npx @tauri-apps/cli@2 dev --config src-tauri/tauri.conf.json
 npx @tauri-apps/cli@2 build --config src-tauri/tauri.conf.json
 ```
 
-This scaffold is **not yet Windows-built or installer-verified**. No release or signed installer has been published. A bounded Windows CI workflow can verify compilation/NSIS and browser interactions without using the user’s computer. Native open/save and close interruption must be verified on Windows before claiming desktop readiness.
+Windows CI has passed Rust/Tauri compilation, NSIS packaging and actual Chrome interactions. The unsigned development installer is an ephemeral CI artifact, not a published release. Native WebView2 interaction, open/save and close interruption must still be verified on Windows before claiming desktop readiness. See the exact runs and boundaries in [verification](docs/verification.md).
 
 ## Headless / future Nect integration
 

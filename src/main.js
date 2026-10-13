@@ -1,3 +1,4 @@
+import { captureFocus, restoreFocus } from './focus.js';
 import './style.css';
 import { findFreeNodePosition } from './layout.js';
 import { importSVG } from './svg-import.js';
@@ -63,17 +64,46 @@ function notify(text, bad = false) {
     s.querySelector('.message').textContent = text;
   }
 }
-function change(fn, text) {
+let pendingRender = null,
+  needsRender = false,
+  pointerActive = false;
+document.addEventListener(
+  'pointerdown',
+  () => {
+    pointerActive = true;
+  },
+  true,
+);
+for (const event of ['pointerup', 'pointercancel'])
+  document.addEventListener(
+    event,
+    () => {
+      pointerActive = false;
+      if (needsRender) scheduleRender();
+    },
+    true,
+  );
+function scheduleRender() {
+  needsRender = true;
+  if (pendingRender === null)
+    pendingRender = setTimeout(() => {
+      pendingRender = null;
+      if (!pointerActive) render();
+    }, 0);
+}
+function change(fn, text, deferRender = false) {
   const previousUI = { selected, activeLayer, selection: new Set(selection), penId };
   try {
     if (current().locked) throw Error('Composition is locked');
     history.apply(fn);
     notify(text || 'Updated');
-    render();
+    if (deferRender) scheduleRender();
+    else render();
   } catch (e) {
     ({ selected, activeLayer, selection, penId } = previousUI);
     notify(e.message, true);
-    render();
+    if (deferRender) scheduleRender();
+    else render();
   }
 }
 function resetTransient() {
@@ -155,6 +185,13 @@ function nodeHTML(n, result) {
     )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${outputType(n) === 'Path' && n.type !== 'Output' ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${n.type !== 'Output' ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div></section>`;
 }
 function render() {
+  needsRender = false;
+  if (pendingRender !== null) {
+    clearTimeout(pendingRender);
+    pendingRender = null;
+  }
+  const focused = captureFocus(app);
+  const inspectorScroll = document.querySelector('.inspector-body')?.scrollTop || 0;
   for (const el of document.querySelectorAll('.graph details[data-detail]'))
     detailsState.set(`${el.closest('.node').dataset.id}/${el.dataset.detail}`, el.open);
   if (selected && !current().nodes.some((n) => n.id === selected)) selected = null;
@@ -233,6 +270,8 @@ function render() {
     if (detailsState.has(key)) el.open = detailsState.get(key);
   }
   fitCanvas();
+  restoreFocus(app, focused);
+  document.querySelector('.inspector-body').scrollTop = inspectorScroll;
   requestAnimationFrame(() => {
     updateGraphBounds();
     drawWires();
@@ -352,6 +391,14 @@ function addNode(type, preview = false) {
   }, `Added ${type}`);
   if (selected) revealNode(selected);
 }
+function confirmReplace() {
+  return (
+    serialize(history.doc) === savedSnapshot ||
+    confirm(
+      'Replace this document with unsaved changes? Cancel and Save JSON first to keep a file copy. Open/import can also be undone.',
+    )
+  );
+}
 function download(text, name, type) {
   const a = document.createElement('a'),
     url = URL.createObjectURL(new Blob([text], { type }));
@@ -397,11 +444,18 @@ app.addEventListener('click', async (e) => {
             notify('SVG exported');
           break;
         case 'import-svg':
+          if (!confirmReplace()) break;
           document.querySelector('#import-svg-file').click();
           break;
         case 'open':
+          if (!confirmReplace()) break;
           if (desktop) {
+            const request = ++openRequest,
+              before = serialize(history.doc);
             let text = await openFile();
+            if (request !== openRequest) break;
+            if (serialize(history.doc) !== before)
+              throw Error('Document changed while reading; open the file again');
             if (text !== null) {
               const next = deserialize(text);
               resetTransient();
@@ -629,64 +683,68 @@ app.addEventListener('change', async (e) => {
     if (el.value) addNode(el.value);
     return;
   }
-  change(() => {
-    if (d.operation) current().nodes.find((n) => n.id === d.operation).operation = el.value;
-    else if (d.text) current().nodes.find((n) => n.id === d.text).text = el.value;
-    else if (d.layerName !== undefined) current().name = el.value;
-    else if (d.fill !== undefined) current().fill = el.value;
-    else if (d.dimension) {
-      let v = Number(el.value);
-      if (!(v > 0 && v <= 100000)) throw Error('Artboard dimension must be between 1 and 100000');
-      history.doc[d.dimension] = v;
-    } else if (d.handleType) {
-      let pt = current()
-        .nodes.find((n) => n.id === d.node)
-        .points.find((p) => p.id === d.handleType);
-      if (
-        el.value !== 'corner' &&
-        (pt.handleA.locked || pt.handleA.source || pt.handleA.expression)
-      )
-        throw Error('Handle A is locked or driven; unlock before changing coupled handle mode');
-      pt.handleType = el.value;
-      if (el.value === 'symmetric') pt.handleA.value = pt.handleB.value.map((v) => -v);
-      else if (el.value === 'smooth') {
-        const length = Math.hypot(...pt.handleA.value),
-          mag = Math.hypot(...pt.handleB.value);
-        if (mag) pt.handleA.value = pt.handleB.value.map((v) => (-v / mag) * length);
+  change(
+    () => {
+      if (d.operation) current().nodes.find((n) => n.id === d.operation).operation = el.value;
+      else if (d.text) current().nodes.find((n) => n.id === d.text).text = el.value;
+      else if (d.layerName !== undefined) current().name = el.value;
+      else if (d.fill !== undefined) current().fill = el.value;
+      else if (d.dimension) {
+        let v = Number(el.value);
+        if (!(v > 0 && v <= 100000)) throw Error('Artboard dimension must be between 1 and 100000');
+        history.doc[d.dimension] = v;
+      } else if (d.handleType) {
+        let pt = current()
+          .nodes.find((n) => n.id === d.node)
+          .points.find((p) => p.id === d.handleType);
+        if (
+          el.value !== 'corner' &&
+          (pt.handleA.locked || pt.handleA.source || pt.handleA.expression)
+        )
+          throw Error('Handle A is locked or driven; unlock before changing coupled handle mode');
+        pt.handleType = el.value;
+        if (el.value === 'symmetric') pt.handleA.value = pt.handleB.value.map((v) => -v);
+        else if (el.value === 'smooth') {
+          const length = Math.hypot(...pt.handleA.value),
+            mag = Math.hypot(...pt.handleB.value);
+          if (mag) pt.handleA.value = pt.handleB.value.map((v) => (-v / mag) * length);
+        }
+      } else if (d.remap) {
+        let nn = current().nodes.find((n) => n.id === d.node),
+          input = evaluate(current(), fonts).run(nn.params.path.source);
+        let edit = nn.edits.find((x) => x.pointId === d.remap);
+        if (!edit) {
+          edit = {
+            pointId: d.remap,
+            ...(input.fingerprint ? { fingerprint: input.fingerprint } : {}),
+          };
+          nn.edits.push(edit);
+        }
+        if (!edit[d.component]) edit[d.component] = [0, 0];
+        edit[d.component][Number(d.axis)] = Number(el.value);
+      } else {
+        let f = el.closest('.field');
+        if (!f) return;
+        let nn = current().nodes.find((n) => n.id === f.dataset.node),
+          q = parameter(nn, f.dataset.key);
+        if (q.locked) throw Error('Parameter is locked');
+        if (d.pathSource !== undefined) {
+          if (el.value) connect(current(), el.value, nn.id, f.dataset.key);
+          else disconnect(nn, f.dataset.key);
+        } else if (d.expression !== undefined) q.expression = el.value;
+        else if (d.value !== undefined) {
+          if (q.source) throw Error('Disconnect input before editing its fallback');
+          let value = q.type === 'Boolean' ? el.checked : Number(el.value);
+          if (q.type !== 'Boolean' && !Number.isFinite(value))
+            throw Error('Expected a finite number');
+          if (q.type === 'Vector2') q.value[Number(d.axis)] = value;
+          else q.value = value;
+        }
       }
-    } else if (d.remap) {
-      let nn = current().nodes.find((n) => n.id === d.node),
-        input = evaluate(current(), fonts).run(nn.params.path.source);
-      let edit = nn.edits.find((x) => x.pointId === d.remap);
-      if (!edit) {
-        edit = {
-          pointId: d.remap,
-          ...(input.fingerprint ? { fingerprint: input.fingerprint } : {}),
-        };
-        nn.edits.push(edit);
-      }
-      if (!edit[d.component]) edit[d.component] = [0, 0];
-      edit[d.component][Number(d.axis)] = Number(el.value);
-    } else {
-      let f = el.closest('.field');
-      if (!f) return;
-      let nn = current().nodes.find((n) => n.id === f.dataset.node),
-        q = parameter(nn, f.dataset.key);
-      if (q.locked) throw Error('Parameter is locked');
-      if (d.pathSource !== undefined) {
-        if (el.value) connect(current(), el.value, nn.id, f.dataset.key);
-        else disconnect(nn, f.dataset.key);
-      } else if (d.expression !== undefined) q.expression = el.value;
-      else if (d.value !== undefined) {
-        if (q.source) throw Error('Disconnect input before editing its fallback');
-        let value = q.type === 'Boolean' ? el.checked : Number(el.value);
-        if (q.type !== 'Boolean' && !Number.isFinite(value))
-          throw Error('Expected a finite number');
-        if (q.type === 'Vector2') q.value[Number(d.axis)] = value;
-        else q.value = value;
-      }
-    }
-  });
+    },
+    undefined,
+    true,
+  );
 });
 function canvasPoint(event) {
   let svg = document.querySelector('.artboard'),
