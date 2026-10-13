@@ -130,6 +130,22 @@ export function rebindRemapPoint(n, input, pointId) {
   else delete edit.fingerprint;
   return edit;
 }
+export function translateRemapPoints(n, input, pointIds, delta) {
+  assertValue('Vector2', delta);
+  if (!Array.isArray(pointIds) || !pointIds.length) throw Error('Select at least one point');
+  const draft = clone(n);
+  for (const pointId of new Set(pointIds)) {
+    const existing = draft.edits.find((e) => e.pointId === pointId);
+    if (existing && input.unstable && existing.fingerprint !== input.fingerprint)
+      throw Error('Selected edit is suspended; rebind explicitly first');
+    const edit = enableRemapPoint(draft, input, pointId);
+    const q = edit.params.position;
+    if (q.locked || q.source || q.expression) throw Error('Selected position is locked or driven');
+    q.value = q.value.map((v, i) => v + delta[i]);
+    assertValue('Vector2', q.value);
+  }
+  n.edits = draft.edits;
+}
 export function parameter(n, key) {
   return parameters(n).find(([k]) => k === key)?.[1];
 }

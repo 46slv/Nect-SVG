@@ -510,3 +510,23 @@ dialog::backdrop {
 .node {
   width: 264px;
 }
+
+.batch-edit {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  margin: 8px 0;
+}
+.batch-edit .field-controls {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+.batch-edit input[type='number'] {
+  width: 0;
+  flex: 1;
+  min-width: 60px;
+}
+summary input[type='checkbox'] {
+  vertical-align: middle;
+  margin: 0 4px 0 0;
+}

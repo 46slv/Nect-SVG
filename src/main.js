@@ -18,6 +18,7 @@ import {
   evaluate,
   enableRemapPoint,
   rebindRemapPoint,
+  translateRemapPoints,
   pathData,
   signature,
   connect,
@@ -47,6 +48,11 @@ let savedSnapshot = serialize(history.doc),
   openRequest = 0;
 let selection = new Set([selected]);
 const detailsState = new Map();
+const remapBatches = new Map();
+function remapBatch(id) {
+  if (!remapBatches.has(id)) remapBatches.set(id, { selected: new Set(), delta: [0, 0] });
+  return remapBatches.get(id);
+}
 let renderEvaluation = null;
 const esc = (s) =>
   String(s ?? '').replace(
@@ -107,6 +113,7 @@ function change(fn, text, deferRender = false) {
   }
 }
 function resetTransient() {
+  remapBatches.clear();
   drag = null;
   wiring = null;
   penId = null;
@@ -149,6 +156,7 @@ function remapFields(n, result) {
     if (n.params.path.source) input = result.run(n.params.path.source);
   } catch {}
   if (!input) return '<p class="muted">Connect a path to edit its vertices.</p>';
+  const batch = remapBatch(n.id);
   return (
     input.contours
       .map(
@@ -156,7 +164,7 @@ function remapFields(n, result) {
           `<details data-detail="contour-${c.id}"><summary>Contour ${ci + 1} · ${c.points.length} vertices</summary>${c.points
             .map(
               (pt, pi) =>
-                `<details data-detail="remap-${pt.id}"><summary>Point ${pi + 1}</summary>${[
+                `<details data-detail="remap-${pt.id}"><summary><input type="checkbox" data-batch-point="${pt.id}" data-node="${n.id}" aria-label="Select contour ${ci + 1} point ${pi + 1} for batch edit" ${batch.selected.has(pt.id) ? 'checked' : ''}> Point ${pi + 1}</summary>${[
                   'position',
                   'handleA',
                   'handleB',
@@ -172,7 +180,8 @@ function remapFields(n, result) {
             )
             .join('')}</details>`,
       )
-      .join('') + `<button class="mini" data-clear-edits="${n.id}">Clear vertex edits</button>`
+      .join('') +
+    `<div class="batch-edit"><p>${batch.selected.size} points selected · Δ position</p><div class="field-controls">${batch.delta.map((v, axis) => `<input type="number" step="any" data-batch-axis="${axis}" data-node="${n.id}" aria-label="Batch delta ${axis ? 'Y' : 'X'}" value="${v}">`).join('')}</div><button class="mini" data-apply-batch="${n.id}">Move selected points</button><button class="mini" data-clear-batch="${n.id}">Deselect points</button></div><button class="mini" data-clear-edits="${n.id}">Clear vertex edits</button>`
   );
 }
 function nodeHTML(n, result) {
@@ -633,6 +642,21 @@ app.addEventListener('click', async (e) => {
       let nn = current().nodes.find((x) => x.id === d.node);
       nn.points = nn.points.filter((x) => x.id !== d.deletePoint);
     }, 'Point removed');
+  if (d.clearBatch) {
+    remapBatch(d.clearBatch).selected.clear();
+    render();
+  }
+  if (d.applyBatch)
+    change(() => {
+      const nn = current().nodes.find((n) => n.id === d.applyBatch),
+        batch = remapBatch(nn.id);
+      translateRemapPoints(
+        nn,
+        evaluate(current(), fonts).run(nn.params.path.source),
+        [...batch.selected],
+        batch.delta,
+      );
+    }, 'Selected points moved as one edit');
   if (d.rebindRemap)
     change(() => {
       const nn = current().nodes.find((n) => n.id === d.node),
@@ -654,6 +678,19 @@ app.addEventListener('click', async (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (d.batchPoint) {
+    const selected = remapBatch(d.node).selected;
+    if (el.checked) selected.add(d.batchPoint);
+    else selected.delete(d.batchPoint);
+    scheduleRender();
+    return;
+  }
+  if (d.batchAxis !== undefined) {
+    const value = Number(el.value);
+    if (Number.isFinite(value)) remapBatch(d.node).delta[Number(d.batchAxis)] = value;
+    else notify('Expected a finite batch delta', true);
+    return;
+  }
   if (el.id === 'open-file' || el.id === 'import-svg-file') {
     let file = el.files[0];
     if (!file) return;

@@ -248,6 +248,42 @@ try {
   );
   await page.locator(`[data-rebind-remap="${remapPoint.id}"]`).click();
   assert.equal((await page.evaluate(() => window.nect.evaluate().warnings)).length, 0);
+  const batchIds = await page.evaluate(
+    (id) =>
+      window.nect
+        .evaluate()
+        .run(id)
+        .contours[0].points.slice(0, 3)
+        .map((p) => p.id),
+    remapId,
+  );
+  assert.equal(batchIds.length, 3);
+  const beforeBlockedBatch = await page.evaluate(() => JSON.stringify(window.nect.document));
+  await page.locator(`[data-batch-point="${batchIds[0]}"]`).check();
+  await page.locator(`[data-batch-point="${batchIds[1]}"]`).check();
+  await page.getByLabel('Batch delta X', { exact: true }).fill('5');
+  await page.getByLabel('Batch delta Y', { exact: true }).fill('7');
+  await page.getByRole('button', { name: 'Move selected points', exact: true }).click();
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeBlockedBatch);
+  assert.match(await page.locator('.status').innerText(), /locked or driven/);
+  await page.getByRole('button', { name: 'Deselect points', exact: true }).click();
+  for (const id of batchIds.slice(1)) await page.locator(`[data-batch-point="${id}"]`).check();
+  const beforeBatch = await page.evaluate(() => JSON.stringify(window.nect.document));
+  const originalBatchPoint = await page.evaluate(
+    (id) => window.nect.evaluate().run(id).contours[0].points[1].position,
+    remapId,
+  );
+  await page.getByRole('button', { name: 'Move selected points', exact: true }).click();
+  assert.deepEqual(
+    await page.evaluate(
+      (id) => window.nect.evaluate().run(id).contours[0].points[1].position,
+      remapId,
+    ),
+    originalBatchPoint.map((v, i) => v + [5, 7][i]),
+  );
+  await page.getByTitle('Ctrl+Z', { exact: true }).click();
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeBatch);
+  await page.getByTitle('Ctrl+Shift+Z', { exact: true }).click();
   let before = await page.evaluate(() => window.nect.export()),
     saved = await page.evaluate(() => JSON.stringify(window.nect.document));
   await page.evaluate((text) => window.nect.load(text), saved);
@@ -282,6 +318,32 @@ try {
       lastButton.y + lastButton.height <= graphViewport.y + graphViewport.height,
   );
   await page.screenshot({ path: 'test-results/editor-curve-scroll.png', fullPage: true });
+  // Practical editable fixture, with browser file input and a source-node edit at 1920×1080.
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  page.once('dialog', (dialog) => dialog.accept());
+  const choosing = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await (await choosing).setFiles('examples/vr-converters.json');
+  await page.waitForFunction(() => window.nect.document.name.includes('V/R Converters'));
+  assert.equal(await page.locator('.shape').count(), 4);
+  const practiceBefore = await page.evaluate(() => window.nect.export());
+  const vId = await page.evaluate(() => window.nect.document.layers[0].nodes[0].id);
+  const pointX = page
+    .locator(`.node[data-id="${vId}"]`)
+    .getByLabel('V / editable outline position X', { exact: true })
+    .first();
+  await pointX.fill('180');
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(30);
+  assert.notEqual(await page.evaluate(() => window.nect.export()), practiceBefore);
+  const practiceSaved = await page.evaluate(() => JSON.stringify(window.nect.document));
+  const practiceSVG = await page.evaluate(() => window.nect.export());
+  await page.evaluate((text) => window.nect.load(text), practiceSaved);
+  assert.equal(await page.evaluate(() => window.nect.export()), practiceSVG);
+  await page.screenshot({ path: 'test-results/vr-editable-1920x1080.png', fullPage: true });
+  const practiceDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export SVG', exact: true }).click();
+  assert.equal((await practiceDownload).suggestedFilename(), 'nect-artwork.svg');
   assert.deepEqual(errors, []);
   console.log(
     'PASS: render, parameter propagation, undo/redo, dynamic socket connection/disconnection, pen handles/close, Curve → Boolean → Remap → Output, save/reload, rejected load preservation, SVG download. No page errors.',

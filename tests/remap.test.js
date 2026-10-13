@@ -10,6 +10,7 @@ import {
   serialize,
   deserialize,
   rebindRemapPoint,
+  translateRemapPoints,
   History,
 } from '../src/core.js';
 test('Remap individual position and handle support expression, typed input and fallback after disconnect', () => {
@@ -85,4 +86,50 @@ test('explicit Remap rebind preserves definitions through undo, redo and reload'
   assert.equal(serialize(h.doc), rebound);
   assert.deepEqual(deserialize(rebound), h.doc);
   assert.equal(remap().edits[0].params.position.expression, '4; 6');
+});
+
+test('batch Remap translation is atomic, typed and one undoable edit', () => {
+  const h = new History(document());
+  const l = h.doc.layers[0],
+    remap = l.nodes[3],
+    curve = node('Curve');
+  l.nodes.push(curve);
+  remap.params.path.source = curve.id;
+  const input = evaluate(l).run(curve.id),
+    ids = input.contours[0].points.slice(0, 2).map((p) => p.id);
+  const before = serialize(h.doc);
+  h.apply(() => translateRemapPoints(remap, input, ids, [5, -7]));
+  assert.deepEqual(
+    evaluate(l).path.contours[0].points[0].position,
+    input.contours[0].points[0].position.map((v, i) => v + [5, -7][i]),
+  );
+  assert.equal(remap.edits.length, 2);
+  const after = serialize(h.doc);
+  assert.deepEqual(deserialize(after), h.doc);
+  h.undo();
+  assert.equal(serialize(h.doc), before);
+  h.redo();
+  assert.equal(serialize(h.doc), after);
+  for (const protection of ['locked', 'expression', 'source']) {
+    const blocked = structuredClone(remap);
+    blocked.edits[1].params.position[protection] = protection === 'locked' ? true : 'driven';
+    const snapshot = JSON.stringify(blocked);
+    assert.throws(() => translateRemapPoints(blocked, input, ids, [4, 4]), /locked or driven/);
+    assert.equal(JSON.stringify(blocked), snapshot);
+  }
+});
+test('batch Remap rejects suspended, missing and nonfinite targets without partial edits', () => {
+  const l = document().layers[0],
+    remap = l.nodes[3],
+    input = evaluate(l).run(l.nodes[2].id);
+  const ids = input.contours[0].points.slice(0, 2).map((p) => p.id);
+  enableRemapPoint(remap, input, ids[1]);
+  const before = JSON.stringify(remap);
+  assert.throws(
+    () => translateRemapPoints(remap, { ...input, fingerprint: 'changed' }, ids, [1, 2]),
+    /suspended/,
+  );
+  assert.throws(() => translateRemapPoints(remap, input, [ids[0], 'missing'], [1, 2]), /Missing/);
+  assert.throws(() => translateRemapPoints(remap, input, ids, [Infinity, 2]), /Vector2/);
+  assert.equal(JSON.stringify(remap), before);
 });
