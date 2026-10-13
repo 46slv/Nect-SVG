@@ -13,6 +13,19 @@ try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForSelector('.shape');
   await page.waitForTimeout(500);
+  await fs.mkdir('test-results', { recursive: true });
+  await page.screenshot({ path: 'test-results/editor-initial-1600x900.png', fullPage: true });
+  const vectorBoxes = await page
+    .locator('.inspector-body .field[data-type="Vector2"] .field-controls > input')
+    .evaluateAll((els) =>
+      els.map((el) => ({
+        y: el.getBoundingClientRect().y,
+        width: el.getBoundingClientRect().width,
+      })),
+    );
+  assert.equal(vectorBoxes.length, 2);
+  assert.ok(Math.abs(vectorBoxes[0].y - vectorBoxes[1].y) < 1);
+  assert.ok(vectorBoxes.every((b) => b.width >= 60));
   assert.equal(await page.locator('.node').count(), 5);
   let initial = await page.locator('.shape').getAttribute('d');
   await page
@@ -41,7 +54,7 @@ try {
   let header = await valueNode.locator('.node-head').boundingBox();
   await page.mouse.move(header.x + 40, header.y + 15);
   await page.mouse.down();
-  await page.mouse.move(header.x - 400, header.y - 180, { steps: 8 });
+  await page.mouse.move(header.x + 60, header.y + 75, { steps: 8 });
   await page.mouse.up();
   // Dynamic socket use through DOM pointer events permits offscreen graph targets, then independently checks visible DOM.
   await page.locator(`[data-source="${valId}"]`).dispatchEvent('pointerdown', { button: 0 });
@@ -95,6 +108,102 @@ try {
   await page.locator(`.node[data-id="${boolId}"] [data-key="a"] select`).selectOption(curve.id);
   await page.locator(`[data-preview="${remapId}"]`).click();
   assert.equal(await page.evaluate(() => window.nect.evaluate().error), null);
+  // New-card placement must not overlap, including the tall Pen-created Curve.
+  const curveBox = await page.locator(`.node[data-id="${curve.id}"]`).boundingBox();
+  const otherBoxes = await page.locator(`.node:not([data-id="${curve.id}"])`).evaluateAll((els) =>
+    els.map((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    }),
+  );
+  assert.ok(
+    otherBoxes.every(
+      (b) =>
+        curveBox.x >= b.x + b.width ||
+        curveBox.x + curveBox.width <= b.x ||
+        curveBox.y >= b.y + b.height ||
+        curveBox.y + curveBox.height <= b.y,
+    ),
+  );
+  await page
+    .locator(`.node[data-id="${remapId}"] .node-head`)
+    .click({ position: { x: 40, y: 15 } });
+  const remapPoint = await page.evaluate(
+    (id) => window.nect.evaluate().run(id).contours[0].points[0],
+    remapId,
+  );
+  const vertex = await page.locator(`.vertex[data-point="${remapPoint.id}"]`).boundingBox();
+  await page.mouse.move(vertex.x + vertex.width / 2, vertex.y + vertex.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(vertex.x + vertex.width / 2 + 8, vertex.y + vertex.height / 2 + 6, {
+    steps: 4,
+  });
+  await page.mouse.up();
+  const remapKey = `remap.${remapPoint.id}.position`;
+  let remapField = page.locator(`.graph .field[data-node="${remapId}"][data-key="${remapKey}"]`);
+  assert.equal(await remapField.count(), 1);
+  page.once('dialog', (dialog) => dialog.accept('4; 6'));
+  await remapField.locator('[data-fx]').click();
+  await page.getByLabel('Add node', { exact: true }).selectOption('Vector');
+  const vectorId = await page.evaluate(() => window.nect.document.layers[0].nodes.at(-1).id);
+  await page
+    .locator(`.node[data-id="${vectorId}"]`)
+    .getByLabel('Vector value X', { exact: true })
+    .fill('10');
+  await page.keyboard.press('Tab');
+  await page
+    .locator(`.node[data-id="${vectorId}"]`)
+    .getByLabel('Vector value Y', { exact: true })
+    .fill('20');
+  await page.keyboard.press('Tab');
+  await remapField.locator('[data-connect-menu]').click();
+  await page.getByRole('dialog').getByLabel('Input source').selectOption(vectorId);
+  await page.getByRole('dialog').getByRole('button', { name: 'Apply', exact: true }).click();
+  assert.equal(
+    await page.evaluate(
+      (id) =>
+        window.nect.document.layers[0].nodes.find((n) => n.id === id).edits[0].params.position
+          .source,
+      remapId,
+    ),
+    vectorId,
+  );
+  await remapField.locator('.input').dispatchEvent('contextmenu');
+  assert.equal(
+    await page.evaluate(
+      (id) =>
+        window.nect.document.layers[0].nodes.find((n) => n.id === id).edits[0].params.position
+          .expression,
+      remapId,
+    ),
+    '4; 6',
+  );
+  const retained = await page.evaluate(
+    (id) => JSON.stringify(window.nect.document.layers[0].nodes.find((n) => n.id === id).edits),
+    remapId,
+  );
+  const rectangleId = await page.evaluate(
+    () => window.nect.document.layers[0].nodes.find((n) => n.type === 'Rectangle').id,
+  );
+  await page
+    .locator(`.node[data-id="${rectangleId}"]`)
+    .getByLabel('Rectangle size X', { exact: true })
+    .fill('190');
+  await page.keyboard.press('Tab');
+  assert.ok(
+    (await page.evaluate(() => window.nect.evaluate().warnings)).some((w) =>
+      w.includes('suspended'),
+    ),
+  );
+  assert.equal(
+    await page.evaluate(
+      (id) => JSON.stringify(window.nect.document.layers[0].nodes.find((n) => n.id === id).edits),
+      remapId,
+    ),
+    retained,
+  );
+  await page.locator(`[data-rebind-remap="${remapPoint.id}"]`).click();
+  assert.equal((await page.evaluate(() => window.nect.evaluate().warnings)).length, 0);
   let before = await page.evaluate(() => window.nect.export()),
     saved = await page.evaluate(() => JSON.stringify(window.nect.document));
   await page.evaluate((text) => window.nect.load(text), saved);
@@ -115,10 +224,28 @@ try {
   });
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/editor-1600x900.png', fullPage: true });
+  await page
+    .locator(`.node[data-id="${remapId}"] .node-head`)
+    .click({ position: { x: 40, y: 15 } });
+  await page.screenshot({ path: 'test-results/editor-remap-controls.png', fullPage: true });
+  await page.locator(`.node[data-id="${curve.id}"] [data-add-point]`).scrollIntoViewIfNeeded();
+  const lastButton = await page
+      .locator(`.node[data-id="${curve.id}"] [data-add-point]`)
+      .boundingBox(),
+    graphViewport = await page.locator('.graph-scroll').boundingBox();
+  assert.ok(
+    lastButton.y >= graphViewport.y &&
+      lastButton.y + lastButton.height <= graphViewport.y + graphViewport.height,
+  );
+  await page.screenshot({ path: 'test-results/editor-curve-scroll.png', fullPage: true });
   assert.deepEqual(errors, []);
   console.log(
     'PASS: render, parameter propagation, undo/redo, dynamic socket connection/disconnection, pen handles/close, Curve → Boolean → Remap → Output, save/reload, rejected load preservation, SVG download. No page errors.',
   );
+} catch (error) {
+  await fs.mkdir('test-results', { recursive: true });
+  await page.screenshot({ path: 'test-results/editor-failure.png', fullPage: true });
+  throw error;
 } finally {
   await browser.close();
 }

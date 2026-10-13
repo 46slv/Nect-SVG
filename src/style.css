@@ -462,3 +462,51 @@ dialog::backdrop {
       border-color 0.12s;
   }
 }
+/* Keep the value row and its dynamic socket together; utilities never wrap ad hoc. */
+.field[data-type] {
+  display: grid;
+  grid-template-columns: minmax(60px, 1fr) auto;
+  gap: 5px 8px;
+  padding: 7px 0;
+}
+.field[data-type] > label {
+  grid-column: 1;
+  grid-row: 1;
+  width: auto;
+}
+.field-tools {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  justify-content: flex-end;
+}
+.field-controls {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.field-controls > input:not([type='checkbox']),
+.field-controls > select {
+  flex: 1;
+  width: 0;
+  min-width: 60px;
+  max-width: none;
+}
+.field-controls > input[type='checkbox'] {
+  width: 16px;
+  margin: 2px 0;
+}
+.field[data-type] > .source-name {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  max-width: none;
+  font-size: 10px;
+}
+.node {
+  width: 264px;
+}

@@ -1,4 +1,5 @@
 import './style.css';
+import { findFreeNodePosition } from './layout.js';
 import { importSVG } from './svg-import.js';
 import { desktop, saveFile, openFile } from './storage.js';
 import opentype from 'opentype.js';
@@ -14,6 +15,8 @@ import {
   parameter,
   outputType,
   evaluate,
+  enableRemapPoint,
+  rebindRemapPoint,
   pathData,
   signature,
   connect,
@@ -43,6 +46,7 @@ let savedSnapshot = serialize(history.doc),
   openRequest = 0;
 let selection = new Set([selected]);
 const detailsState = new Map();
+let renderEvaluation = null;
 const esc = (s) =>
   String(s ?? '').replace(
     /[&<>"']/g,
@@ -82,6 +86,12 @@ function field(n, key, q) {
     locked = q.locked || !!q.source;
   const name = key.includes('.') ? key.split('.').at(-1) : key;
   let control;
+  let displayed = q.value;
+  if (source && renderEvaluation) {
+    try {
+      displayed = renderEvaluation.run(source.id);
+    } catch {}
+  }
   if (q.type === 'Path')
     control = `<select data-path-source aria-label="${esc(n.name + ' ' + name)}"><option value="">Connect Path…</option>${current()
       .nodes.filter((x) => outputType(x) === 'Path' && x.id !== n.id)
@@ -91,17 +101,17 @@ function field(n, key, q) {
       )
       .join('')}</select>`;
   else if (q.type === 'Boolean')
-    control = `<input aria-label="${esc(name)}" data-value type="checkbox" ${q.value ? 'checked' : ''} ${locked ? 'disabled' : ''}>`;
+    control = `<input aria-label="${esc(name)}" data-value type="checkbox" ${displayed ? 'checked' : ''} ${locked ? 'disabled' : ''}>`;
   else if (q.expression && !q.source)
     control = `<input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${q.locked ? 'disabled' : ''}>`;
   else
-    control = (q.type === 'Vector2' ? q.value : [q.value])
+    control = (q.type === 'Vector2' ? displayed : [displayed])
       .map(
         (v, i) =>
           `<input type="number" step="any" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(v.toFixed?.(3) ?? v)}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
-  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}</label>${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}${q.type !== 'Path' ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}${source && q.type !== 'Path' ? `<span class="source-name">← ${esc(source.name)}</span>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div>`;
+  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}</label><div class="field-tools">${q.type !== 'Path' ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && q.type !== 'Path' ? `<span class="source-name">← ${esc(source.name)} · connected value</span>` : ''}</div>`;
 }
 function remapFields(n, result) {
   let input;
@@ -123,9 +133,12 @@ function remapFields(n, result) {
                 ]
                   .map((k) => {
                     let edit = n.edits.find((e) => e.pointId === pt.id);
+                    if (edit?.params) return field(n, `remap.${pt.id}.${k}`, edit.params[k]);
                     return `<div class="field"><label>Δ ${k}</label>${[0, 1].map((axis) => `<input aria-label="Remap ${pi + 1} ${k} ${axis ? 'Y' : 'X'}" type="number" step="any" data-remap="${pt.id}" data-component="${k}" data-axis="${axis}" data-node="${n.id}" value="${edit?.[k]?.[axis] || 0}">`).join('')}</div>`;
                   })
-                  .join('')}</details>`,
+                  .join(
+                    '',
+                  )}${n.edits.some((e) => e.pointId === pt.id && e.params) ? '' : `<button class="mini" data-enable-remap="${pt.id}" data-node="${n.id}">Enable typed point controls</button>`}${n.edits.some((e) => e.pointId === pt.id && input.unstable && e.fingerprint !== input.fingerprint) ? `<button class="mini danger" data-rebind-remap="${pt.id}" data-node="${n.id}">Rebind retained edit to this point</button>` : ''}</details>`,
             )
             .join('')}</details>`,
       )
@@ -133,7 +146,7 @@ function remapFields(n, result) {
   );
 }
 function nodeHTML(n, result) {
-  return `<section class="node ${selection.has(n.id) ? 'selected' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px"><div class="node-head"><strong>${esc(n.name)}</strong><span class="type-tag">${outputType(n)}</span><button class="socket output" data-source="${n.id}" aria-label="${esc(n.name)} output" title="Drag output to a compatible field"></button></div><div class="node-body">${n.type === 'Boolean' ? `<div class="field"><label>Operation</label><select data-operation="${n.id}">${['union', 'subtract', 'intersect', 'difference'].map((op) => `<option ${n.operation === op ? 'selected' : ''}>${op}</option>`).join('')}</select></div>` : ''}${n.type === 'Text' ? `<div class="field"><label>Text</label><input class="string" data-text="${n.id}" value="${esc(n.text)}" aria-label="Text content"></div>` : ''}${Object.entries(
+  return `<section class="node ${selection.has(n.id) ? 'selected' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px"><div class="node-head"><strong>${esc(n.name)}</strong><span class="type-tag">${outputType(n)}</span><button class="socket output" data-source="${n.id}" aria-label="${esc(n.name)} output" title="Drag output to a compatible field"></button></div><div class="node-body">${n.type === 'Boolean' ? `<div class="field"><label>Operation</label><select data-operation="${n.id}">${['union', 'subtract', 'intersect', 'difference'].map((op) => `<option ${n.operation === op ? 'selected' : ''}>${op}</option>`).join('')}</select></div>` : ''}${n.type === 'Text' ? `<div class="field"><label>Text</label><input class="string" data-text="${n.id}" value="${esc(n.text)}" aria-label="Text content"></div>` : ''}${Object.entries(
     n.params,
   )
     .map(([k, q]) => field(n, k, q))
@@ -156,6 +169,7 @@ function render() {
   const n = selectedNode();
   let results = doc.layers.map((x) => [x, evaluate(x, fonts)]),
     result = results.find(([x]) => x.id === l.id)[1];
+  renderEvaluation = result;
   app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New</button><button data-action="open">Open</button><button data-action="import-svg">Import SVG</button><button data-action="save">Save JSON</button><button data-action="export">Export SVG</button><span class="divider"></span><button data-action="undo" ${history.past.length ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -219,7 +233,10 @@ function render() {
     if (detailsState.has(key)) el.open = detailsState.get(key);
   }
   fitCanvas();
-  requestAnimationFrame(drawWires);
+  requestAnimationFrame(() => {
+    updateGraphBounds();
+    drawWires();
+  });
 }
 function canvasOverlay(n, result) {
   if (!n) return '';
@@ -231,8 +248,8 @@ function canvasOverlay(n, result) {
   }
   if (outputType(n) !== 'Path') return '';
   let out = `<path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>`;
-  if (n.type === 'Curve')
-    for (const pt of path.contours[0].points) {
+  if (['Curve', 'Path Remap'].includes(n.type))
+    for (const pt of path.contours.flatMap((c) => c.points)) {
       for (const key of ['handleA', 'handleB']) {
         let handle = pt[key].map((v, i) => v + pt.position[i]);
         out += `<line class="guide" x1="${pt.position[0]}" y1="${pt.position[1]}" x2="${handle[0]}" y2="${handle[1]}"/><circle class="handle" data-point="${pt.id}" data-handle="${key}" cx="${handle[0]}" cy="${handle[1]}" r="4"/>`;
@@ -299,15 +316,41 @@ function drawWires() {
     }
   svg.innerHTML = html;
 }
+function updateGraphBounds() {
+  const graph = document.querySelector('.graph');
+  if (!graph) return;
+  const nodes = [...graph.querySelectorAll('.node')];
+  graph.style.width =
+    Math.max(2400, ...nodes.map((el) => el.offsetLeft + el.offsetWidth + 80)) + 'px';
+  graph.style.height =
+    Math.max(1600, ...nodes.map((el) => el.offsetTop + el.offsetHeight + 100)) + 'px';
+}
+function freePosition(type) {
+  const measurements = {};
+  for (const el of document.querySelectorAll('.graph .node'))
+    measurements[el.dataset.id] = { width: el.offsetWidth, height: el.offsetHeight };
+  return findFreeNodePosition(current().nodes, measurements, {
+    width: 264,
+    height: type === 'Curve' ? 520 : 260,
+  });
+}
+function revealNode(id) {
+  requestAnimationFrame(() =>
+    document
+      .querySelector(`.node[data-id="${id}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
+  );
+}
 function addNode(type, preview = false) {
   change(() => {
     const l = current(),
-      count = l.nodes.length,
-      n = node(type, 60 + (count % 4) * 300, 80 + Math.floor(count / 4) * 260);
+      position = freePosition(type),
+      n = node(type, ...position);
     l.nodes.push(n);
     selected = n.id;
     if (preview) connect(l, n.id, l.output, 'path');
   }, `Added ${type}`);
+  if (selected) revealNode(selected);
 }
 function download(text, name, type) {
   const a = document.createElement('a'),
@@ -517,7 +560,7 @@ app.addEventListener('click', async (e) => {
     change(() => {
       let copy = clone(current().nodes.find((x) => x.id === d.duplicate));
       copy.id = uid('node');
-      copy.position = copy.position.map((x) => x + 35);
+      copy.position = freePosition(copy.type);
       copy.name += ' copy';
       for (const pt of copy.points) pt.id = uid('point');
       current().nodes.push(copy);
@@ -536,6 +579,18 @@ app.addEventListener('click', async (e) => {
       let nn = current().nodes.find((x) => x.id === d.node);
       nn.points = nn.points.filter((x) => x.id !== d.deletePoint);
     }, 'Point removed');
+  if (d.rebindRemap)
+    change(() => {
+      const nn = current().nodes.find((n) => n.id === d.node),
+        input = evaluate(current(), fonts).run(nn.params.path.source);
+      rebindRemapPoint(nn, input, d.rebindRemap);
+    }, 'Retained edit explicitly rebound to the current point');
+  if (d.enableRemap)
+    change(() => {
+      const nn = current().nodes.find((n) => n.id === d.node),
+        input = evaluate(current(), fonts).run(nn.params.path.source);
+      enableRemapPoint(nn, input, d.enableRemap);
+    }, 'Point Value / Expression / Node Input controls enabled');
   if (d.clearEdits)
     change(
       () => (current().nodes.find((x) => x.id === d.clearEdits).edits = []),
@@ -604,7 +659,10 @@ app.addEventListener('change', async (e) => {
         input = evaluate(current(), fonts).run(nn.params.path.source);
       let edit = nn.edits.find((x) => x.pointId === d.remap);
       if (!edit) {
-        edit = { pointId: d.remap, fingerprint: input.fingerprint };
+        edit = {
+          pointId: d.remap,
+          ...(input.fingerprint ? { fingerprint: input.fingerprint } : {}),
+        };
         nn.edits.push(edit);
       }
       if (!edit[d.component]) edit[d.component] = [0, 0];
@@ -690,6 +748,14 @@ app.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     return;
   }
+  const resized = e.target.closest('.node');
+  if (resized) {
+    const bounds = resized.getBoundingClientRect();
+    if (e.clientX > bounds.right - 18 && e.clientY > bounds.bottom - 18) {
+      drag = { type: 'resize', id: resized.dataset.id, before: clone(history.doc) };
+      return;
+    }
+  }
   let stage = e.target.closest('.canvas-stage');
   if (!stage) return;
   if (space || e.button === 1) {
@@ -725,7 +791,7 @@ app.addEventListener('pointerdown', (e) => {
         notify('Output Path is locked; unlock it before starting a new pen path', true);
         return;
       }
-      let nn = node('Curve', 80, 80);
+      let nn = node('Curve', ...freePosition('Curve'));
       nn.points = [];
       nn.params.closed.value = false;
       current().nodes.push(nn);
@@ -738,6 +804,48 @@ app.addEventListener('pointerdown', (e) => {
     nn.points.push(pt);
     drag = { type: 'pen', pointId: pt.id, nodeId: nn.id, start: pos, before };
     render();
+    if (nn.points.length === 1) revealNode(nn.id);
+    return;
+  }
+  if (e.target.dataset.point && n?.type === 'Path Remap') {
+    const input = evaluate(current(), fonts).run(n.params.path.source),
+      pointId = e.target.dataset.point,
+      key = e.target.dataset.handle || 'position',
+      existing = n.edits.find((e) => e.pointId === pointId);
+    if (existing && input.unstable && existing.fingerprint !== input.fingerprint) {
+      notify(
+        'This edit is suspended. Use Rebind retained edit to this point before dragging.',
+        true,
+      );
+      return;
+    }
+    if (
+      existing?.params?.[key] &&
+      (existing.params[key].locked ||
+        existing.params[key].source ||
+        existing.params[key].expression)
+    ) {
+      notify(`${key} is locked or driven`, true);
+      return;
+    }
+    const before = clone(history.doc),
+      edit = enableRemapPoint(n, input, pointId);
+    drag = {
+      type: 'remap',
+      nodeId: n.id,
+      pointId,
+      key,
+      start: pos,
+      original: clone(edit.params[key].value),
+      before,
+    };
+    const contour = input.contours.find((c) => c.points.some((p) => p.id === pointId));
+    for (const key of [`contour-${contour.id}`, `remap-${pointId}`]) {
+      const detail = document.querySelector(
+        `.node[data-id="${n.id}"] details[data-detail="${key}"]`,
+      );
+      if (detail) detail.open = true;
+    }
     return;
   }
   if (e.target.dataset.point && n?.type === 'Curve') {
@@ -796,6 +904,7 @@ app.addEventListener('pointerdown', (e) => {
 });
 document.addEventListener('pointermove', (e) => {
   if (!drag) return;
+  if (drag.type === 'resize') return;
   if (drag.type === 'split') {
     graphHeight = Math.max(
       18,
@@ -833,7 +942,11 @@ document.addEventListener('pointermove', (e) => {
   let pos = canvasPoint(e),
     delta = pos.map((v, i) => v - drag.start[i]),
     n = current().nodes.find((x) => x.id === drag.nodeId);
-  if (drag.type === 'shape')
+  if (drag.type === 'remap') {
+    n.edits.find((e) => e.pointId === drag.pointId).params[drag.key].value = drag.original.map(
+      (v, i) => v + delta[i],
+    );
+  } else if (drag.type === 'shape')
     drag.targets.forEach((t) => {
       const target = current().nodes.find((n) => n.id === t.nodeId);
       t.keys.forEach(
@@ -883,6 +996,11 @@ document.addEventListener('pointerup', (e) => {
   }
   if (drag) {
     let d = drag;
+    if (d.type === 'resize' && !current().locked) {
+      const el = document.querySelector(`.node[data-id="${d.id}"]`),
+        n = current().nodes.find((x) => x.id === d.id);
+      n.width = Math.max(220, Math.min(550, el.offsetWidth));
+    }
     drag = null;
     if (d.before && JSON.stringify(d.before) !== JSON.stringify(history.doc)) {
       history.past.push(d.before);
@@ -908,7 +1026,15 @@ app.addEventListener('contextmenu', (e) => {
     );
   }
 });
-app.addEventListener('toggle', () => requestAnimationFrame(drawWires), true);
+app.addEventListener(
+  'toggle',
+  () =>
+    requestAnimationFrame(() => {
+      updateGraphBounds();
+      drawWires();
+    }),
+  true,
+);
 document.addEventListener('keydown', (e) => {
   if (e.target.matches('input,textarea,select')) return;
   if (e.code === 'Space') {

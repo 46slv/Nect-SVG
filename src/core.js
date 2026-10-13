@@ -19,6 +19,7 @@ export const definitions = {
     rotation: p('Scalar', 0),
   },
   Value: { value: p('Scalar', 100) },
+  Toggle: { value: p('Boolean', true) },
   Vector: { value: p('Vector2', [300, 250]) },
   Expression: { value: p('Scalar', 100) },
   Output: { path: p('Path', null) },
@@ -42,6 +43,7 @@ export function node(type, x = 40, y = 40) {
     type,
     name: type,
     position: [x, y],
+    width: 264,
     params: clone(definitions[type]),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation: 'subtract',
@@ -85,14 +87,48 @@ export function outputType(n) {
     ? 'Scalar'
     : n.type === 'Vector'
       ? 'Vector2'
-      : 'Path';
+      : n.type === 'Toggle'
+        ? 'Boolean'
+        : 'Path';
 }
 export function parameters(n) {
   const entries = Object.entries(n.params);
   for (const pt of n.points)
     for (const key of ['position', 'handleA', 'handleB'])
       entries.push([`${pt.id}.${key}`, pt[key]]);
+  for (const edit of n.edits)
+    if (edit.params)
+      for (const [key, value] of Object.entries(edit.params))
+        entries.push([`remap.${edit.pointId}.${key}`, value]);
   return entries;
+}
+export function enableRemapPoint(n, input, pointId) {
+  if (
+    n.type !== 'Path Remap' ||
+    !input.contours.some((c) => c.points.some((p) => p.id === pointId))
+  )
+    throw Error('Missing remap target');
+  let edit = n.edits.find((e) => e.pointId === pointId);
+  if (!edit) {
+    edit = { pointId, ...(input.fingerprint ? { fingerprint: input.fingerprint } : {}) };
+    n.edits.push(edit);
+  }
+  if (!edit.params) {
+    edit.params = {};
+    for (const key of ['position', 'handleA', 'handleB']) {
+      edit.params[key] = p('Vector2', edit[key] || [0, 0]);
+      delete edit[key];
+    }
+  }
+  return edit;
+}
+export function rebindRemapPoint(n, input, pointId) {
+  const edit = n.edits.find((e) => e.pointId === pointId);
+  if (!edit || !input.contours.some((c) => c.points.some((p) => p.id === pointId)))
+    throw Error('Missing remap target');
+  if (input.fingerprint) edit.fingerprint = input.fingerprint;
+  else delete edit.fingerprint;
+  return edit;
 }
 export function parameter(n, key) {
   return parameters(n).find(([k]) => k === key)?.[1];
@@ -289,7 +325,7 @@ export function evaluate(layer, fonts = {}) {
       return value;
     }
     let result;
-    if (['Value', 'Vector', 'Expression'].includes(n.type)) result = read('value');
+    if (['Value', 'Vector', 'Expression', 'Toggle'].includes(n.type)) result = read('value');
     else if (n.type === 'Circle' || n.type === 'Ellipse' || n.type === 'Rectangle') {
       const center = read('center');
       let item;
@@ -380,8 +416,10 @@ export function evaluate(layer, fonts = {}) {
             );
             continue;
           }
-          for (const key of ['position', 'handleA', 'handleB'])
-            if (edit[key]) pt[key] = pt[key].map((v, i) => v + edit[key][i]);
+          for (const key of ['position', 'handleA', 'handleB']) {
+            const delta = edit.params?.[key] ? read(`remap.${edit.pointId}.${key}`) : edit[key];
+            if (delta) pt[key] = pt[key].map((v, i) => v + delta[i]);
+          }
         }
       } else if (n.type === 'Transform') {
         let obj = toPaper(result);
@@ -499,6 +537,8 @@ export function validate(doc) {
       id(n.id);
       text(n.name);
       vec(n.position);
+      if (n.width !== undefined && (!Number.isFinite(n.width) || n.width < 220 || n.width > 550))
+        throw Error('Invalid node width');
       text(n.text);
       text(n.font);
       if (n.rawPath !== undefined) text(n.rawPath);
@@ -529,6 +569,10 @@ export function validate(doc) {
         if (typeof edit.pointId !== 'string' || !idPattern.test(edit.pointId))
           throw Error('Invalid edit target');
         if (edit.fingerprint !== undefined) text(edit.fingerprint);
+        if (edit.params) {
+          if (Object.keys(edit.params).length !== 3) throw Error('Invalid remap parameters');
+          for (const k of ['position', 'handleA', 'handleB']) param(edit.params[k], 'Vector2');
+        }
         for (const k of ['position', 'handleA', 'handleB']) if (edit[k] !== undefined) vec(edit[k]);
       }
     }
