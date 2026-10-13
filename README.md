@@ -9,8 +9,7 @@ Node 22+ is recommended.
 ```sh
 npm ci
 npm run dev -- --host 127.0.0.1
-npm test
-npm run build
+npm run check
 ```
 
 The workspace uses a white/silver interface, lower resizable graph, right Layers/Inspector and square artboard. Each layer owns a separate graph. Circle, Ellipse, Rectangle, Curve and Text feed Boolean, Transform, Path Remap and Output. Scalar/Vector value nodes connect to matching parameter fields. Expressions support arithmetic and a small numeric function allowlist, never JavaScript evaluation.
@@ -33,7 +32,7 @@ npx @tauri-apps/cli@2 dev --config src-tauri/tauri.conf.json
 npx @tauri-apps/cli@2 build --config src-tauri/tauri.conf.json
 ```
 
-This scaffold is **not yet Windows-built or installer-verified**. No release or signed installer has been published. Native open/save and close interruption must be verified on Windows before claiming desktop readiness.
+This scaffold is **not yet Windows-built or installer-verified**. No release or signed installer has been published. A bounded Windows CI workflow can verify compilation/NSIS and browser interactions without using the user’s computer. Native open/save and close interruption must be verified on Windows before claiming desktop readiness.
 
 ## Headless / future Nect integration
 
@@ -42,6 +41,8 @@ node cli/export.js project.json artwork.svg
 ```
 
 The CLI validates the project, loads the bundled licensed font, evaluates it without a browser/DOM and writes an SVG. It refuses to overwrite an existing output. No service, cloud deployment or Nect integration is enabled by this repository.
+
+For a practical editable exercise, open `examples/vr-converters.json`; it retains V curves, R Boolean/counter operations, secondary Remap and editable text in separate compositions.
 
 See [architecture and public API](docs/architecture.md), [interaction contract](docs/interaction.md) and [verification / remaining work](docs/verification.md).
 

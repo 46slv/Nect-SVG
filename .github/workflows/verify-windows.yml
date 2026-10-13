@@ -1,0 +1,51 @@
+name: Verify Windows editor
+on:
+  push:
+    branches: [feat/operable-node-editor]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nect-svg-windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run check
+      - name: Run actual Chrome interaction tests
+        shell: pwsh
+        env:
+          CHROMIUM_PATH: C:\Program Files\Google\Chrome\Application\chrome.exe
+        run: |
+          $server = Start-Process -FilePath node -ArgumentList "node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "5173" -PassThru
+          try {
+            $ready = $false
+            for ($i=0; $i -lt 30; $i++) {
+              try { Invoke-WebRequest http://127.0.0.1:5173 -UseBasicParsing | Out-Null; $ready = $true; break } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ready) { throw 'Editor server did not start' }
+            npm run test:e2e
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally { Stop-Process -Id $server.Id -ErrorAction SilentlyContinue }
+      - name: Build unsigned Windows app and NSIS installer
+        shell: pwsh
+        run: |
+          rustup default stable
+          npx --yes @tauri-apps/cli@2 build
+      - name: Preserve bounded development evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: nect-svg-windows-development-${{ github.sha }}
+          path: |
+            test-results/*.png
+            src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: ignore
+          retention-days: 1

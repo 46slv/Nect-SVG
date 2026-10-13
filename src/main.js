@@ -1,82 +1,985 @@
 import './style.css';
-import {desktop,saveFile,openFile} from './storage.js';
+import { importSVG } from './svg-import.js';
+import { desktop, saveFile, openFile } from './storage.js';
 import opentype from 'opentype.js';
-import {document as newDocument,layer,node,point,uid,clone,definitions,parameters,parameter,outputType,evaluate,pathData,signature,connect,disconnect,serialize,deserialize,exportSVG,History} from './core.js';
-const app=document.querySelector('#app');let history=new History(newDocument()),activeLayer=history.doc.layers[0].id,selected=history.doc.layers[0].nodes[0].id,tool='select',zoom=1,pan=[0,0],graphHeight=42,message='Ready • edit a generator or connect a node',error=false,fonts={},wiring=null,drag=null,penId=null;
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const current=()=>history.doc.layers.find(l=>l.id===activeLayer)||history.doc.layers[0];
-const selectedNode=()=>current().nodes.find(n=>n.id===selected);
-function notify(text,bad=false){message=text;error=bad;let s=document.querySelector('.status');if(s){s.classList.toggle('error',bad);s.querySelector('.message').textContent=text;}}
-function change(fn,text){try{if(current().locked)throw Error('Composition is locked');history.apply(fn);notify(text||'Updated');render();}catch(e){notify(e.message,true);}}
-function field(n,key,q){let source=current().nodes.find(x=>x.id===q.source),locked=q.locked||!!q.source;const name=key.includes('.')?key.split('.').at(-1):key;let control;
- if(q.type==='Path')control=`<select data-path-source aria-label="${esc(n.name+' '+name)}"><option value="">Connect Path…</option>${current().nodes.filter(x=>outputType(x)==='Path'&&x.id!==n.id).map(x=>`<option value="${x.id}" ${q.source===x.id?'selected':''}>${esc(x.name)} · ${x.id.slice(-4)}</option>`).join('')}</select>`;
- else if(q.type==='Boolean')control=`<input aria-label="${esc(name)}" data-value type="checkbox" ${q.value?'checked':''} ${locked?'disabled':''}>`;
- else if(q.expression&&!q.source)control=`<input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${q.locked?'disabled':''}>`;
- else control=(q.type==='Vector2'?q.value:[q.value]).map((v,i)=>`<input type="number" step="any" aria-label="${esc(n.name+' '+name+(q.type==='Vector2'?(i?' Y':' X'):''))}" data-value data-axis="${i}" value="${Number(v.toFixed?.(3)??v)}" ${locked?'disabled':''}>`).join('');
- return `<div class="field ${q.source?'connected':''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}</label>${q.source?`<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>`:''}${control}${source&&q.type!=='Path'?`<span class="source-name">← ${esc(source.name)}</span>`:''}<button class="lock" data-lock title="${q.locked?'Unlock':'Lock'} ${esc(name)}">${q.locked?'🔒':'○'}</button>${['Scalar','Vector2'].includes(q.type)?`<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>`:''}</div>`;
+import {
+  document as newDocument,
+  layer,
+  node,
+  point,
+  uid,
+  clone,
+  definitions,
+  parameters,
+  parameter,
+  outputType,
+  evaluate,
+  pathData,
+  signature,
+  connect,
+  disconnect,
+  serialize,
+  deserialize,
+  exportSVG,
+  History,
+} from './core.js';
+const app = document.querySelector('#app');
+let history = new History(newDocument()),
+  activeLayer = history.doc.layers[0].id,
+  selected = history.doc.layers[0].nodes[0].id,
+  tool = 'select',
+  zoom = 1,
+  snapEnabled = false,
+  pan = [0, 0],
+  graphHeight = 42,
+  message = 'Ready • edit a generator or connect a node',
+  error = false,
+  fonts = {},
+  wiring = null,
+  drag = null,
+  penId = null;
+let savedSnapshot = serialize(history.doc),
+  saveInFlight = false,
+  openRequest = 0;
+let selection = new Set([selected]);
+const esc = (s) =>
+  String(s ?? '').replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+  );
+const current = () => history.doc.layers.find((l) => l.id === activeLayer) || history.doc.layers[0];
+const selectedNode = () => current().nodes.find((n) => n.id === selected);
+function notify(text, bad = false) {
+  message = text;
+  error = bad;
+  let s = document.querySelector('.status');
+  if (s) {
+    s.classList.toggle('error', bad);
+    s.querySelector('.message').textContent = text;
+  }
 }
-function remapFields(n,result){let input;try{if(n.params.path.source)input=result.run(n.params.path.source);}catch{}if(!input)return '<p class="muted">Connect a path to edit its vertices.</p>';return input.contours.map((c,ci)=>`<details><summary>Contour ${ci+1} · ${c.points.length} vertices</summary>${c.points.map((pt,pi)=>`<details><summary>Point ${pi+1}</summary>${['position','handleA','handleB'].map(k=>{let edit=n.edits.find(e=>e.pointId===pt.id);return `<div class="field"><label>Δ ${k}</label>${[0,1].map(axis=>`<input aria-label="Remap ${pi+1} ${k} ${axis?'Y':'X'}" type="number" step="any" data-remap="${pt.id}" data-component="${k}" data-axis="${axis}" data-node="${n.id}" value="${edit?.[k]?.[axis]||0}">`).join('')}</div>`;}).join('')}</details>`).join('')}</details>`).join('')+`<button class="mini" data-clear-edits="${n.id}">Clear vertex edits</button>`;}
-function nodeHTML(n,result){return `<section class="node ${n.id===selected?'selected':''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px"><div class="node-head"><strong>${esc(n.name)}</strong><span class="type-tag">${outputType(n)}</span><button class="socket output" data-source="${n.id}" aria-label="${esc(n.name)} output" title="Drag output to a compatible field"></button></div><div class="node-body">${n.type==='Boolean'?`<div class="field"><label>Operation</label><select data-operation="${n.id}">${['union','subtract','intersect','difference'].map(op=>`<option ${n.operation===op?'selected':''}>${op}</option>`).join('')}</select></div>`:''}${n.type==='Text'?`<div class="field"><label>Text</label><input class="string" data-text="${n.id}" value="${esc(n.text)}" aria-label="Text content"></div>`:''}${Object.entries(n.params).map(([k,q])=>field(n,k,q)).join('')}${n.points.map((pt,i)=>`<details ${i===0?'open':''}><summary>Point ${i+1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position','handleA','handleB'].map(k=>field(n,`${pt.id}.${k}`,pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i+1} handle type">${['corner','smooth','symmetric'].map(t=>`<option ${pt.handleType===t?'selected':''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type==='Curve'?`<button class="mini" data-add-point="${n.id}">+ Point</button>`:''}${n.type==='Path Remap'?remapFields(n,result):''}<div class="node-actions">${outputType(n)==='Path'&&n.type!=='Output'?`<button class="mini" data-preview="${n.id}">Use as output</button>`:''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${n.type!=='Output'?`<button class="mini danger" data-delete="${n.id}">Delete</button>`:''}</div></div></section>`;}
-function render(){let scroll=document.querySelector('.graph-scroll'),oldScroll=scroll?[scroll.scrollLeft,scroll.scrollTop]:[0,0];const doc=history.doc,l=current();activeLayer=l.id;const n=selectedNode();let results=doc.layers.map(x=>[x,evaluate(x,fonts)]),result=results.find(([x])=>x.id===l.id)[1];
- app.innerHTML=`<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New</button><button data-action="open">Open</button><button data-action="save">Save JSON</button><button data-action="export">Export SVG</button><span class="divider"></span><button data-action="undo" ${history.past.length?'':'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length?'':'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[['select','↖','Select / move'],['pen','⌁','Pen / Curve'],['Circle','○','Add Circle'],['Rectangle','□','Add Rectangle'],['Text','T','Add Text']].map(([id,icon,label])=>`<button data-tool="${id}" title="${label}" aria-label="${label}" class="${tool===id?'active':''}">${icon}</button>`).join('')}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar"><button data-action="zoom-out" aria-label="Zoom out">−</button><span>${Math.round(zoom*100)}%</span><button data-action="zoom-in" aria-label="Zoom in">+</button><button data-action="fit">Fit</button><span>${doc.width} × ${doc.height}</span></div><div class="canvas-stage"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${results.filter(([x,r])=>x.visible&&r.path&&!r.error).map(([x,r])=>`<path class="shape" data-layer="${x.id}" d="${esc(pathData(r.path))}" fill="${esc(x.fill)}" fill-rule="nonzero"/>`).join('')}${canvasOverlay(n,result)}</svg></div><div class="hint">${tool==='pen'?'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.':n?`Editing ${esc(n.name)} · ${esc(l.name)}${l.locked?' · Locked':''}`:'Select a generator to edit its original parameters'}</div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head"><strong>Node graph</strong><span class="muted">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(definitions).filter(x=>x!=='Output').map(x=>`<option>${x}</option>`).join('')}</select><button data-action="graph-fit" title="Scroll to graph origin">Home</button></div><div class="graph-scroll"><div class="graph"><svg class="wires"></svg>${l.nodes.map(x=>nodeHTML(x,result)).join('')}</div></div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer">+ Composition</button></div>${[...doc.layers].reverse().map(x=>`<div class="layer ${x.id===l.id?'selected':''}" data-layer="${x.id}"><button data-visible="${x.id}" title="Toggle visibility">${x.visible?'◉':'○'}</button><button class="name" data-select-layer="${x.id}">${esc(x.name)}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked?'🔒':'○'}</button><button data-up-layer="${x.id}" title="Move layer up">↑</button></div>`).join('')}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${n?`<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n)}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${Object.entries(n.params).filter(([,q])=>q.type!=='Path').map(([k,q])=>field(n,k,q)).join('')}`:'<p>Select a node.</p>'}<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label>Fill</label><input type="color" data-fill value="${esc(l.fill)}" aria-label="Layer fill"></div><div class="field"><label>Artboard W</label><input type="number" data-dimension="width" value="${doc.width}" aria-label="Artboard width"></div><div class="field"><label>Artboard H</label><input type="number" data-dimension="height" value="${doc.height}" aria-label="Artboard height"></div>${results.filter(([,r])=>r.error||r.warnings.length).map(([x,r])=>`<p class="warning">${esc(x.name)}: ${esc(r.error||r.warnings.join(' '))}</p>`).join('')}<p>Dynamic sockets<br>Drag a node output onto a compatible field. Drag a connected input into empty graph space to disconnect. Right-click an input also disconnects.</p><p>Expressions: arithmetic, pi, sin, cos, sqrt, min/max. Vector2: x expression; y expression.</p></div></section></aside></div><footer class="status ${error?'error':''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="open-file" type="file" accept=".json,application/json" hidden>`;
- const gs=document.querySelector('.graph-scroll');gs.scrollLeft=oldScroll[0];gs.scrollTop=oldScroll[1];fitCanvas();requestAnimationFrame(drawWires);
+function change(fn, text) {
+  const previousUI = { selected, activeLayer, selection: new Set(selection), penId };
+  try {
+    if (current().locked) throw Error('Composition is locked');
+    history.apply(fn);
+    notify(text || 'Updated');
+    render();
+  } catch (e) {
+    ({ selected, activeLayer, selection, penId } = previousUI);
+    notify(e.message, true);
+    render();
+  }
 }
-function canvasOverlay(n,result){if(!n)return '';let path;try{path=result.run(n.id);}catch{return '';}if(outputType(n)!=='Path')return '';let out=`<path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>`;if(n.type==='Curve')for(const pt of path.contours[0].points){for(const key of ['handleA','handleB']){let handle=pt[key].map((v,i)=>v+pt.position[i]);out+=`<line class="guide" x1="${pt.position[0]}" y1="${pt.position[1]}" x2="${handle[0]}" y2="${handle[1]}"/><circle class="handle" data-point="${pt.id}" data-handle="${key}" cx="${handle[0]}" cy="${handle[1]}" r="4"/>`;}out+=`<circle class="vertex" data-point="${pt.id}" cx="${pt.position[0]}" cy="${pt.position[1]}" r="5"/>`;}return out;}
-function fitCanvas(){let stage=document.querySelector('.canvas-stage'),svg=document.querySelector('.artboard');if(!stage||!svg)return;let scale=Math.min((stage.clientWidth-70)/history.doc.width,(stage.clientHeight-70)/history.doc.height)*zoom;svg.style.width=history.doc.width*scale+'px';svg.style.height=history.doc.height*scale+'px';svg.style.transform=`translate(${pan[0]}px,${pan[1]}px)`;}
-function drawWires(){let graph=document.querySelector('.graph'),svg=document.querySelector('.wires');if(!graph)return;let rect=graph.getBoundingClientRect(),html='';for(const n of current().nodes)for(const [key,q]of parameters(n)){if(!q.source)continue;let from=graph.querySelector(`[data-source="${q.source}"]`),to=[...graph.querySelectorAll('.field')].find(el=>el.dataset.node===n.id&&el.dataset.key===key)?.querySelector('.input');if(!from||!to)continue;let a=from.getBoundingClientRect(),b=to.getBoundingClientRect(),x=a.x+a.width/2-rect.x,y=a.y+a.height/2-rect.y,xx=b.x+b.width/2-rect.x,yy=b.y+b.height/2-rect.y;html+=`<path class="wire" d="M${x},${y} C${x+80},${y} ${xx-80},${yy} ${xx},${yy}"/>`;}svg.innerHTML=html;}
-function addNode(type,preview=false){change(()=>{const l=current(),count=l.nodes.length,n=node(type,60+(count%4)*300,80+Math.floor(count/4)*260);l.nodes.push(n);selected=n.id;if(preview)l.nodes.find(x=>x.id===l.output).params.path.source=n.id;},`Added ${type}`);}
-function download(text,name,type){const a=document.createElement('a'),url=URL.createObjectURL(new Blob([text],{type}));a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-app.addEventListener('click',async e=>{let b=e.target.closest('button');if(!b)return;const d=b.dataset,n=selectedNode();if(d.action){try{switch(d.action){case'undo':history.undo();render();break;case'redo':history.redo();render();break;case'save':if(await saveFile(serialize(history.doc),'nect-project.json','json'))notify('Project JSON saved');break;case'export':if(await saveFile(exportSVG(history.doc,fonts),'nect-artwork.svg','svg'))notify('SVG exported');break;case'open':if(desktop){let text=await openFile();if(text!==null){const next=deserialize(text);history.apply(()=>history.doc=next);activeLayer=next.layers[0].id;selected=current().nodes[0]?.id;render();notify('Project restored');}}else document.querySelector('#open-file').click();break;case'new':if(confirm('Start a new document? Save your current JSON first to keep it.')){history=new History(newDocument());activeLayer=current().id;selected=current().nodes[0].id;render();}break;case'add-layer':history.apply(doc=>{let l=layer(`Composition ${doc.layers.length+1}`);doc.layers.push(l);activeLayer=l.id;selected=l.nodes[0].id;});render();break;case'zoom-in':zoom=Math.min(8,zoom*1.2);render();break;case'zoom-out':zoom=Math.max(.15,zoom/1.2);render();break;case'fit':zoom=1;pan=[0,0];render();break;case'graph-fit':document.querySelector('.graph-scroll').scrollTo(0,0);break;case'help':{let dialog=document.createElement('dialog');dialog.innerHTML='<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Select a node to edit its parameters or move its source shape on the canvas.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap to Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Space + drag or middle drag: pan. Use Fit to reset.</p><button>Close</button>';dialog.querySelector('button').onclick=()=>dialog.remove();document.body.append(dialog);dialog.showModal();break;}}}catch(err){notify(err.message,true);}return;}
- if(d.tool){tool=d.tool;if(tool==='pen'){penId=null;notify('Click the canvas to begin a curve');render();}else if(tool!=='select'){addNode(tool,true);tool='select';render();}else render();return;}
- if(d.selectLayer){activeLayer=d.selectLayer;selected=current().nodes[0]?.id;render();return;}
- if(d.visible||d.layerLock||d.upLayer){history.apply(doc=>{let id=d.visible||d.layerLock||d.upLayer,l=doc.layers.find(x=>x.id===id);if(d.visible)l.visible=!l.visible;if(d.layerLock)l.locked=!l.locked;if(d.upLayer){let i=doc.layers.indexOf(l);if(i<doc.layers.length-1)[doc.layers[i],doc.layers[i+1]]=[doc.layers[i+1],doc.layers[i]];}});render();return;}
- if(d.lock!==undefined||d.fx!==undefined){let f=b.closest('.field'),nn=current().nodes.find(x=>x.id===f.dataset.node),q=parameter(nn,f.dataset.key);change(()=>{if(d.lock!==undefined)q.locked=!q.locked;else{if(q.locked)throw Error('Parameter is locked');let next=prompt('Expression (Vector2: x; y). Leave blank for direct values.',q.expression||'');if(next!==null)q.expression=next;}},'Parameter updated');return;}
- if(d.preview)change(()=>current().nodes.find(x=>x.id===current().output).params.path.source=d.preview,'Output connected');
- if(d.delete)change(()=>{current().nodes=current().nodes.filter(x=>x.id!==d.delete);for(const x of current().nodes)for(const [,q]of parameters(x))if(q.source===d.delete)delete q.source;if(selected===d.delete)selected=null;},'Node deleted');
- if(d.duplicate)change(()=>{let copy=clone(current().nodes.find(x=>x.id===d.duplicate));copy.id=uid('node');copy.position=copy.position.map(x=>x+35);copy.name+=' copy';for(const pt of copy.points)pt.id=uid('point');current().nodes.push(copy);selected=copy.id;},'Node duplicated');
- if(d.addPoint)change(()=>current().nodes.find(x=>x.id===d.addPoint).points.push(point(400,300)),'Point added');
- if(d.deletePoint)change(()=>{let nn=current().nodes.find(x=>x.id===d.node);nn.points=nn.points.filter(x=>x.id!==d.deletePoint);},'Point removed');
- if(d.clearEdits)change(()=>current().nodes.find(x=>x.id===d.clearEdits).edits=[],'Vertex edits cleared');
+function resetTransient() {
+  drag = null;
+  wiring = null;
+  penId = null;
+}
+function field(n, key, q) {
+  let source = current().nodes.find((x) => x.id === q.source),
+    locked = q.locked || !!q.source;
+  const name = key.includes('.') ? key.split('.').at(-1) : key;
+  let control;
+  if (q.type === 'Path')
+    control = `<select data-path-source aria-label="${esc(n.name + ' ' + name)}"><option value="">Connect Path…</option>${current()
+      .nodes.filter((x) => outputType(x) === 'Path' && x.id !== n.id)
+      .map(
+        (x) =>
+          `<option value="${x.id}" ${q.source === x.id ? 'selected' : ''}>${esc(x.name)} · ${x.id.slice(-4)}</option>`,
+      )
+      .join('')}</select>`;
+  else if (q.type === 'Boolean')
+    control = `<input aria-label="${esc(name)}" data-value type="checkbox" ${q.value ? 'checked' : ''} ${locked ? 'disabled' : ''}>`;
+  else if (q.expression && !q.source)
+    control = `<input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${q.locked ? 'disabled' : ''}>`;
+  else
+    control = (q.type === 'Vector2' ? q.value : [q.value])
+      .map(
+        (v, i) =>
+          `<input type="number" step="any" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(v.toFixed?.(3) ?? v)}" ${locked ? 'disabled' : ''}>`,
+      )
+      .join('');
+  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}</label>${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}${q.type !== 'Path' ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}${source && q.type !== 'Path' ? `<span class="source-name">← ${esc(source.name)}</span>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div>`;
+}
+function remapFields(n, result) {
+  let input;
+  try {
+    if (n.params.path.source) input = result.run(n.params.path.source);
+  } catch {}
+  if (!input) return '<p class="muted">Connect a path to edit its vertices.</p>';
+  return (
+    input.contours
+      .map(
+        (c, ci) =>
+          `<details><summary>Contour ${ci + 1} · ${c.points.length} vertices</summary>${c.points
+            .map(
+              (pt, pi) =>
+                `<details><summary>Point ${pi + 1}</summary>${['position', 'handleA', 'handleB']
+                  .map((k) => {
+                    let edit = n.edits.find((e) => e.pointId === pt.id);
+                    return `<div class="field"><label>Δ ${k}</label>${[0, 1].map((axis) => `<input aria-label="Remap ${pi + 1} ${k} ${axis ? 'Y' : 'X'}" type="number" step="any" data-remap="${pt.id}" data-component="${k}" data-axis="${axis}" data-node="${n.id}" value="${edit?.[k]?.[axis] || 0}">`).join('')}</div>`;
+                  })
+                  .join('')}</details>`,
+            )
+            .join('')}</details>`,
+      )
+      .join('') + `<button class="mini" data-clear-edits="${n.id}">Clear vertex edits</button>`
+  );
+}
+function nodeHTML(n, result) {
+  return `<section class="node ${selection.has(n.id) ? 'selected' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px"><div class="node-head"><strong>${esc(n.name)}</strong><span class="type-tag">${outputType(n)}</span><button class="socket output" data-source="${n.id}" aria-label="${esc(n.name)} output" title="Drag output to a compatible field"></button></div><div class="node-body">${n.type === 'Boolean' ? `<div class="field"><label>Operation</label><select data-operation="${n.id}">${['union', 'subtract', 'intersect', 'difference'].map((op) => `<option ${n.operation === op ? 'selected' : ''}>${op}</option>`).join('')}</select></div>` : ''}${n.type === 'Text' ? `<div class="field"><label>Text</label><input class="string" data-text="${n.id}" value="${esc(n.text)}" aria-label="Text content"></div>` : ''}${Object.entries(
+    n.params,
+  )
+    .map(([k, q]) => field(n, k, q))
+    .join(
+      '',
+    )}${n.points.map((pt, i) => `<details ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${outputType(n) === 'Path' && n.type !== 'Output' ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${n.type !== 'Output' ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div></section>`;
+}
+function render() {
+  if (selected && !current().nodes.some((n) => n.id === selected)) selected = null;
+  if (penId && !current().nodes.some((n) => n.id === penId && n.type === 'Curve')) penId = null;
+  if (!selection.has(selected)) selection = new Set(selected ? [selected] : []);
+  selection = new Set([...selection].filter((id) => current().nodes.some((n) => n.id === id)));
+  let scroll = document.querySelector('.graph-scroll'),
+    oldScroll = scroll ? [scroll.scrollLeft, scroll.scrollTop] : [0, 0];
+  const doc = history.doc,
+    l = current();
+  activeLayer = l.id;
+  const n = selectedNode();
+  let results = doc.layers.map((x) => [x, evaluate(x, fonts)]),
+    result = results.find(([x]) => x.id === l.id)[1];
+  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New</button><button data-action="open">Open</button><button data-action="import-svg">Import SVG</button><button data-action="save">Save JSON</button><button data-action="export">Export SVG</button><span class="divider"></span><button data-action="undo" ${history.past.length ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+    ['select', '↖', 'Select / move'],
+    ['pen', '⌁', 'Pen / Curve'],
+    ['Circle', '○', 'Add Circle'],
+    ['Rectangle', '□', 'Add Rectangle'],
+    ['Text', 'T', 'Add Text'],
+  ]
+    .map(
+      ([id, icon, label]) =>
+        `<button data-tool="${id}" title="${label}" aria-label="${label}" class="${tool === id ? 'active' : ''}">${icon}</button>`,
+    )
+    .join(
+      '',
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar"><button data-action="zoom-out" aria-label="Zoom out">−</button><span>${Math.round(zoom * 100)}%</span><button data-action="zoom-in" aria-label="Zoom in">+</button><button data-action="fit">Fit</button><button data-action="snap" class="${snapEnabled ? 'active' : ''}" aria-pressed="${snapEnabled}" title="Snap canvas positions to 8-unit grid; hold Alt to bypass">Snap 8</button><span>${doc.width} × ${doc.height}</span></div><div class="canvas-stage"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${results
+    .filter(([x, r]) => x.visible && r.path && !r.error)
+    .map(
+      ([x, r]) =>
+        `<path class="shape" data-layer="${x.id}" d="${esc(pathData(r.path))}" fill="${esc(x.fill)}" fill-rule="nonzero"/>`,
+    )
+    .join(
+      '',
+    )}${canvasOverlay(n, result)}</svg></div><div class="hint">${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : n ? `Editing ${esc(n.name)}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select a generator to edit its original parameters'}</div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head"><strong>Node graph</strong><span class="muted">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
+    definitions,
+  )
+    .filter((x) => x !== 'Output')
+    .map((x) => `<option>${x}</option>`)
+    .join(
+      '',
+    )}</select><button data-action="graph-fit" title="Scroll to graph origin">Home</button></div><div class="graph-scroll"><div class="graph"><svg class="wires"></svg>${l.nodes.map((x) => nodeHTML(x, result)).join('')}</div></div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer">+ Composition</button></div>${[
+    ...doc.layers,
+  ]
+    .reverse()
+    .map(
+      (x) =>
+        `<div class="layer ${x.id === l.id ? 'selected' : ''}" data-layer="${x.id}"><button data-visible="${x.id}" title="Toggle visibility">${x.visible ? '◉' : '○'}</button><button class="name" data-select-layer="${x.id}">${esc(x.name)}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><button data-up-layer="${x.id}" title="Move layer up">↑</button></div>`,
+    )
+    .join(
+      '',
+    )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
+    n
+      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n)}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${Object.entries(
+          n.params,
+        )
+          .filter(([, q]) => q.type !== 'Path')
+          .map(([k, q]) => field(n, k, q))
+          .join('')}`
+      : '<p>Select a node.</p>'
+  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label>Fill</label><input type="color" data-fill value="${esc(l.fill)}" aria-label="Layer fill"></div><div class="field"><label>Artboard W</label><input type="number" data-dimension="width" value="${doc.width}" aria-label="Artboard width"></div><div class="field"><label>Artboard H</label><input type="number" data-dimension="height" value="${doc.height}" aria-label="Artboard height"></div>${results
+    .filter(([, r]) => r.error || r.warnings.length)
+    .map(
+      ([x, r]) => `<p class="warning">${esc(x.name)}: ${esc(r.error || r.warnings.join(' '))}</p>`,
+    )
+    .join(
+      '',
+    )}<p>Dynamic sockets<br>Drag a node output onto a compatible field. Drag a connected input into empty graph space to disconnect. Right-click an input also disconnects.</p><p>Expressions: arithmetic, pi, sin, cos, sqrt, min/max. Vector2: x expression; y expression.</p></div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+  const gs = document.querySelector('.graph-scroll');
+  gs.scrollLeft = oldScroll[0];
+  gs.scrollTop = oldScroll[1];
+  fitCanvas();
+  requestAnimationFrame(drawWires);
+}
+function canvasOverlay(n, result) {
+  if (!n) return '';
+  let path;
+  try {
+    path = result.run(n.id);
+  } catch {
+    return '';
+  }
+  if (outputType(n) !== 'Path') return '';
+  let out = `<path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>`;
+  if (n.type === 'Curve')
+    for (const pt of path.contours[0].points) {
+      for (const key of ['handleA', 'handleB']) {
+        let handle = pt[key].map((v, i) => v + pt.position[i]);
+        out += `<line class="guide" x1="${pt.position[0]}" y1="${pt.position[1]}" x2="${handle[0]}" y2="${handle[1]}"/><circle class="handle" data-point="${pt.id}" data-handle="${key}" cx="${handle[0]}" cy="${handle[1]}" r="4"/>`;
+      }
+      out += `<circle class="vertex" data-point="${pt.id}" cx="${pt.position[0]}" cy="${pt.position[1]}" r="5"/>`;
+    }
+  return out;
+}
+let canvasFrame = null;
+function updateCanvas() {
+  if (canvasFrame !== null) return;
+  canvasFrame = requestAnimationFrame(() => {
+    canvasFrame = null;
+    const svg = document.querySelector('.artboard');
+    if (!svg) return;
+    const l = current(),
+      r = evaluate(l, fonts);
+    svg.innerHTML =
+      history.doc.layers
+        .filter((x) => x.visible)
+        .map((x) => {
+          const value = x === l ? r : evaluate(x, fonts);
+          return value.path && !value.error
+            ? `<path class="shape" data-layer="${x.id}" d="${esc(pathData(value.path))}" fill="${esc(x.fill)}" fill-rule="nonzero"/>`
+            : '';
+        })
+        .join('') + canvasOverlay(selectedNode(), r);
+  });
+}
+function fitCanvas() {
+  let stage = document.querySelector('.canvas-stage'),
+    svg = document.querySelector('.artboard');
+  if (!stage || !svg) return;
+  let scale =
+    Math.min(
+      (stage.clientWidth - 70) / history.doc.width,
+      (stage.clientHeight - 70) / history.doc.height,
+    ) * zoom;
+  svg.style.width = history.doc.width * scale + 'px';
+  svg.style.height = history.doc.height * scale + 'px';
+  svg.style.transform = `translate(${pan[0]}px,${pan[1]}px)`;
+}
+function drawWires() {
+  let graph = document.querySelector('.graph'),
+    svg = document.querySelector('.wires');
+  if (!graph) return;
+  let rect = graph.getBoundingClientRect(),
+    html = '';
+  for (const n of current().nodes)
+    for (const [key, q] of parameters(n)) {
+      if (!q.source) continue;
+      let from = graph.querySelector(`[data-source="${q.source}"]`),
+        to = [...graph.querySelectorAll('.field')]
+          .find((el) => el.dataset.node === n.id && el.dataset.key === key)
+          ?.querySelector('.input');
+      if (!from || !to) continue;
+      let a = from.getBoundingClientRect(),
+        b = to.getBoundingClientRect(),
+        x = a.x + a.width / 2 - rect.x,
+        y = a.y + a.height / 2 - rect.y,
+        xx = b.x + b.width / 2 - rect.x,
+        yy = b.y + b.height / 2 - rect.y;
+      html += `<path class="wire" d="M${x},${y} C${x + 80},${y} ${xx - 80},${yy} ${xx},${yy}"/>`;
+    }
+  svg.innerHTML = html;
+}
+function addNode(type, preview = false) {
+  change(() => {
+    const l = current(),
+      count = l.nodes.length,
+      n = node(type, 60 + (count % 4) * 300, 80 + Math.floor(count / 4) * 260);
+    l.nodes.push(n);
+    selected = n.id;
+    if (preview) connect(l, n.id, l.output, 'path');
+  }, `Added ${type}`);
+}
+function download(text, name, type) {
+  const a = document.createElement('a'),
+    url = URL.createObjectURL(new Blob([text], { type }));
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+app.addEventListener('click', async (e) => {
+  let b = e.target.closest('button');
+  if (!b) return;
+  const d = b.dataset,
+    n = selectedNode();
+  if (d.action) {
+    try {
+      switch (d.action) {
+        case 'undo':
+          resetTransient();
+          history.undo();
+          render();
+          break;
+        case 'redo':
+          resetTransient();
+          history.redo();
+          render();
+          break;
+        case 'save': {
+          if (saveInFlight) break;
+          saveInFlight = true;
+          const snapshot = serialize(history.doc);
+          try {
+            if (await saveFile(snapshot, 'nect-project.json', 'json')) {
+              savedSnapshot = snapshot;
+              notify(desktop ? 'Project JSON saved' : 'Project JSON download started');
+            }
+          } finally {
+            saveInFlight = false;
+          }
+          break;
+        }
+        case 'export':
+          if (await saveFile(exportSVG(history.doc, fonts), 'nect-artwork.svg', 'svg'))
+            notify('SVG exported');
+          break;
+        case 'import-svg':
+          document.querySelector('#import-svg-file').click();
+          break;
+        case 'open':
+          if (desktop) {
+            let text = await openFile();
+            if (text !== null) {
+              const next = deserialize(text);
+              resetTransient();
+              history.apply(() => (history.doc = next));
+              activeLayer = next.layers[0].id;
+              selected = current().nodes[0]?.id;
+              savedSnapshot = serialize(next);
+              render();
+              notify('Project restored');
+            }
+          } else document.querySelector('#open-file').click();
+          break;
+        case 'new':
+          if (confirm('Start a new document? Save your current JSON first to keep it.')) {
+            resetTransient();
+            history = new History(newDocument());
+            activeLayer = current().id;
+            selected = current().nodes[0].id;
+            render();
+          }
+          break;
+        case 'add-layer':
+          history.apply((doc) => {
+            let l = layer(`Composition ${doc.layers.length + 1}`);
+            doc.layers.push(l);
+            activeLayer = l.id;
+            selected = l.nodes[0].id;
+          });
+          render();
+          break;
+        case 'zoom-in':
+          zoom = Math.min(8, zoom * 1.2);
+          render();
+          break;
+        case 'zoom-out':
+          zoom = Math.max(0.15, zoom / 1.2);
+          render();
+          break;
+        case 'snap':
+          snapEnabled = !snapEnabled;
+          render();
+          break;
+        case 'fit':
+          zoom = 1;
+          pan = [0, 0];
+          render();
+          break;
+        case 'graph-fit':
+          document.querySelector('.graph-scroll').scrollTo(0, 0);
+          break;
+        case 'help': {
+          let dialog = document.createElement('dialog');
+          dialog.innerHTML =
+            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Select a node to edit its parameters or move its source shape on the canvas.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap to Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Space + drag or middle drag: pan. Use Fit to reset.</p><button>Close</button>';
+          dialog.querySelector('button').onclick = () => dialog.remove();
+          document.body.append(dialog);
+          dialog.showModal();
+          break;
+        }
+      }
+    } catch (err) {
+      notify(err.message, true);
+    }
+    return;
+  }
+  if (d.tool) {
+    tool = d.tool;
+    if (tool === 'pen') {
+      penId = null;
+      notify('Click the canvas to begin a curve');
+      render();
+    } else if (tool !== 'select') {
+      addNode(tool, true);
+      tool = 'select';
+      render();
+    } else render();
+    return;
+  }
+  if (d.selectLayer) {
+    resetTransient();
+    activeLayer = d.selectLayer;
+    selected = current().nodes[0]?.id;
+    render();
+    return;
+  }
+  if (d.visible || d.layerLock || d.upLayer) {
+    history.apply((doc) => {
+      let id = d.visible || d.layerLock || d.upLayer,
+        l = doc.layers.find((x) => x.id === id);
+      if (d.visible) l.visible = !l.visible;
+      if (d.layerLock) l.locked = !l.locked;
+      if (d.upLayer) {
+        let i = doc.layers.indexOf(l);
+        if (i < doc.layers.length - 1)
+          [doc.layers[i], doc.layers[i + 1]] = [doc.layers[i + 1], doc.layers[i]];
+      }
+    });
+    render();
+    return;
+  }
+  if (d.connectMenu !== undefined) {
+    let f = b.closest('.field'),
+      nn = current().nodes.find((x) => x.id === f.dataset.node),
+      q = parameter(nn, f.dataset.key);
+    let dialog = document.createElement('dialog');
+    dialog.innerHTML = `<h3>Connect ${esc(nn.name)} · ${esc(f.dataset.key)}</h3><p>Choose a ${q.type} source. Disconnect restores the saved value or expression.</p><select aria-label="Input source"><option value="">Disconnected</option>${current()
+      .nodes.filter((x) => x.id !== nn.id && outputType(x) === q.type)
+      .map(
+        (x) =>
+          `<option value="${x.id}" ${q.source === x.id ? 'selected' : ''}>${esc(x.name)} · ${x.id.slice(-4)}</option>`,
+      )
+      .join(
+        '',
+      )}</select><p><button data-confirm>Apply</button> <button data-cancel>Cancel</button></p>`;
+    dialog.querySelector('[data-cancel]').onclick = () => dialog.remove();
+    dialog.querySelector('[data-confirm]').onclick = () => {
+      const source = dialog.querySelector('select').value;
+      change(
+        () =>
+          source ? connect(current(), source, nn.id, f.dataset.key) : disconnect(nn, f.dataset.key),
+        'Connection updated',
+      );
+      dialog.remove();
+    };
+    document.body.append(dialog);
+    dialog.showModal();
+    return;
+  }
+  if (d.lock !== undefined || d.fx !== undefined) {
+    let f = b.closest('.field'),
+      nn = current().nodes.find((x) => x.id === f.dataset.node),
+      q = parameter(nn, f.dataset.key);
+    change(() => {
+      if (d.lock !== undefined) q.locked = !q.locked;
+      else {
+        if (q.locked) throw Error('Parameter is locked');
+        let next = prompt(
+          'Expression (Vector2: x; y). Leave blank for direct values.',
+          q.expression || '',
+        );
+        if (next !== null) q.expression = next;
+      }
+    }, 'Parameter updated');
+    return;
+  }
+  if (d.preview)
+    change(() => connect(current(), d.preview, current().output, 'path'), 'Output connected');
+  if (d.delete)
+    change(() => {
+      current().nodes = current().nodes.filter((x) => x.id !== d.delete);
+      for (const x of current().nodes)
+        for (const [, q] of parameters(x)) if (q.source === d.delete) delete q.source;
+      if (selected === d.delete) selected = null;
+    }, 'Node deleted');
+  if (d.duplicate)
+    change(() => {
+      let copy = clone(current().nodes.find((x) => x.id === d.duplicate));
+      copy.id = uid('node');
+      copy.position = copy.position.map((x) => x + 35);
+      copy.name += ' copy';
+      for (const pt of copy.points) pt.id = uid('point');
+      current().nodes.push(copy);
+      selected = copy.id;
+    }, 'Node duplicated');
+  if (d.addPoint)
+    change(
+      () =>
+        current()
+          .nodes.find((x) => x.id === d.addPoint)
+          .points.push(point(400, 300)),
+      'Point added',
+    );
+  if (d.deletePoint)
+    change(() => {
+      let nn = current().nodes.find((x) => x.id === d.node);
+      nn.points = nn.points.filter((x) => x.id !== d.deletePoint);
+    }, 'Point removed');
+  if (d.clearEdits)
+    change(
+      () => (current().nodes.find((x) => x.id === d.clearEdits).edits = []),
+      'Vertex edits cleared',
+    );
 });
-app.addEventListener('change',async e=>{let el=e.target,d=el.dataset;if(el.id==='open-file'){let file=el.files[0];if(!file)return;try{let next=deserialize(await file.text());history.apply(()=>{history.doc=next;});activeLayer=next.layers[0].id;selected=current().nodes[0]?.id;notify('Project restored');render();}catch(err){notify(`Open rejected; current document preserved: ${err.message}`,true);}return;}if(el.id==='add-node'){if(el.value)addNode(el.value);return;}
- change(()=>{if(d.operation)current().nodes.find(n=>n.id===d.operation).operation=el.value;else if(d.text)current().nodes.find(n=>n.id===d.text).text=el.value;else if(d.layerName!==undefined)current().name=el.value;else if(d.fill!==undefined)current().fill=el.value;else if(d.dimension){let v=Number(el.value);if(!(v>0&&v<=100000))throw Error('Artboard dimension must be between 1 and 100000');history.doc[d.dimension]=v;}
- else if(d.handleType){let pt=current().nodes.find(n=>n.id===d.node).points.find(p=>p.id===d.handleType);pt.handleType=el.value;if(el.value==='symmetric')pt.handleA.value=pt.handleB.value.map(v=>-v);}
- else if(d.remap){let nn=current().nodes.find(n=>n.id===d.node),input=evaluate(current(),fonts).run(nn.params.path.source);let edit=nn.edits.find(x=>x.pointId===d.remap);if(!edit){edit={pointId:d.remap,fingerprint:input.fingerprint};nn.edits.push(edit);}if(!edit[d.component])edit[d.component]=[0,0];edit[d.component][Number(d.axis)]=Number(el.value);}
- else{let f=el.closest('.field');if(!f)return;let nn=current().nodes.find(n=>n.id===f.dataset.node),q=parameter(nn,f.dataset.key);if(q.locked)throw Error('Parameter is locked');if(d.pathSource!==undefined){if(el.value)connect(current(),el.value,nn.id,f.dataset.key);else disconnect(nn,f.dataset.key);}else if(d.expression!==undefined)q.expression=el.value;else if(d.value!==undefined){if(q.source)throw Error('Disconnect input before editing its fallback');let value=q.type==='Boolean'?el.checked:Number(el.value);if(q.type!=='Boolean'&&!Number.isFinite(value))throw Error('Expected a finite number');if(q.type==='Vector2')q.value[Number(d.axis)]=value;else q.value=value;}}
- });});
-function canvasPoint(event){let svg=document.querySelector('.artboard'),pt=new DOMPoint(event.clientX,event.clientY);let r=pt.matrixTransform(svg.getScreenCTM().inverse());return [r.x,r.y];}
-let space=false;
-app.addEventListener('pointerdown',e=>{
- if(e.target.closest('.output')){let id=e.target.closest('.output').dataset.source;wiring={source:id};let type=outputType(current().nodes.find(n=>n.id===id));document.querySelectorAll('.graph .field').forEach(f=>f.classList.toggle('compatible',f.dataset.type===type&&f.dataset.node!==id));e.preventDefault();return;}
- if(e.target.closest('.input')){let f=e.target.closest('.field');wiring={disconnect:true,node:f.dataset.node,key:f.dataset.key};e.preventDefault();return;}
- if(e.target.closest('.splitter')){drag={type:'split',startY:e.clientY,height:graphHeight};e.preventDefault();return;}
- let head=e.target.closest('.node-head');if(head&&!e.target.closest('button')){let id=head.closest('.node').dataset.id;selected=id;const n=selectedNode();drag={type:'node',id,start:[e.clientX,e.clientY],original:[...n.position],before:clone(history.doc)};document.querySelectorAll('.node').forEach(x=>x.classList.toggle('selected',x.dataset.id===id));e.preventDefault();return;}
- let stage=e.target.closest('.canvas-stage');if(!stage)return;
- if(space||e.button===1){drag={type:'pan',start:[e.clientX,e.clientY],original:[...pan]};e.preventDefault();return;}
- if(current().locked){notify('Composition is locked',true);return;}
- let pos=canvasPoint(e),n=selectedNode();if(tool==='pen'){
- if(penId&&e.target.dataset.point===current().nodes.find(x=>x.id===penId)?.points[0]?.id){change(()=>current().nodes.find(x=>x.id===penId).params.closed.value=true,'Curve closed');penId=null;tool='select';render();return;}
- let before=clone(history.doc);if(!penId){let nn=node('Curve',80,80);nn.points=[];nn.params.closed.value=false;current().nodes.push(nn);penId=nn.id;selected=nn.id;current().nodes.find(x=>x.id===current().output).params.path.source=nn.id;}
- let nn=current().nodes.find(x=>x.id===penId),pt=point(...pos);nn.points.push(pt);drag={type:'pen',pointId:pt.id,nodeId:nn.id,start:pos,before};render();return;}
- if(e.target.dataset.point&&n?.type==='Curve'){let pt=n.points.find(p=>p.id===e.target.dataset.point),key=e.target.dataset.handle||'position',q=pt[key];if(q.locked||q.source||q.expression){notify(`${key} is locked or driven by an input`,true);return;}drag={type:'point',nodeId:n.id,pointId:pt.id,key,start:pos,original:clone(q.value),before:clone(history.doc)};return;}
- if(e.target.dataset.layer&&e.target.dataset.layer!==activeLayer){activeLayer=e.target.dataset.layer;selected=current().nodes[0]?.id;render();return;}
- if(n&&['Circle','Ellipse','Rectangle','Text','Curve'].includes(n.type)){
- const keys=n.type==='Curve'?n.points.map(p=>`${p.id}.position`):[n.type==='Text'?'position':'center'];if(keys.some(k=>{let q=parameter(n,k);return q.locked||q.source||q.expression;})){notify('Position is locked or driven by an input',true);return;}
- drag={type:'shape',nodeId:n.id,start:pos,keys,original:keys.map(k=>clone(parameter(n,k).value)),before:clone(history.doc)};
- }else notify('Select a Circle, Rectangle, Text or Curve generator to move it');
+app.addEventListener('change', async (e) => {
+  let el = e.target,
+    d = el.dataset;
+  if (el.id === 'open-file' || el.id === 'import-svg-file') {
+    let file = el.files[0];
+    if (!file) return;
+    try {
+      const request = ++openRequest,
+        before = serialize(history.doc);
+      let text = await file.text(),
+        next = el.id === 'import-svg-file' ? importSVG(text) : deserialize(text);
+      if (request !== openRequest) return;
+      if (serialize(history.doc) !== before)
+        throw Error('Document changed while reading; open the file again');
+      resetTransient();
+      history.apply(() => {
+        history.doc = next;
+      });
+      activeLayer = next.layers[0].id;
+      selected = current().nodes[0]?.id;
+      if (el.id === 'open-file') savedSnapshot = serialize(next);
+      notify('Project restored');
+      render();
+    } catch (err) {
+      notify(`Open rejected; current document preserved: ${err.message}`, true);
+    }
+    return;
+  }
+  if (el.id === 'add-node') {
+    if (el.value) addNode(el.value);
+    return;
+  }
+  change(() => {
+    if (d.operation) current().nodes.find((n) => n.id === d.operation).operation = el.value;
+    else if (d.text) current().nodes.find((n) => n.id === d.text).text = el.value;
+    else if (d.layerName !== undefined) current().name = el.value;
+    else if (d.fill !== undefined) current().fill = el.value;
+    else if (d.dimension) {
+      let v = Number(el.value);
+      if (!(v > 0 && v <= 100000)) throw Error('Artboard dimension must be between 1 and 100000');
+      history.doc[d.dimension] = v;
+    } else if (d.handleType) {
+      let pt = current()
+        .nodes.find((n) => n.id === d.node)
+        .points.find((p) => p.id === d.handleType);
+      if (
+        el.value !== 'corner' &&
+        (pt.handleA.locked || pt.handleA.source || pt.handleA.expression)
+      )
+        throw Error('Handle A is locked or driven; unlock before changing coupled handle mode');
+      pt.handleType = el.value;
+      if (el.value === 'symmetric') pt.handleA.value = pt.handleB.value.map((v) => -v);
+      else if (el.value === 'smooth') {
+        const length = Math.hypot(...pt.handleA.value),
+          mag = Math.hypot(...pt.handleB.value);
+        if (mag) pt.handleA.value = pt.handleB.value.map((v) => (-v / mag) * length);
+      }
+    } else if (d.remap) {
+      let nn = current().nodes.find((n) => n.id === d.node),
+        input = evaluate(current(), fonts).run(nn.params.path.source);
+      let edit = nn.edits.find((x) => x.pointId === d.remap);
+      if (!edit) {
+        edit = { pointId: d.remap, fingerprint: input.fingerprint };
+        nn.edits.push(edit);
+      }
+      if (!edit[d.component]) edit[d.component] = [0, 0];
+      edit[d.component][Number(d.axis)] = Number(el.value);
+    } else {
+      let f = el.closest('.field');
+      if (!f) return;
+      let nn = current().nodes.find((n) => n.id === f.dataset.node),
+        q = parameter(nn, f.dataset.key);
+      if (q.locked) throw Error('Parameter is locked');
+      if (d.pathSource !== undefined) {
+        if (el.value) connect(current(), el.value, nn.id, f.dataset.key);
+        else disconnect(nn, f.dataset.key);
+      } else if (d.expression !== undefined) q.expression = el.value;
+      else if (d.value !== undefined) {
+        if (q.source) throw Error('Disconnect input before editing its fallback');
+        let value = q.type === 'Boolean' ? el.checked : Number(el.value);
+        if (q.type !== 'Boolean' && !Number.isFinite(value))
+          throw Error('Expected a finite number');
+        if (q.type === 'Vector2') q.value[Number(d.axis)] = value;
+        else q.value = value;
+      }
+    }
+  });
 });
-document.addEventListener('pointermove',e=>{if(!drag)return;if(drag.type==='split'){graphHeight=Math.max(18,Math.min(75,drag.height+(drag.startY-e.clientY)/document.querySelector('.middle').clientHeight*100));document.querySelector('.graph-panel').style.height=graphHeight+'%';fitCanvas();return;}if(drag.type==='pan'){pan=drag.original.map((v,i)=>v+[e.clientX-drag.start[0],e.clientY-drag.start[1]][i]);fitCanvas();return;}if(drag.type==='node'){let n=current().nodes.find(x=>x.id===drag.id);if(current().locked)return;n.position=drag.original.map((v,i)=>Math.max(0,v+[e.clientX-drag.start[0],e.clientY-drag.start[1]][i]));let el=document.querySelector(`.node[data-id="${n.id}"]`);el.style.left=n.position[0]+'px';el.style.top=n.position[1]+'px';drawWires();return;}
- let pos=canvasPoint(e),delta=pos.map((v,i)=>v-drag.start[i]),n=current().nodes.find(x=>x.id===drag.nodeId);
- if(drag.type==='shape')drag.keys.forEach((k,idx)=>parameter(n,k).value=drag.original[idx].map((v,i)=>v+delta[i]));
- else{let pt=n.points.find(x=>x.id===drag.pointId);if(drag.type==='pen'){pt.handleB.value=delta;pt.handleA.value=delta.map(v=>-v);pt.handleType='symmetric';}else{pt[drag.key].value=drag.original.map((v,i)=>v+delta[i]);if(drag.key!=='position'&&pt.handleType!=='corner'){let other=drag.key==='handleA'?'handleB':'handleA';if(!pt[other].locked&&!pt[other].source){let v=pt[drag.key].value,len=pt.handleType==='symmetric'?Math.hypot(...v):Math.hypot(...pt[other].value),mag=Math.hypot(...v)||1;pt[other].value=v.map(x=>-x/mag*len);}}}}
- render();
+function canvasPoint(event) {
+  let svg = document.querySelector('.artboard'),
+    pt = new DOMPoint(event.clientX, event.clientY);
+  let r = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return [r.x, r.y].map((v) => (snapEnabled && !event.altKey ? Math.round(v / 8) * 8 : v));
+}
+let space = false;
+app.addEventListener('pointerdown', (e) => {
+  if (e.target.closest('.output')) {
+    let id = e.target.closest('.output').dataset.source;
+    wiring = { source: id };
+    let type = outputType(current().nodes.find((n) => n.id === id));
+    document
+      .querySelectorAll('.graph .field')
+      .forEach((f) =>
+        f.classList.toggle('compatible', f.dataset.type === type && f.dataset.node !== id),
+      );
+    e.preventDefault();
+    return;
+  }
+  if (e.target.closest('.input')) {
+    let f = e.target.closest('.field');
+    wiring = { disconnect: true, node: f.dataset.node, key: f.dataset.key };
+    e.preventDefault();
+    return;
+  }
+  if (e.target.closest('.splitter')) {
+    drag = { type: 'split', startY: e.clientY, height: graphHeight };
+    e.preventDefault();
+    return;
+  }
+  let head = e.target.closest('.node-head');
+  if (head && !e.target.closest('button')) {
+    let id = head.closest('.node').dataset.id;
+    if (e.shiftKey) {
+      if (selection.has(id)) selection.delete(id);
+      else selection.add(id);
+      selected = selection.has(id) ? id : [...selection][0] || null;
+      render();
+      return;
+    }
+    if (!selection.has(id)) selection = new Set([id]);
+    selected = id;
+    const n = selectedNode();
+    drag = {
+      type: 'node',
+      id,
+      start: [e.clientX, e.clientY],
+      originals: [...selection].map((id) => ({
+        id,
+        position: [...current().nodes.find((n) => n.id === id).position],
+      })),
+      before: clone(history.doc),
+    };
+    document
+      .querySelectorAll('.node')
+      .forEach((x) => x.classList.toggle('selected', selection.has(x.dataset.id)));
+    e.preventDefault();
+    return;
+  }
+  let stage = e.target.closest('.canvas-stage');
+  if (!stage) return;
+  if (space || e.button === 1) {
+    drag = { type: 'pan', start: [e.clientX, e.clientY], original: [...pan] };
+    e.preventDefault();
+    return;
+  }
+  if (current().locked) {
+    notify('Composition is locked', true);
+    return;
+  }
+  let pos = canvasPoint(e),
+    n = selectedNode();
+  if (tool === 'pen') {
+    if (
+      penId &&
+      e.target.dataset.point === current().nodes.find((x) => x.id === penId)?.points[0]?.id
+    ) {
+      change(() => {
+        const q = current().nodes.find((x) => x.id === penId).params.closed;
+        if (q.locked || q.source || q.expression)
+          throw Error('Closed parameter is locked or driven');
+        q.value = true;
+      }, 'Curve closed');
+      penId = null;
+      tool = 'select';
+      render();
+      return;
+    }
+    let before = clone(history.doc);
+    if (!penId) {
+      if (current().nodes.find((x) => x.id === current().output).params.path.locked) {
+        notify('Output Path is locked; unlock it before starting a new pen path', true);
+        return;
+      }
+      let nn = node('Curve', 80, 80);
+      nn.points = [];
+      nn.params.closed.value = false;
+      current().nodes.push(nn);
+      penId = nn.id;
+      selected = nn.id;
+      connect(current(), nn.id, current().output, 'path');
+    }
+    let nn = current().nodes.find((x) => x.id === penId),
+      pt = point(...pos);
+    nn.points.push(pt);
+    drag = { type: 'pen', pointId: pt.id, nodeId: nn.id, start: pos, before };
+    render();
+    return;
+  }
+  if (e.target.dataset.point && n?.type === 'Curve') {
+    let pt = n.points.find((p) => p.id === e.target.dataset.point),
+      key = e.target.dataset.handle || 'position',
+      q = pt[key];
+    if (q.locked || q.source || q.expression) {
+      notify(`${key} is locked or driven by an input`, true);
+      return;
+    }
+    drag = {
+      type: 'point',
+      nodeId: n.id,
+      pointId: pt.id,
+      key,
+      start: pos,
+      original: clone(q.value),
+      before: clone(history.doc),
+    };
+    return;
+  }
+  if (e.target.dataset.layer && e.target.dataset.layer !== activeLayer) {
+    activeLayer = e.target.dataset.layer;
+    selected = current().nodes[0]?.id;
+    render();
+    return;
+  }
+  const generators = current().nodes.filter((n) => selection.has(n.id));
+  if (
+    generators.length &&
+    generators.every((n) => ['Circle', 'Ellipse', 'Rectangle', 'Text', 'Curve'].includes(n.type))
+  ) {
+    const targets = generators.map((n) => {
+      const keys =
+        n.type === 'Curve'
+          ? n.points.map((p) => `${p.id}.position`)
+          : [n.type === 'Text' ? 'position' : 'center'];
+      return { nodeId: n.id, keys, original: keys.map((k) => clone(parameter(n, k).value)) };
+    });
+    if (
+      targets.some((t) =>
+        t.keys.some((k) => {
+          const q = parameter(
+            current().nodes.find((n) => n.id === t.nodeId),
+            k,
+          );
+          return q.locked || q.source || q.expression;
+        }),
+      )
+    ) {
+      notify('A selected position is locked or driven by an input', true);
+      return;
+    }
+    drag = { type: 'shape', targets, start: pos, before: clone(history.doc) };
+  } else notify('Select only Circle, Rectangle, Text or Curve generators to move them');
 });
-document.addEventListener('pointerup',e=>{if(wiring){let w=wiring;wiring=null;document.querySelectorAll('.compatible').forEach(x=>x.classList.remove('compatible'));let f=e.target.closest('.graph .field');if(w.disconnect){if(!f)change(()=>disconnect(current().nodes.find(n=>n.id===w.node),w.key),'Disconnected; fallback restored');}else if(f)change(()=>connect(current(),w.source,f.dataset.node,f.dataset.key),'Connected');return;}if(drag){let d=drag;drag=null;if(d.before&&JSON.stringify(d.before)!==JSON.stringify(history.doc)){history.past.push(d.before);history.future=[];notify('Updated');}render();}});
-app.addEventListener('contextmenu',e=>{let input=e.target.closest('.input');if(input){e.preventDefault();let f=input.closest('.field');change(()=>disconnect(current().nodes.find(n=>n.id===f.dataset.node),f.dataset.key),'Disconnected');}});
-app.addEventListener('toggle',()=>requestAnimationFrame(drawWires),true);
-document.addEventListener('keydown',e=>{if(e.target.matches('input,textarea,select'))return;if(e.code==='Space'){space=true;e.preventDefault();}if(e.key==='Escape'){if(drag?.before)history.doc=drag.before;drag=null;wiring=null;tool='select';penId=null;render();}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?history.redo():history.undo();render();}if(e.key==='Delete'&&selectedNode()?.type!=='Output')document.querySelector(`[data-delete="${selected}"]`)?.click();});
-document.addEventListener('keyup',e=>{if(e.code==='Space')space=false;});window.addEventListener('resize',fitCanvas);
+document.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  if (drag.type === 'split') {
+    graphHeight = Math.max(
+      18,
+      Math.min(
+        75,
+        drag.height +
+          ((drag.startY - e.clientY) / document.querySelector('.middle').clientHeight) * 100,
+      ),
+    );
+    document.querySelector('.graph-panel').style.height = graphHeight + '%';
+    fitCanvas();
+    return;
+  }
+  if (drag.type === 'pan') {
+    pan = drag.original.map(
+      (v, i) => v + [e.clientX - drag.start[0], e.clientY - drag.start[1]][i],
+    );
+    fitCanvas();
+    return;
+  }
+  if (drag.type === 'node') {
+    if (current().locked) return;
+    for (const original of drag.originals) {
+      const n = current().nodes.find((x) => x.id === original.id);
+      n.position = original.position.map((v, i) =>
+        Math.max(0, v + [e.clientX - drag.start[0], e.clientY - drag.start[1]][i]),
+      );
+      const el = document.querySelector(`.node[data-id="${n.id}"]`);
+      el.style.left = n.position[0] + 'px';
+      el.style.top = n.position[1] + 'px';
+    }
+    drawWires();
+    return;
+  }
+  let pos = canvasPoint(e),
+    delta = pos.map((v, i) => v - drag.start[i]),
+    n = current().nodes.find((x) => x.id === drag.nodeId);
+  if (drag.type === 'shape')
+    drag.targets.forEach((t) => {
+      const target = current().nodes.find((n) => n.id === t.nodeId);
+      t.keys.forEach(
+        (k, idx) => (parameter(target, k).value = t.original[idx].map((v, i) => v + delta[i])),
+      );
+    });
+  else {
+    let pt = n.points.find((x) => x.id === drag.pointId);
+    if (drag.type === 'pen') {
+      pt.handleB.value = delta;
+      pt.handleA.value = delta.map((v) => -v);
+      pt.handleType = 'symmetric';
+    } else {
+      pt[drag.key].value = drag.original.map((v, i) => v + delta[i]);
+      if (drag.key !== 'position' && pt.handleType !== 'corner') {
+        let other = drag.key === 'handleA' ? 'handleB' : 'handleA';
+        if (!pt[other].locked && !pt[other].source && !pt[other].expression) {
+          let v = pt[drag.key].value,
+            len = pt.handleType === 'symmetric' ? Math.hypot(...v) : Math.hypot(...pt[other].value),
+            mag = Math.hypot(...v) || 1;
+          pt[other].value = v.map((x) => (-x / mag) * len);
+        }
+      }
+    }
+  }
+  updateCanvas();
+});
+document.addEventListener('pointerup', (e) => {
+  if (wiring) {
+    let w = wiring;
+    wiring = null;
+    document.querySelectorAll('.compatible').forEach((x) => x.classList.remove('compatible'));
+    let f = e.target.closest('.graph .field');
+    if (w.disconnect) {
+      if (!f)
+        change(
+          () =>
+            disconnect(
+              current().nodes.find((n) => n.id === w.node),
+              w.key,
+            ),
+          'Disconnected; fallback restored',
+        );
+    } else if (f)
+      change(() => connect(current(), w.source, f.dataset.node, f.dataset.key), 'Connected');
+    return;
+  }
+  if (drag) {
+    let d = drag;
+    drag = null;
+    if (d.before && JSON.stringify(d.before) !== JSON.stringify(history.doc)) {
+      history.past.push(d.before);
+      if (history.past.length > 100) history.past.shift();
+      history.future = [];
+      notify('Updated');
+    }
+    render();
+  }
+});
+app.addEventListener('contextmenu', (e) => {
+  let input = e.target.closest('.input');
+  if (input) {
+    e.preventDefault();
+    let f = input.closest('.field');
+    change(
+      () =>
+        disconnect(
+          current().nodes.find((n) => n.id === f.dataset.node),
+          f.dataset.key,
+        ),
+      'Disconnected',
+    );
+  }
+});
+app.addEventListener('toggle', () => requestAnimationFrame(drawWires), true);
+document.addEventListener('keydown', (e) => {
+  if (e.target.matches('input,textarea,select')) return;
+  if (e.code === 'Space') {
+    space = true;
+    e.preventDefault();
+  }
+  if (e.key === 'Escape') {
+    if (drag?.before) history.doc = drag.before;
+    drag = null;
+    wiring = null;
+    tool = 'select';
+    penId = null;
+    render();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    resetTransient();
+    e.shiftKey ? history.redo() : history.undo();
+    render();
+  }
+  if (e.key === 'Delete' && selectedNode()?.type !== 'Output')
+    document.querySelector(`[data-delete="${selected}"]`)?.click();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.matches('input,textarea,select') || e.repeat) return;
+  if (e.ctrlKey || e.metaKey) {
+    if (e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      document.querySelector('[data-action="save"]')?.click();
+    }
+    if (e.key.toLowerCase() === 'o') {
+      e.preventDefault();
+      document.querySelector('[data-action="open"]')?.click();
+    }
+    return;
+  }
+  const keys = { v: 'select', p: 'pen', c: 'Circle', r: 'Rectangle', t: 'Text' };
+  if (keys[e.key.toLowerCase()])
+    document.querySelector(`[data-tool="${keys[e.key.toLowerCase()]}"]`)?.click();
+});
+app.addEventListener('keydown', (e) => {
+  if (e.target.matches('.splitter') && ['ArrowUp', 'ArrowDown'].includes(e.key)) {
+    e.preventDefault();
+    graphHeight = Math.max(18, Math.min(75, graphHeight + (e.key === 'ArrowUp' ? 5 : -5)));
+    document.querySelector('.graph-panel').style.height = graphHeight + '%';
+    fitCanvas();
+  }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') space = false;
+});
+window.addEventListener('resize', fitCanvas);
+window.addEventListener('beforeunload', (e) => {
+  if (serialize(history.doc) !== savedSnapshot) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
 render();
-fetch('/fonts/DejaVuSans.ttf').then(r=>{if(!r.ok)throw Error('Bundled font unavailable');return r.arrayBuffer();}).then(b=>{fonts.default=opentype.parse(b);render();}).catch(e=>notify(e.message,true));
+fetch('/fonts/DejaVuSans.ttf')
+  .then((r) => {
+    if (!r.ok) throw Error('Bundled font unavailable');
+    return r.arrayBuffer();
+  })
+  .then((b) => {
+    fonts.default = opentype.parse(b);
+    render();
+  })
+  .catch((e) => notify(e.message, true));
 // Explicit test/debug API; same model and mutations as the UI.
-window.nect={get document(){return history.doc;},evaluate:()=>evaluate(current(),fonts),load(text){const d=deserialize(text);history=new History(d);activeLayer=d.layers[0].id;selected=current().nodes[0]?.id;render();},export:()=>exportSVG(history.doc,fonts)};
+window.nect = {
+  get document() {
+    return history.doc;
+  },
+  evaluate: () => evaluate(current(), fonts),
+  load(text) {
+    const d = deserialize(text);
+    resetTransient();
+    history = new History(d);
+    activeLayer = d.layers[0].id;
+    selected = current().nodes[0]?.id;
+    render();
+  },
+  export: () => exportSVG(history.doc, fonts),
+};

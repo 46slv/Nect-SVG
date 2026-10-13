@@ -15,17 +15,11 @@
           "id": "node-e2083cd9-b881-40e0-bc69-3cf049cfab6e",
           "type": "Circle",
           "name": "Circle",
-          "position": [
-            40,
-            50
-          ],
+          "position": [40, 50],
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                350,
-                250
-              ],
+              "value": [350, 250],
               "expression": "",
               "locked": false
             },
@@ -46,26 +40,17 @@
           "id": "node-e6ac10d4-7852-4033-9d1e-462749296ee5",
           "type": "Rectangle",
           "name": "Rectangle",
-          "position": [
-            40,
-            280
-          ],
+          "position": [40, 280],
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                460,
-                250
-              ],
+              "value": [460, 250],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                180,
-                220
-              ],
+              "value": [180, 220],
               "expression": "",
               "locked": false
             }
@@ -80,10 +65,7 @@
           "id": "node-051fde3e-0b90-43e0-811f-283f1a2c6864",
           "type": "Boolean",
           "name": "Boolean",
-          "position": [
-            330,
-            50
-          ],
+          "position": [330, 50],
           "params": {
             "a": {
               "type": "Path",
@@ -110,10 +92,7 @@
           "id": "node-35ad4f96-47da-44c7-82a4-4cd2dac64338",
           "type": "Path Remap",
           "name": "Path Remap",
-          "position": [
-            620,
-            50
-          ],
+          "position": [620, 50],
           "params": {
             "path": {
               "type": "Path",
@@ -124,10 +103,7 @@
             },
             "offset": {
               "type": "Vector2",
-              "value": [
-                0,
-                0
-              ],
+              "value": [0, 0],
               "expression": "",
               "locked": false
             }
@@ -142,10 +118,7 @@
           "id": "node-1def52f7-a1f0-491e-ad0b-12a6c0432033",
           "type": "Output",
           "name": "Output",
-          "position": [
-            920,
-            50
-          ],
+          "position": [920, 50],
           "params": {
             "path": {
               "type": "Path",
