@@ -42,6 +42,7 @@ let savedSnapshot = serialize(history.doc),
   saveInFlight = false,
   openRequest = 0;
 let selection = new Set([selected]);
+const detailsState = new Map();
 const esc = (s) =>
   String(s ?? '').replace(
     /[&<>"']/g,
@@ -112,10 +113,14 @@ function remapFields(n, result) {
     input.contours
       .map(
         (c, ci) =>
-          `<details><summary>Contour ${ci + 1} · ${c.points.length} vertices</summary>${c.points
+          `<details data-detail="contour-${c.id}"><summary>Contour ${ci + 1} · ${c.points.length} vertices</summary>${c.points
             .map(
               (pt, pi) =>
-                `<details><summary>Point ${pi + 1}</summary>${['position', 'handleA', 'handleB']
+                `<details data-detail="remap-${pt.id}"><summary>Point ${pi + 1}</summary>${[
+                  'position',
+                  'handleA',
+                  'handleB',
+                ]
                   .map((k) => {
                     let edit = n.edits.find((e) => e.pointId === pt.id);
                     return `<div class="field"><label>Δ ${k}</label>${[0, 1].map((axis) => `<input aria-label="Remap ${pi + 1} ${k} ${axis ? 'Y' : 'X'}" type="number" step="any" data-remap="${pt.id}" data-component="${k}" data-axis="${axis}" data-node="${n.id}" value="${edit?.[k]?.[axis] || 0}">`).join('')}</div>`;
@@ -134,9 +139,11 @@ function nodeHTML(n, result) {
     .map(([k, q]) => field(n, k, q))
     .join(
       '',
-    )}${n.points.map((pt, i) => `<details ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${outputType(n) === 'Path' && n.type !== 'Output' ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${n.type !== 'Output' ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div></section>`;
+    )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${outputType(n) === 'Path' && n.type !== 'Output' ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${n.type !== 'Output' ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div></section>`;
 }
 function render() {
+  for (const el of document.querySelectorAll('.graph details[data-detail]'))
+    detailsState.set(`${el.closest('.node').dataset.id}/${el.dataset.detail}`, el.open);
   if (selected && !current().nodes.some((n) => n.id === selected)) selected = null;
   if (penId && !current().nodes.some((n) => n.id === penId && n.type === 'Curve')) penId = null;
   if (!selection.has(selected)) selection = new Set(selected ? [selected] : []);
@@ -207,6 +214,10 @@ function render() {
   const gs = document.querySelector('.graph-scroll');
   gs.scrollLeft = oldScroll[0];
   gs.scrollTop = oldScroll[1];
+  for (const el of document.querySelectorAll('.graph details[data-detail]')) {
+    const key = `${el.closest('.node').dataset.id}/${el.dataset.detail}`;
+    if (detailsState.has(key)) el.open = detailsState.get(key);
+  }
   fitCanvas();
   requestAnimationFrame(drawWires);
 }

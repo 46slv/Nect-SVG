@@ -37,3 +37,7 @@ The synthetic DOM pass also covers pen points/handles/closing, multi-generator m
 `examples/vr-converters.json` is an editable practice fixture, not a final approved logo. Its headless SVG was rasterized with Inkscape and visually inspected for shapes, counters, layering and label placement. That is **output geometry proof only**, not an editor screenshot.
 
 A bounded Windows-only GitHub Actions workflow is prepared: standard public-repository Windows runner, contents:read, 35-minute timeout, per-branch concurrency cancellation, 1-day development artifact retention, no release/deploy. Its actual build/Chrome results must be recorded after the run; configuration alone is not a pass.
+
+## Windows CI attempt 1
+
+Run [38426140626](https://github.com/46slv/Nect-SVG/actions/runs/38426140626) at commit `c793a278492baf06a321269629e9c7654ef4f214` failed at Prettier: Windows checkout converted text to CRLF while the repository format is LF. Installation passed. Tests, Chrome interaction and Rust/NSIS stages were **skipped**, not failed or passed. `.gitattributes` now specifies LF for text and marks binary assets explicitly. Dependency advisory status is tracked in [dependency-security.md](dependency-security.md).
