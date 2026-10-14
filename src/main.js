@@ -1315,6 +1315,7 @@ function stopGraphDrag() {
 function captureGraphPointer(e) {
   drag.pointerId = e.pointerId;
   drag.capture = document.querySelector('.graph-scroll');
+  drag.capture.focus({ preventScroll: true });
   drag.capture.setPointerCapture?.(e.pointerId);
 }
 function graphPoint(x, y) {
