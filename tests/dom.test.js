@@ -278,9 +278,9 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
     document.querySelector(`[data-collapse="${bool.id}"]`).getAttribute('aria-expanded'),
     'false',
   );
-  document.querySelector(`.graph [data-node="${bool.id}"][data-key="b"] .input`).dispatchEvent(
-    new win.MouseEvent('contextmenu', { bubbles: true }),
-  );
+  document
+    .querySelector(`.graph [data-node="${bool.id}"][data-key="b"] .input`)
+    .dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true }));
   assert.equal(
     document.querySelector(`.graph [data-node="${bool.id}"][data-key="b"] .input`),
     null,
