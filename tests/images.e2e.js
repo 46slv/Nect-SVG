@@ -175,12 +175,15 @@ try {
   await page.locator(`[data-visible="${imageId}"]`).click();
   assert.doesNotMatch(await page.evaluate(() => window.nect.export()), /<image /);
   await page.locator(`[data-visible="${imageId}"]`).click();
+  // Wait for load completion, not just model values already true before this async reload.
   // Editable JSON reload preserves embedded asset and output bytes.
+  assert.doesNotMatch(await page.locator('.status').textContent(), /Project restored/);
   await page
     .locator('#open-file')
     .setInputFiles({ name: 'saved.json', mimeType: 'application/json', buffer: saved });
   await page.waitForFunction(
     () =>
+      document.querySelector('.status').textContent.includes('Project restored') &&
       window.nect.document.layers.length === 2 &&
       window.nect.document.layers[1].nodes[0].params.position.value[0] === 160,
   );
