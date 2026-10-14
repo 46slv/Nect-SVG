@@ -159,6 +159,20 @@ try {
   await page.mouse.up({ button: 'middle' });
   assert.deepEqual(await scroll(), beforeControl);
   assert.deepEqual(await position(), beforePan);
+  // A pending numeric field edit commits before drag cancellation takes its snapshot.
+  await input.fill('321');
+  await grab();
+  await page.mouse.move(...target);
+  await page.waitForTimeout(120);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  assert.deepEqual(await position(), beforePan);
+  assert.equal(
+    await page.locator(`.node[data-id="${id}"] input[type="number"]`).first().inputValue(),
+    '321',
+  );
+  await stillStopped();
+  await page.locator('[data-action="graph-fit"]').click();
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/graph-navigation.png' });
   assert.deepEqual(errors, []);

@@ -1488,6 +1488,8 @@ app.addEventListener('pointerdown', (e) => {
     if (!selection.has(id)) selection = new Set([id]);
     selected = id;
     if (current().locked) return;
+    // Commit a focused field before taking the gesture rollback snapshot.
+    document.querySelector('.graph-scroll').focus({ preventScroll: true });
     drag = {
       type: 'node',
       pointer: [e.clientX, e.clientY],
