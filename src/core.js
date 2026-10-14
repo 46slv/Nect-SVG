@@ -117,7 +117,7 @@ export const definitions = {
   'Imported Path': {},
 };
 // Keep count validation shared by JSON/direct input and resolved expression/socket input.
-function radialSettings(type, read) {
+export function radialSettings(type, read) {
   const key = type === 'Polygon' ? 'sides' : 'points',
     count = read(key);
   if (!Number.isInteger(count) || count < 3 || count > 256)

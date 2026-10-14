@@ -28,6 +28,7 @@ import {
   setOperation,
   parseStrokeDash,
   validateStrokeStyle,
+  radialSettings,
   parameter,
   outputType,
   outputPorts,
@@ -1445,6 +1446,8 @@ app.addEventListener('change', async (e) => {
             throw Error('Invalid stroke miter limit or dash offset');
           if (q.type === 'Vector2') q.value[Number(d.axis)] = value;
           else q.value = value;
+          if (['Polygon', 'Star'].includes(nn.type))
+            radialSettings(nn.type, (key) => nn.params[key].value);
         }
       }
     },
