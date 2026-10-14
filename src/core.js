@@ -1,3 +1,4 @@
+import { validateImageAssets, imageURL } from './images.js';
 import { validateGuides } from './guides.js';
 export {
   guideDefaults,
@@ -16,34 +17,39 @@ export const clone = (x) => structuredClone(x);
 // Font assets are immutable and shared across snapshots; copying large base64 strings
 // for every keystroke would turn a 20 MB font into gigabytes of undo history.
 export function cloneDocument(doc) {
-  const { fontAssets, ...model } = doc;
+  const { fontAssets, imageAssets, ...model } = doc;
   const copy = clone(model);
   if (fontAssets) {
     for (const asset of Object.values(fontAssets)) Object.freeze(asset);
     copy.fontAssets = { ...fontAssets };
   }
+  if (imageAssets) {
+    for (const asset of Object.values(imageAssets)) Object.freeze(asset);
+    copy.imageAssets = { ...imageAssets };
+  }
   return copy;
 }
 export function sameDocument(a, b) {
-  const { fontAssets: af = {}, ...am } = a;
-  const { fontAssets: bf = {}, ...bm } = b;
-  return (
-    Object.keys(af).length === Object.keys(bf).length &&
-    Object.entries(af).every(([id, asset]) => {
-      const other = bf[id];
+  const { fontAssets: af = {}, imageAssets: ai = {}, ...am } = a;
+  const { fontAssets: bf = {}, imageAssets: bi = {}, ...bm } = b;
+  const sameAssets = (left, right) =>
+    Object.keys(left).length === Object.keys(right).length &&
+    Object.entries(left).every(([id, asset]) => {
+      const other = right[id];
       return (
         other &&
-        asset.name === other.name &&
-        asset.fileName === other.fileName &&
-        asset.data === other.data
+        (asset === other ||
+          (Object.keys(asset).length === Object.keys(other).length &&
+            Object.entries(asset).every(([key, value]) => other[key] === value)))
       );
-    }) &&
-    JSON.stringify(am) === JSON.stringify(bm)
-  );
+    });
+  return sameAssets(af, bf) && sameAssets(ai, bi) && JSON.stringify(am) === JSON.stringify(bm);
 }
 export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID()}`;
 const p = (type, value) => ({ type, value, expression: '', locked: false });
 export const definitions = {
+  Image: { position: p('Vector2', [100, 100]), size: p('Vector2', [320, 240]) },
+  'Image Output': { path: p('Image', null) },
   Circle: { center: p('Vector2', [350, 250]), radius: p('Scalar', 120) },
   Ellipse: { center: p('Vector2', [350, 250]), size: p('Vector2', [240, 160]) },
   Rectangle: { center: p('Vector2', [460, 250]), size: p('Vector2', [180, 220]) },
@@ -97,6 +103,7 @@ export function node(type, x = 40, y = 40) {
     font: 'default',
     ...(type === 'Text' ? { writingMode: 'horizontal-tb' } : {}),
     rawPath: '',
+    ...(type === 'Image' ? { asset: '' } : {}),
   };
 }
 export function layer(name = 'Composition 1') {
@@ -129,6 +136,7 @@ export function document() {
   };
 }
 export function outputType(n) {
+  if (n.type === 'Image' || n.type === 'Image Output') return 'Image';
   return n.type === 'Value' || n.type === 'Expression'
     ? 'Scalar'
     : n.type === 'Vector'
@@ -316,6 +324,14 @@ export function pathData(path) {
   return result;
 }
 export function pathBounds(path) {
+  if (path.kind === 'image') {
+    const [x, y] = path.position,
+      [w, h] = path.size;
+    return [
+      [x, x + w / 2, x + w],
+      [y, y + h / 2, y + h],
+    ];
+  }
   const obj = toPaper(path);
   const { left, right, top, bottom } = obj.bounds;
   obj.remove();
@@ -333,7 +349,7 @@ export function pathArea(path) {
 }
 const evaluationCaches = new WeakMap();
 let revision = 0;
-export function evaluate(layer, fonts = {}) {
+export function evaluate(layer, fonts = {}, imageAssets = {}) {
   let cache = evaluationCaches.get(layer);
   if (!cache) {
     cache = new Map();
@@ -367,6 +383,10 @@ export function evaluate(layer, fonts = {}) {
       n.font,
       n.writingMode,
       n.rawPath,
+      n.asset,
+      n.asset && imageAssets[n.asset]
+        ? [imageAssets[n.asset].width, imageAssets[n.asset].height]
+        : null,
       deps.map((dep) => [dep, versions.get(dep)]),
     ]);
     const existing = cache.get(id);
@@ -421,6 +441,12 @@ export function evaluate(layer, fonts = {}) {
       }
       result = fromPaper(item, n.id);
       item.remove();
+    } else if (n.type === 'Image') {
+      if (!Object.hasOwn(imageAssets, n.asset)) throw Error('Missing image asset');
+      const size = read('size');
+      if (size.some((v) => v <= 0 || v > 100000))
+        throw Error('Image size must be positive and at most 100000');
+      result = { kind: 'image', asset: n.asset, position: read('position'), size };
     } else if (n.type === 'Curve')
       result = {
         contours: [
@@ -481,7 +507,7 @@ export function evaluate(layer, fonts = {}) {
       r.remove();
     } else {
       result = read('path');
-      if (!result) throw Error('Connect a Path input');
+      if (!result) throw Error(`Connect a ${n.params.path.type} input`);
       result = clone(result);
       if (n.type === 'Path Remap') {
         let offset = read('offset');
@@ -589,7 +615,8 @@ export function validate(doc) {
   function param(q, type) {
     if (!q || q.type !== type) throw Error('Invalid parameter type');
     assertValue(type, q.value);
-    if (type === 'Path' && q.value !== null) throw Error('Path fallback must be null');
+    if (['Path', 'Image'].includes(type) && q.value !== null)
+      throw Error('Path fallback must be null');
     text(q.expression);
     if (typeof q.locked !== 'boolean') throw Error('Invalid lock state');
     if (q.source !== undefined && (typeof q.source !== 'string' || !idPattern.test(q.source)))
@@ -598,6 +625,7 @@ export function validate(doc) {
   if (!doc || doc.schemaVersion !== 1) throw Error('Unsupported project version');
   text(doc.name);
   validateFontAssets(doc.fontAssets);
+  validateImageAssets(doc.imageAssets);
   validateGuides(doc.editor, id);
   if (!Array.isArray(doc.layers) || doc.layers.length < 1 || doc.layers.length > 100)
     throw Error('Invalid layers');
@@ -634,6 +662,8 @@ export function validate(doc) {
         )
           throw Error('Invalid writing mode');
       }
+      if (n.type === 'Image' && !Object.hasOwn(doc.imageAssets || {}, n.asset))
+        throw Error('Missing image asset');
       if (n.rawPath !== undefined) text(n.rawPath);
       if (n.type === 'Imported Path') parsePath(n.rawPath, n.id);
       if (
@@ -673,7 +703,7 @@ export function validate(doc) {
         for (const k of ['position', 'handleA', 'handleB']) if (edit[k] !== undefined) vec(edit[k]);
       }
     }
-    if (!l.nodes.some((n) => n.id === l.output && n.type === 'Output'))
+    if (!l.nodes.some((n) => n.id === l.output && ['Output', 'Image Output'].includes(n.type)))
       throw Error('Missing Output node');
     for (const n of l.nodes)
       for (const [key, q] of parameters(n)) if (q.source) connect(l, q.source, n.id, key, true);
@@ -696,18 +726,30 @@ const escape = (s) =>
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c],
   );
-export function exportSVG(doc, fonts = {}) {
-  fonts = resolveFonts(doc, fonts);
-  let paths = [];
-  for (const l of doc.layers) {
-    if (!l.visible || l.guide) continue;
-    let r = evaluate(l, fonts);
-    if (r.error) throw Error(`${l.name}: ${r.error}`);
-    paths.push(
-      `<path data-layer="${escape(l.name)}" d="${escape(pathData(r.path))}" fill="${escape(l.fill)}" fill-rule="nonzero"/>`,
-    );
+export function renderElement(value, l, assets = {}, attributes = '') {
+  if (value.kind === 'image') {
+    const asset = assets[value.asset];
+    if (!asset) throw Error('Missing image asset');
+    return `<image ${attributes} data-layer="${escape(l.name)}" x="${value.position[0]}" y="${value.position[1]}" width="${value.size[0]}" height="${value.size[1]}" preserveAspectRatio="none" href="${imageURL(asset)}"/>`;
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">${paths.join('')}</svg>`;
+  return `<path ${attributes} data-layer="${escape(l.name)}" d="${escape(pathData(value))}" fill="${escape(l.fill)}" fill-rule="nonzero"/>`;
+}
+export function exportScene(doc, fonts = {}) {
+  validate(doc);
+  fonts = resolveFonts(doc, fonts);
+  return doc.layers
+    .filter((l) => l.visible && !l.guide)
+    .map((l) => {
+      const result = evaluate(l, fonts, doc.imageAssets);
+      if (result.error) throw Error(`${l.name}: ${result.error}`);
+      return { layer: l, value: result.path };
+    });
+}
+export function exportSVG(doc, fonts = {}) {
+  const elements = exportScene(doc, fonts).map(({ layer, value }) =>
+    renderElement(value, layer, doc.imageAssets),
+  );
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">${elements.join('')}</svg>`;
 }
 export class History {
   constructor(doc) {
@@ -732,7 +774,9 @@ export class History {
     const retainedFontBytes = () => {
       const data = new Set(
         [this.doc, ...this.past].flatMap((doc) =>
-          Object.values(doc.fontAssets || {}).map((asset) => asset.data),
+          [...Object.values(doc.fontAssets || {}), ...Object.values(doc.imageAssets || {})].map(
+            (asset) => asset.data,
+          ),
         ),
       );
       return [...data].reduce((sum, value) => sum + value.length * 0.75, 0);

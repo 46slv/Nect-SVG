@@ -49,6 +49,8 @@ jobs:
           name: nect-svg-windows-development-${{ github.sha }}
           path: |
             test-results/*.png
+            test-results/workflow-*.json
+            test-results/workflow-*.svg
             test-results/japanese-*.json
             test-results/japanese-*.svg
             tests/fixtures/fonts/OFL.txt

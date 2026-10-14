@@ -52,3 +52,7 @@ See [architecture and public API](docs/architecture.md), [interaction contract](
 `npm test` runs geometry, type/graph, persistence, safety and synthetic DOM integration tests. `npm run test:e2e` runs real Chromium flows against a running dev server; set `CHROMIUM_PATH` for your system executable. Synthetic DOM tests are not screenshot or real browser rendering proof.
 
 Geometry: [Paper.js PathItem](https://paperjs.org/reference/pathitem/). Text outlines: bundled DejaVu Sans, license in `public/fonts/`. Windows setup: [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), [Windows installer](https://v2.tauri.app/distribute/windows-installer/).
+
+## Image workflow
+
+Export transparent SVG or PNG (0.5×–4×) from the same artboard scene. Import local PNG/JPEG into an Image composition, move/resize it, and save embedded assets in editable JSON. Image sockets remain separate from Path operations. See [export, limits and roundtrip boundaries](docs/image-export.md).

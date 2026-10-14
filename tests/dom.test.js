@@ -29,6 +29,8 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   source = source
     .replace("import './style.css';", '')
+    .replace("from './images.js'", `from '${new URL('../src/images.js', import.meta.url)}'`)
+    .replace("from './raster.js'", `from '${new URL('../src/raster.js', import.meta.url)}'`)
     .replace("from './focus.js'", `from '${new URL('../src/focus.js', import.meta.url)}'`)
     .replace("from './layout.js'", `from '${new URL('../src/layout.js', import.meta.url)}'`)
     .replace("from './core.js'", `from '${new URL('../src/core.js', import.meta.url)}'`)

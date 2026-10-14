@@ -11,7 +11,8 @@ fn open_document() -> Result<Option<String>, String> {
 }
 #[tauri::command]
 fn save_document(contents: String, suggested_name: String, kind: String) -> Result<bool, String> {
-    let limit = if kind == "svg" { 20_000_000 } else { 50_000_000 };
+    let limit = 50_000_000;
+    if kind != "svg" && kind != "json" { return Err("Unsupported document kind".into()); }
     if contents.len() > limit { return Err("Document exceeds its size limit".into()); }
     let extension = if kind == "svg" { "svg" } else { "json" };
     let Some(path) = rfd::FileDialog::new().set_file_name(&suggested_name).add_filter("Nect document", &[extension]).save_file() else { return Ok(false) };
@@ -23,7 +24,20 @@ fn save_document(contents: String, suggested_name: String, kind: String) -> Resu
     staged.persist(&path).map_err(|e| e.to_string())?;
     Ok(true)
 }
+#[tauri::command]
+fn save_png(bytes: Vec<u8>, suggested_name: String) -> Result<bool, String> {
+    if bytes.len() > 64_000_000 || !bytes.starts_with(&[137, 80, 78, 71, 13, 10, 26, 10]) {
+        return Err("Invalid PNG or PNG exceeds 64 MB".into());
+    }
+    let Some(path) = rfd::FileDialog::new().set_file_name(&suggested_name).add_filter("PNG image", &["png"]).save_file() else { return Ok(false) };
+    let parent = path.parent().ok_or("Invalid destination")?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    staged.write_all(&bytes).map_err(|e| e.to_string())?;
+    staged.as_file().sync_all().map_err(|e| e.to_string())?;
+    staged.persist(&path).map_err(|e| e.to_string())?;
+    Ok(true)
+}
 fn main() {
-    tauri::Builder::default().invoke_handler(tauri::generate_handler![open_document, save_document])
+    tauri::Builder::default().invoke_handler(tauri::generate_handler![open_document, save_document, save_png])
         .run(tauri::generate_context!()).expect("Could not start Nect SVG");
 }

@@ -1,3 +1,5 @@
+import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './raster.js';
+import { validateImageAssets } from './images.js';
 import { captureFocus, restoreFocus } from './focus.js';
 import './style.css';
 import { findFreeNodePosition } from './layout.js';
@@ -32,8 +34,10 @@ import {
   connect,
   disconnect,
   serialize,
+  validate,
   deserialize,
   exportSVG,
+  renderElement,
   History,
   guideDefaults,
   guideSettings,
@@ -67,7 +71,11 @@ let history = new History(newDocument()),
   penId = null;
 let savedSnapshot = serialize(history.doc),
   saveInFlight = false,
-  openRequest = 0;
+  openRequest = 0,
+  imageRequest = 0,
+  imagePick = null,
+  pngScale = 1,
+  exportInFlight = false;
 let selection = new Set([selected]);
 const detailsState = new Map();
 const remapBatches = new Map();
@@ -135,6 +143,8 @@ function change(fn, text, deferRender = false) {
   }
 }
 function resetTransient() {
+  imageRequest++;
+  imagePick = null;
   layoutDraft = null;
   layoutPreview = false;
   if (drag?.before) history.doc = drag.before;
@@ -156,9 +166,9 @@ function field(n, key, q) {
       displayed = renderEvaluation.run(source.id);
     } catch {}
   }
-  if (q.type === 'Path')
-    control = `<select data-path-source aria-label="${esc(n.name + ' ' + name)}"><option value="">Connect Path…</option>${current()
-      .nodes.filter((x) => outputType(x) === 'Path' && x.id !== n.id)
+  if (['Path', 'Image'].includes(q.type))
+    control = `<select data-path-source aria-label="${esc(n.name + ' ' + name)}"><option value="">Connect ${q.type}…</option>${current()
+      .nodes.filter((x) => outputType(x) === q.type && x.id !== n.id)
       .map(
         (x) =>
           `<option value="${x.id}" ${q.source === x.id ? 'selected' : ''}>${esc(x.name)} · ${x.id.slice(-4)}</option>`,
@@ -175,7 +185,7 @@ function field(n, key, q) {
           `<input type="number" step="any" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(v.toFixed?.(3) ?? v)}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
-  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}</label><div class="field-tools">${q.type !== 'Path' ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && q.type !== 'Path' ? `<span class="source-name">← ${esc(source.name)} · connected value</span>` : ''}</div>`;
+  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}</label><div class="field-tools">${!['Path', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name)} · connected value</span>` : ''}</div>`;
 }
 function remapFields(n, result) {
   let input;
@@ -242,11 +252,11 @@ function expandedNodeBody(n, result) {
     .map(([k, q]) => field(n, k, q))
     .join(
       '',
-    )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${outputType(n) === 'Path' && n.type !== 'Output' ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${n.type !== 'Output' ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div>`;
+    )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${['Path', 'Image'].includes(outputType(n)) && !['Output', 'Image Output'].includes(n.type) ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div>`;
 }
 function nodeHTML(n, result) {
   const body = n.collapsed
-    ? `<div class="node-body compact-body">${compactFields(n)}</div><div hidden><button data-duplicate="${n.id}">Duplicate</button>${n.type !== 'Output' ? `<button data-delete="${n.id}">Delete</button>` : ''}</div>`
+    ? `<div class="node-body compact-body">${compactFields(n)}</div><div hidden><button data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button data-delete="${n.id}">Delete</button>` : ''}</div>`
     : expandedNodeBody(n, result);
   return `<section class="node ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
@@ -277,10 +287,10 @@ function render(resetView = false) {
   activeLayer = l.id;
   const n = selectedNode();
   fonts = resolveFonts(doc, bundledFont ? { default: bundledFont } : {});
-  let results = doc.layers.map((x) => [x, evaluate(x, fonts)]),
+  let results = doc.layers.map((x) => [x, evaluate(x, fonts, history.doc.imageAssets)]),
     result = results.find(([x]) => x.id === l.id)[1];
   renderEvaluation = result;
-  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New</button><button data-action="open">Open</button><button data-action="import-svg">Import SVG</button><button data-action="save">Save JSON</button><button data-action="export">Export SVG</button><span class="divider"></span><button data-action="undo" ${history.past.length ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New</button><button data-action="open">Open</button><button data-action="import-svg">Import SVG</button><button data-action="import-image">Import image</button><button data-action="save">Save JSON</button><button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
     ['Circle', '○', 'Add Circle'],
@@ -301,7 +311,7 @@ function render(resetView = false) {
     )}${guidesOverlay()}${canvasOverlay(n, result)}</svg></div><div class="hint">${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : n ? `Editing ${esc(n.name)}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select a generator to edit its original parameters'}</div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head"><strong>Node graph</strong><span class="muted">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
     definitions,
   )
-    .filter((x) => x !== 'Output')
+    .filter((x) => !['Output', 'Image Output', 'Image'].includes(x))
     .map((x) => `<option>${x}</option>`)
     .join(
       '',
@@ -320,7 +330,7 @@ function render(resetView = false) {
       ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n)}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${textControls(n)}${Object.entries(
           n.params,
         )
-          .filter(([, q]) => q.type !== 'Path')
+          .filter(([, q]) => !['Path', 'Image'].includes(q.type))
           .map(([k, q]) => field(n, k, q))
           .join('')}`
       : '<p>Select a node.</p>'
@@ -331,7 +341,7 @@ function render(resetView = false) {
     )
     .join(
       '',
-    )}<p>Dynamic sockets<br>Drag a node output onto a compatible field. Drag a connected input into empty graph space to disconnect. Right-click an input also disconnects.</p><p>Expressions: arithmetic, pi, sin, cos, sqrt, min/max. Vector2: x expression; y expression.</p></div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+    )}<p>Dynamic sockets<br>Drag a node output onto a compatible field. Drag a connected input into empty graph space to disconnect. Right-click an input also disconnects.</p><p>Expressions: arithmetic, pi, sin, cos, sqrt, min/max. Vector2: x expression; y expression.</p></div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
   const gs = document.querySelector('.graph-scroll');
   gs.scrollLeft = oldScroll[0];
   gs.scrollTop = oldScroll[1];
@@ -368,7 +378,12 @@ function layerShown(l) {
   return l.visible && (!l.guide || guideSettings(history.doc).visible);
 }
 function layerShape(l, path) {
-  return `<path class="shape ${l.guide ? 'guide-layer-shape' : ''}" data-layer="${l.id}" d="${esc(pathData(path))}" fill="${esc(l.fill)}" fill-rule="nonzero"/>`;
+  return renderElement(
+    path,
+    { ...l, name: l.id },
+    history.doc.imageAssets,
+    `class="shape ${l.guide ? 'guide-layer-shape' : ''}"`,
+  );
 }
 function layoutConfig() {
   return layoutDraft || guideSettings(history.doc).layoutGrid || layoutGridDefaults();
@@ -480,8 +495,9 @@ function snapped(sources, delta, event, excludedGuide = null) {
     history.doc.layers
       .filter((l) => l.guide && layerShown(l) && l.id !== activeLayer)
       .flatMap((l) => {
-        const r = evaluate(l, fonts);
-        return !r.error && r.path?.contours.some((c) => c.points.length > 0)
+        const r = evaluate(l, fonts, history.doc.imageAssets);
+        return !r.error &&
+          (r.path?.kind === 'image' || r.path?.contours.some((c) => c.points.length > 0))
           ? [pathBounds(r.path)]
           : [];
       }),
@@ -497,6 +513,8 @@ function canvasOverlay(n, result) {
   } catch {
     return '';
   }
+  if (path?.kind === 'image')
+    return `<rect class="guide" x="${path.position[0]}" y="${path.position[1]}" width="${path.size[0]}" height="${path.size[1]}" stroke-dasharray="5 4"/>`;
   if (outputType(n) !== 'Path') return '';
   let out = `<path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>`;
   if (['Curve', 'Path Remap'].includes(n.type))
@@ -517,13 +535,13 @@ function updateCanvas() {
     const svg = document.querySelector('.artboard');
     if (!svg) return;
     const l = current(),
-      r = evaluate(l, fonts);
+      r = evaluate(l, fonts, history.doc.imageAssets);
     svg.innerHTML =
       gridOverlay() +
       history.doc.layers
         .filter((x) => layerShown(x))
         .map((x) => {
-          const value = x === l ? r : evaluate(x, fonts);
+          const value = x === l ? r : evaluate(x, fonts, history.doc.imageAssets);
           return value.path && !value.error ? layerShape(x, value.path) : '';
         })
         .join('') +
@@ -728,8 +746,29 @@ app.addEventListener('click', async (e) => {
           break;
         }
         case 'export':
-          if (await saveFile(exportSVG(history.doc, fonts), 'nect-artwork.svg', 'svg'))
-            notify('SVG exported');
+        case 'export-png': {
+          if (exportInFlight) break;
+          exportInFlight = true;
+          try {
+            const svg = exportSVG(history.doc, fonts);
+            if (d.action === 'export') {
+              if (await saveFile(svg, 'nect-artwork.svg', 'svg'))
+                notify('SVG exported · transparent artboard; guides excluded');
+            } else {
+              const size = pngDimensions(history.doc, pngScale);
+              const blob = await rasterizeSVG(svg, size);
+              if (await saveFile(blob, 'nect-artwork.png', 'png'))
+                notify(`PNG exported · ${size.width} × ${size.height} · transparent background`);
+            }
+          } finally {
+            exportInFlight = false;
+          }
+          break;
+        }
+        case 'import-image':
+          imagePick = { id: ++imageRequest, before: serialize(history.doc), doc: history.doc };
+          document.querySelector('#image-file').value = '';
+          document.querySelector('#image-file').click();
           break;
         case 'import-svg':
           if (!confirmReplace()) break;
@@ -746,6 +785,9 @@ app.addEventListener('click', async (e) => {
               throw Error('Document changed while reading; open the file again');
             if (text !== null) {
               const next = deserialize(text);
+              await preflightImages(next);
+              if (request !== openRequest || serialize(history.doc) !== before)
+                throw Error('Document changed while reading; open the file again');
               resetTransient();
               history.apply(() => (history.doc = next));
               activeLayer = next.layers[0].id;
@@ -959,7 +1001,7 @@ app.addEventListener('click', async (e) => {
         batch = remapBatch(nn.id);
       translateRemapPoints(
         nn,
-        evaluate(current(), fonts).run(nn.params.path.source),
+        evaluate(current(), fonts, history.doc.imageAssets).run(nn.params.path.source),
         [...batch.selected],
         batch.delta,
       );
@@ -967,13 +1009,13 @@ app.addEventListener('click', async (e) => {
   if (d.rebindRemap)
     change(() => {
       const nn = current().nodes.find((n) => n.id === d.node),
-        input = evaluate(current(), fonts).run(nn.params.path.source);
+        input = evaluate(current(), fonts, history.doc.imageAssets).run(nn.params.path.source);
       rebindRemapPoint(nn, input, d.rebindRemap);
     }, 'Retained edit explicitly rebound to the current point');
   if (d.enableRemap)
     change(() => {
       const nn = current().nodes.find((n) => n.id === d.node),
-        input = evaluate(current(), fonts).run(nn.params.path.source);
+        input = evaluate(current(), fonts, history.doc.imageAssets).run(nn.params.path.source);
       enableRemapPoint(nn, input, d.enableRemap);
     }, 'Point Value / Expression / Node Input controls enabled');
   if (d.clearEdits)
@@ -996,6 +1038,59 @@ app.addEventListener('change', async (e) => {
     const value = Number(el.value);
     if (Number.isFinite(value)) remapBatch(d.node).delta[Number(d.batchAxis)] = value;
     else notify('Expected a finite batch delta', true);
+    return;
+  }
+  if (el.id === 'png-scale') {
+    pngScale = Number(el.value);
+    render();
+    return;
+  }
+  if (el.id === 'image-file') {
+    const file = el.files[0];
+    if (!file) {
+      imagePick = null;
+      return;
+    }
+    const request = imagePick || {
+      id: ++imageRequest,
+      before: serialize(history.doc),
+      doc: history.doc,
+    };
+    imagePick = null;
+    try {
+      const asset = await prepareImage(file);
+      if (request.id !== imageRequest) return;
+      if (history.doc !== request.doc || serialize(history.doc) !== request.before)
+        throw Error('Document changed while reading; import the image again');
+      history.apply((doc) => {
+        const id = uid('image');
+        doc.imageAssets = { ...doc.imageAssets, [id]: asset };
+        validateImageAssets(doc.imageAssets);
+        const l = layer(asset.name),
+          n = node('Image'),
+          out = node('Image Output', 380, 40);
+        n.asset = id;
+        const scale = Math.min(1, doc.width / asset.width, doc.height / asset.height);
+        n.params.size.value = [asset.width * scale, asset.height * scale];
+        n.params.position.value = [
+          (doc.width - n.params.size.value[0]) / 2,
+          (doc.height - n.params.size.value[1]) / 2,
+        ];
+        out.params.path.source = n.id;
+        l.nodes = [n, out];
+        l.output = out.id;
+        doc.layers.push(l);
+        validate(doc);
+        serialize(doc);
+      });
+      activeLayer = history.doc.layers.at(-1).id;
+      selected = current().nodes[0].id;
+      selection = new Set([selected]);
+      notify(`Imported ${asset.name} · embedded PNG; JSON keeps the editable image`);
+      render(true);
+    } catch (err) {
+      notify(`Image rejected; current document preserved: ${err.message}`, true);
+    }
     return;
   }
   if (el.id === 'font-file') {
@@ -1048,6 +1143,7 @@ app.addEventListener('change', async (e) => {
         throw Error('File exceeds the supported size limit');
       let text = await file.text(),
         next = el.id === 'import-svg-file' ? importSVG(text) : deserialize(text);
+      await preflightImages(next);
       if (request !== openRequest) return;
       if (serialize(history.doc) !== before)
         throw Error('Document changed while reading; open the file again');
@@ -1131,7 +1227,7 @@ app.addEventListener('change', async (e) => {
         }
       } else if (d.remap) {
         let nn = current().nodes.find((n) => n.id === d.node),
-          input = evaluate(current(), fonts).run(nn.params.path.source);
+          input = evaluate(current(), fonts, history.doc.imageAssets).run(nn.params.path.source);
         let edit = nn.edits.find((x) => x.pointId === d.remap);
         if (!edit) {
           edit = {
@@ -1289,6 +1385,10 @@ app.addEventListener('pointerdown', (e) => {
   let pos = canvasPoint(e),
     n = selectedNode();
   if (tool === 'pen') {
+    if (current().nodes.find((x) => x.id === current().output).params.path.type !== 'Path') {
+      notify('Pen needs a vector composition; add or select a vector layer first', true);
+      return;
+    }
     pos = snapped([[pos[0]], [pos[1]]], [0, 0], e).map((v, i) => v + pos[i]);
     if (
       penId &&
@@ -1328,7 +1428,7 @@ app.addEventListener('pointerdown', (e) => {
     return;
   }
   if (e.target.dataset.point && n?.type === 'Path Remap') {
-    const input = evaluate(current(), fonts).run(n.params.path.source),
+    const input = evaluate(current(), fonts, history.doc.imageAssets).run(n.params.path.source),
       pointId = e.target.dataset.point,
       key = e.target.dataset.handle || 'position',
       existing = n.edits.find((e) => e.pointId === pointId);
@@ -1358,7 +1458,7 @@ app.addEventListener('pointerdown', (e) => {
       start: pos,
       original: clone(edit.params[key].value),
       anchor: (() => {
-        const p = evaluate(current(), fonts)
+        const p = evaluate(current(), fonts, history.doc.imageAssets)
           .run(n.id)
           .contours.flatMap((c) => c.points)
           .find((p) => p.id === pointId);
@@ -1391,7 +1491,7 @@ app.addEventListener('pointerdown', (e) => {
       start: pos,
       original: clone(q.value),
       anchor: (() => {
-        const p = evaluate(current(), fonts)
+        const p = evaluate(current(), fonts, history.doc.imageAssets)
           .run(n.id)
           .contours.flatMap((c) => c.points)
           .find((p) => p.id === pt.id);
@@ -1404,13 +1504,15 @@ app.addEventListener('pointerdown', (e) => {
   const generators = current().nodes.filter((n) => selection.has(n.id));
   if (
     generators.length &&
-    generators.every((n) => ['Circle', 'Ellipse', 'Rectangle', 'Text', 'Curve'].includes(n.type))
+    generators.every((n) =>
+      ['Circle', 'Ellipse', 'Rectangle', 'Text', 'Curve', 'Image'].includes(n.type),
+    )
   ) {
     const targets = generators.map((n) => {
       const keys =
         n.type === 'Curve'
           ? n.points.map((p) => `${p.id}.position`)
-          : [n.type === 'Text' ? 'position' : 'center'];
+          : [['Text', 'Image'].includes(n.type) ? 'position' : 'center'];
       return { nodeId: n.id, keys, original: keys.map((k) => clone(parameter(n, k).value)) };
     });
     if (
@@ -1427,14 +1529,16 @@ app.addEventListener('pointerdown', (e) => {
       notify('A selected position is locked or driven by an input', true);
       return;
     }
-    const bounds = generators.map((g) => pathBounds(evaluate(current(), fonts).run(g.id)));
+    const bounds = generators.map((g) =>
+      pathBounds(evaluate(current(), fonts, history.doc.imageAssets).run(g.id)),
+    );
     const anchors = [0, 1].map((axis) => {
       const low = Math.min(...bounds.map((b) => b[axis][0])),
         high = Math.max(...bounds.map((b) => b[axis][2]));
       return [low, (low + high) / 2, high];
     });
     drag = { type: 'shape', targets, anchors, start: pos, before: cloneDocument(history.doc) };
-  } else notify('Select only Circle, Rectangle, Text or Curve generators to move them');
+  } else notify('Select only shape, Text, Image or Curve generators to move them');
 });
 document.addEventListener('pointermove', (e) => {
   if (!drag) return;
@@ -1631,7 +1735,7 @@ document.addEventListener('keydown', (e) => {
     });
     return;
   }
-  if (e.key === 'Delete' && selectedNode()?.type !== 'Output')
+  if (e.key === 'Delete' && !['Output', 'Image Output'].includes(selectedNode()?.type))
     document.querySelector(`[data-delete="${selected}"]`)?.click();
 });
 document.addEventListener('keydown', (e) => {
@@ -1685,7 +1789,7 @@ window.nect = {
   get document() {
     return history.doc;
   },
-  evaluate: () => evaluate(current(), fonts),
+  evaluate: () => evaluate(current(), fonts, history.doc.imageAssets),
   load(text) {
     const d = deserialize(text);
     resetTransient();

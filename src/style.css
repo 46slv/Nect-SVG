@@ -755,3 +755,20 @@ summary input[type='checkbox'] {
   max-height: 180px;
   overflow: auto;
 }
+
+/* Keep file actions usable at the desktop minimum width without compressing labels. */
+header {
+  overflow-x: auto;
+}
+header > button,
+header > select,
+header > .brand {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+header > .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}

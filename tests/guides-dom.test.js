@@ -21,7 +21,16 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   globalThis.fetch = async () => ({ ok: false });
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   source = source.replace("import './style.css';", '');
-  for (const name of ['core', 'focus', 'layout', 'svg-import', 'storage', 'fonts'])
+  for (const name of [
+    'core',
+    'focus',
+    'layout',
+    'svg-import',
+    'storage',
+    'fonts',
+    'images',
+    'raster',
+  ])
     source = source.replace(
       `from './${name}.js'`,
       `from '${new URL(`../src/${name}.js`, import.meta.url)}'`,
