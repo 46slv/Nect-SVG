@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "test": "node --test tests/*.test.js",
-    "test:e2e": "npm run test:csp && node tests/editor.e2e.js && node tests/text.e2e.js && node tests/system-font.e2e.js && node tests/guides.e2e.js && node tests/layout-guides.e2e.js && node tests/images.e2e.js && node tests/color.e2e.js && node tests/graph-navigation.e2e.js && node tests/paint.e2e.js && node tests/math.e2e.js && node tests/wiring.e2e.js && node tests/creation.e2e.js && node tests/join-stroke.e2e.js && node tests/polygon-star.e2e.js && node tests/transform-anchor.e2e.js && node tests/position-reference.e2e.js",
+    "test:e2e": "npm run test:csp && node tests/editor.e2e.js && node tests/text.e2e.js && node tests/system-font.e2e.js && node tests/guides.e2e.js && node tests/layout-guides.e2e.js && node tests/images.e2e.js && node tests/color.e2e.js && node tests/graph-navigation.e2e.js && node tests/paint.e2e.js && node tests/math.e2e.js && node tests/wiring.e2e.js && node tests/creation.e2e.js && node tests/join-stroke.e2e.js && node tests/polygon-star.e2e.js && node tests/transform-anchor.e2e.js && node tests/position-reference.e2e.js && node tests/numeric-scrub.e2e.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "npm run format:check && npm test && npm run build",

@@ -167,6 +167,26 @@ function resetTransient() {
   wiring = null;
   penId = null;
 }
+// Bounds are shared by rendered controls and pointer scrubbing.
+function numericLimits(n, key) {
+  if (n.type === 'Stroke') {
+    if (key === 'width') return [0, 100000];
+    if (key === 'miterLimit') return [1, 10000];
+    if (key === 'dashOffset') return [-100000, 100000];
+  }
+  if (n.type === 'Geometry Repeater' && key === 'count') return [1, 256];
+  if (['Polygon', 'Star'].includes(n.type)) {
+    if (['sides', 'points'].includes(key)) return [3, 256];
+    if (key === 'radius' || key === 'outerRadius')
+      return [n.type === 'Star' ? n.params.innerRadius.value : Number.MIN_VALUE, 100000];
+    if (key === 'innerRadius') return [Number.MIN_VALUE, n.params.outerRadius.value];
+  }
+  return [-Number.MAX_VALUE, Number.MAX_VALUE];
+}
+function numericAttributes(n, key) {
+  const [min, max] = numericLimits(n, key);
+  return `${min === -Number.MAX_VALUE ? '' : `min="${min}" max="${max}"`} data-scrub-step="${key === 'scale' ? 0.01 : 1}" title="Drag horizontally to adjust; click to type"`;
+}
 function field(n, key, q) {
   let source = current().nodes.find((x) => x.id === q.source),
     locked = q.locked || !!q.source;
@@ -193,7 +213,7 @@ function field(n, key, q) {
       .join('')}</select>`;
   else if (q.type === 'Color') {
     const color = displayed || { hex: current().fill, alpha: 1 };
-    control = `<input type="color" data-color="hex" aria-label="${esc(n.name + ' ' + name)} color" value="${esc(color.hex)}" ${locked ? 'disabled' : ''}><input type="number" data-color="alpha" aria-label="${esc(n.name + ' ' + name)} alpha" title="Alpha: 0 transparent, 1 opaque" min="0" max="1" step="0.01" value="${color.alpha}" ${locked ? 'disabled' : ''}>`;
+    control = `<input type="color" data-color="hex" aria-label="${esc(n.name + ' ' + name)} color" value="${esc(color.hex)}" ${locked ? 'disabled' : ''}><input type="number" data-scrub-step="0.01" data-color="alpha" aria-label="${esc(n.name + ' ' + name)} alpha" title="Alpha: 0 transparent, 1 opaque" min="0" max="1" step="0.01" value="${color.alpha}" ${locked ? 'disabled' : ''}>`;
   } else if (q.type === 'Boolean')
     control = `<input aria-label="${esc(name)}" data-value type="checkbox" ${displayed ? 'checked' : ''} ${locked ? 'disabled' : ''}>`;
   else if (q.expression && !q.source)
@@ -202,7 +222,7 @@ function field(n, key, q) {
     control = (q.type === 'Vector2' ? displayed : [displayed])
       .map(
         (v, i) =>
-          `<input type="number" step="any" ${n.type === 'Stroke' && key === 'width' ? 'min="0" max="100000"' : ''} aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(v.toFixed?.(3) ?? v)}" ${locked ? 'disabled' : ''}>`,
+          `<input type="number" step="any" ${numericAttributes(n, key)} aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(v.toFixed?.(3) ?? v)}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
   return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + q.sourcePort.toUpperCase() : ''))} · connected value</span>` : ''}</div>`;
@@ -1209,6 +1229,7 @@ async function loadInstalledFont(id, nodeId) {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (drag?.type === 'numeric' && drag.started && el === drag.capture) return;
   if (d.batchPoint) {
     const selected = remapBatch(d.node).selected;
     if (el.checked) selected.add(d.batchPoint);
@@ -1608,6 +1629,29 @@ app.addEventListener('pointerdown', (e) => {
   if (drag) return;
   const viewport = e.target.closest('.graph-scroll');
   const control = e.target.closest('input,textarea,select,[contenteditable="true"]');
+  const numeric = e.target.closest('input[type="number"][data-scrub-step]');
+  if (numeric && e.button === 0 && !current().locked && !numeric.disabled) {
+    const field = numeric.closest('.field'),
+      n = current().nodes.find((n) => n.id === field.dataset.node),
+      q = parameter(n, field.dataset.key),
+      rect = numeric.getBoundingClientRect();
+    // Leave the native spinner hit area alone. A click elsewhere still focuses/selects text.
+    if (!q.locked && !q.source && !q.expression && (!rect.width || e.clientX < rect.right - 18)) {
+      drag = {
+        type: 'numeric',
+        nodeId: n.id,
+        key: field.dataset.key,
+        axis: Number(numeric.dataset.axis || 0),
+        alpha: numeric.dataset.color === 'alpha',
+        startX: e.clientX,
+        pointerId: e.pointerId,
+        capture: numeric,
+        started: false,
+      };
+      return;
+    }
+  }
+
   if (
     viewport &&
     !control &&
@@ -1949,6 +1993,56 @@ document.addEventListener('pointermove', (e) => {
     return;
   }
   if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
+  if (drag.type === 'numeric') {
+    const d = drag,
+      dx = e.clientX - d.startX;
+    if (!d.started && Math.abs(dx) < 4) return;
+    // Finish any typed draft before taking the drag snapshot. It remains its own edit.
+    if (!d.started && d.capture.value !== d.capture.defaultValue) {
+      const text = d.capture.value,
+        expected = Number(text);
+      d.capture.dispatchEvent(new window.Event('change', { bubbles: true }));
+      const node = current().nodes.find((n) => n.id === d.nodeId),
+        q = parameter(node, d.key),
+        actual = d.alpha ? q.value.alpha : q.type === 'Vector2' ? q.value[d.axis] : q.value;
+      if (!text.trim() || !Number.isFinite(expected) || actual !== expected) {
+        cancelInteraction();
+        return;
+      }
+    }
+    const n = current().nodes.find((n) => n.id === d.nodeId),
+      q = parameter(n, d.key);
+    if (current().locked || q.locked || q.source || q.expression) {
+      cancelInteraction();
+      return;
+    }
+    if (!d.started) {
+      d.before = cloneDocument(history.doc);
+      d.original = d.alpha ? q.value.alpha : q.type === 'Vector2' ? q.value[d.axis] : q.value;
+      d.started = true;
+      d.capture.setPointerCapture?.(e.pointerId);
+      d.capture.classList.add('scrubbing');
+    }
+    e.preventDefault();
+    const [min, max] = d.alpha ? [0, 1] : numericLimits(n, d.key),
+      step = Number(d.capture.dataset.scrubStep),
+      // Subtract the activation threshold so a click with slight jitter never jumps.
+      distance = Math.sign(dx) * Math.max(0, Math.abs(dx) - 4),
+      value =
+        Math.trunc(distance) === 0
+          ? d.original
+          : Math.max(
+              min,
+              Math.min(max, Number((d.original + Math.trunc(distance) * step).toPrecision(15))),
+            );
+    if (!Number.isFinite(value)) return;
+    if (d.alpha) q.value.alpha = value;
+    else if (q.type === 'Vector2') q.value[d.axis] = value;
+    else q.value = value;
+    d.capture.value = String(value);
+    updateCanvas();
+    return;
+  }
   if (drag.type === 'graph-pan') {
     const viewport = document.querySelector('.graph-scroll');
     viewport.scrollLeft = drag.scroll[0] - e.clientX + drag.start[0];
@@ -2079,6 +2173,7 @@ document.addEventListener('pointerup', (e) => {
     graphFrame = null;
     if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
     snapMatches = [];
+    if (d.type === 'numeric' && !d.started) return;
     if (d.before && !sameDocument(d.before, history.doc)) {
       history.record(d.before);
       notify('Updated');
@@ -2111,6 +2206,15 @@ app.addEventListener(
   true,
 );
 document.addEventListener('keydown', (e) => {
+  if (drag?.type === 'numeric' && e.key === 'Escape') {
+    e.preventDefault();
+    cancelInteraction();
+    return;
+  }
+  if (drag?.type === 'numeric' && drag.started) {
+    e.preventDefault();
+    return;
+  }
   if (e.target.matches('input,textarea,select')) return;
   if (e.code === 'Space') {
     space = true;

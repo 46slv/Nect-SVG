@@ -809,3 +809,12 @@ image.guide-layer-shape {
   stroke-width: 2.5;
   stroke-dasharray: 6 4;
 }
+
+input[data-scrub-step]:not(:disabled) {
+  cursor: ew-resize;
+  touch-action: none;
+}
+input[data-scrub-step].scrubbing {
+  user-select: none;
+  cursor: ew-resize;
+}
