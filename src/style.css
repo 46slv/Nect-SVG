@@ -864,6 +864,13 @@ input[data-scrub-step].scrubbing {
   align-items: flex-end;
   gap: 6px;
 }
+.character-shape-values {
+  margin-top: 6px;
+}
+.character-values button {
+  width: 88px;
+  font-size: 11px;
+}
 .character-values label {
   display: flex;
   flex-direction: column;

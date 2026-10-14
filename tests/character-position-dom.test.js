@@ -63,6 +63,10 @@ test('Character position UI: transformed selection/drag, mixed fields, cancel, l
   connect(l, fill.id, out.id, 'path');
   const load = () => win.nect.load(JSON.stringify(doc));
   load();
+  // Await actual font-backed evaluation, not a fixed delay under the parallel full suite.
+  for (let i = 0; i < 250 && win.nect.evaluate().error; i++)
+    await new Promise((r) => setTimeout(r, 20));
+  assert.equal(win.nect.evaluate().error, null);
   const get = () => win.nect.document.layers[0].nodes.find((n) => n.id === text.id);
   const pointer = (el, type, x, y, extra = {}) =>
     el.dispatchEvent(

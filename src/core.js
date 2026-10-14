@@ -1361,7 +1361,7 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3].includes(doc.schemaVersion)) throw Error('Unsupported project version');
+  if (!doc || ![1, 2, 3, 4].includes(doc.schemaVersion)) throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   text(doc.name);
   validateFontAssets(doc.fontAssets);
@@ -1410,6 +1410,8 @@ export function validate(doc) {
         throw Error('Character positions require schemaVersion 3 and a Text node');
       if (n.type === 'Text') {
         validateCharacterPositions(n.characterPositions);
+        if (n.characterPositions?.version === 2 && doc.schemaVersion < 4)
+          throw Error('Character shape transforms require schemaVersion 4');
         if (n.referenceBounds !== undefined && !['visible', 'advance'].includes(n.referenceBounds))
           throw Error('Invalid text reference bounds');
         if (
@@ -1565,7 +1567,7 @@ export function exportScene(doc, fonts = {}) {
       if (result.error) throw Error(`${l.name}: ${result.error}`);
       if (result.path?.characterOccurrences?.some((o) => o.suspended))
         throw Error(
-          `${l.name}: Character positions are suspended; restore text/mapping or reset all positions before export`,
+          `${l.name}: Character positions are suspended; restore text/mapping or reset all adjustments before export`,
         );
       return { layer: l, value: result.path };
     });

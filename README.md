@@ -70,3 +70,7 @@ Artwork alignment: enable **Guides → Snap artwork** to align to other visible 
 ### Same-layer Vector2 Reference
 
 Add **Reference** to reuse a Text Position, Null or other Vector2 output without a long source wire. The picker shows stable source identity and output, with **Jump to source**, cycle protection and explicit missing-target diagnostics. Try [the editable comparison sample](examples/vector-reference-reuse.json); [scope, persistence and tests](docs/vector-reference.md) describe the current prototype.
+
+### Per-character shape editing
+
+In **Character position**, adjust **Rotate °** and **Scale ×** alongside XY without changing font size, advances or Text Position. Mixed selections use each character’s fixed cell pivot; separate XY/shape resets keep intent clear. Try [the editable character-shape sample](examples/character-transform.json) and see [pivot, schema4 and verification boundaries](docs/character-transform.md).

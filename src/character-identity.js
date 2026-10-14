@@ -2,6 +2,24 @@
 export const CHARACTER_POSITION_VERSION = 1;
 export const MAX_CHARACTER_TEXT_LENGTH = 10000;
 export const MAX_CHARACTER_OFFSET = 100000;
+export const CHARACTER_TRANSFORM_VERSION = 2;
+export const MIN_CHARACTER_SCALE = 0.01;
+export const MAX_CHARACTER_SCALE = 100;
+export const MAX_CHARACTER_ROTATION = 36000;
+function shapeTransform(value) {
+  if (
+    !plainObject(value) ||
+    Object.keys(value).some((key) => !['rotation', 'scale'].includes(key)) ||
+    !Number.isFinite(value.rotation) ||
+    Math.abs(value.rotation) > MAX_CHARACTER_ROTATION ||
+    !Number.isFinite(value.scale) ||
+    value.scale < MIN_CHARACTER_SCALE ||
+    value.scale > MAX_CHARACTER_SCALE
+  )
+    throw Error(
+      'Character shape requires rotation from -36000 to 36000 degrees and uniform scale from 0.01 to 100',
+    );
+}
 const own = (object, key) => Object.hasOwn(object, key);
 const plainObject = (value) =>
   value !== null &&
@@ -45,9 +63,18 @@ export function validateCharacterPositions(record) {
   if (
     !plainObject(record) ||
     Object.keys(record).some(
-      (key) => !['version', 'basis', 'units', 'offsets', 'nextId'].includes(key),
+      (key) =>
+        ![
+          'version',
+          'basis',
+          'units',
+          'offsets',
+          'nextId',
+          ...(record.version === 2 ? ['transforms'] : []),
+        ].includes(key),
     ) ||
-    record.version !== CHARACTER_POSITION_VERSION ||
+    ![CHARACTER_POSITION_VERSION, CHARACTER_TRANSFORM_VERSION].includes(record.version) ||
+    (record.version === CHARACTER_TRANSFORM_VERSION && !plainObject(record.transforms)) ||
     !Number.isSafeInteger(record.nextId) ||
     record.nextId < 1 ||
     !Array.isArray(record.units) ||
@@ -82,6 +109,11 @@ export function validateCharacterPositions(record) {
       throw Error('Character offset must reference a known non-newline unit');
     vector(value);
   }
+  for (const [id, value] of Object.entries(record.transforms || {})) {
+    if (!ids.has(id) || ids.get(id) === '\n')
+      throw Error('Character shape must reference a known non-newline unit');
+    shapeTransform(value);
+  }
   return record;
 }
 function allocate(basis, start = 1) {
@@ -100,15 +132,24 @@ export function hasCharacterOffsets(record) {
   validateCharacterPositions(record);
   return !!record && Object.values(record.offsets).some(([x, y]) => x !== 0 || y !== 0);
 }
+export function hasCharacterAdjustments(record) {
+  return (
+    hasCharacterOffsets(record) ||
+    (!!record &&
+      Object.values(record.transforms || {}).some(
+        ({ rotation, scale }) => rotation !== 0 || scale !== 1,
+      ))
+  );
+}
 export function characterPositionStatus(raw, record) {
   const basis = normalizeCharacterText(raw);
-  const active = hasCharacterOffsets(record);
+  const active = hasCharacterAdjustments(record);
   const suspended = active && record.basis !== basis;
   return {
     active,
     suspended,
     reason: suspended
-      ? 'Character positions are suspended because the text changed without a verified edit. Undo, restore the previous text, or reset all character positions.'
+      ? 'Character positions are suspended because the text changed without a verified edit. Undo, restore the previous text, or reset all character adjustments.'
       : null,
   };
 }
@@ -119,8 +160,8 @@ export function setCharacterOffsets(raw, record, changes) {
   if (!plainObject(changes)) throw Error('Invalid character offset changes');
   const entries = Object.entries(changes);
   if (!entries.length) return record;
-  if (record && record.basis !== basis && hasCharacterOffsets(record))
-    throw Error('Character positions are suspended; restore text or reset all positions first');
+  if (record && record.basis !== basis && hasCharacterAdjustments(record))
+    throw Error('Character positions are suspended; restore text or reset all adjustments first');
   const current = record?.basis === basis ? record : allocate(basis);
   const units = new Map(current.units.map((unit) => [unit.id, unit.text]));
   // Validate the entire transaction before allocating or changing its result.
@@ -152,7 +193,15 @@ export function resetCharacterOffsets(raw, record, ids) {
     if (ids?.length) throw Error('Cannot reset unknown character IDs');
     return record;
   }
-  if (ids === undefined && record.basis !== basis) return allocate(basis, record.nextId);
+  if (ids === undefined && record.basis !== basis) {
+    if (
+      Object.values(record.transforms || {}).some(
+        ({ rotation, scale }) => rotation !== 0 || scale !== 1,
+      )
+    )
+      throw Error('Character adjustments are suspended; reset all adjustments to recover mapping');
+    return allocate(basis, record.nextId);
+  }
   const known = new Map(record.units.map((unit) => [unit.id, unit.text]));
   if (ids?.some((id) => !known.has(id) || known.get(id) === '\n'))
     throw Error('Cannot reset unknown or newline character IDs');
@@ -161,6 +210,54 @@ export function resetCharacterOffsets(raw, record, ids) {
   const offsets = { ...record.offsets };
   for (const id of removed) delete offsets[id];
   return { ...record, offsets };
+}
+/** Absolute shape values in each character's own cell. Never modifies XY or font size. */
+export function setCharacterTransforms(raw, record, changes) {
+  validateCharacterPositions(record);
+  const basis = normalizeCharacterText(raw);
+  if (!plainObject(changes)) throw Error('Invalid character shape changes');
+  const entries = Object.entries(changes);
+  if (!entries.length) return record;
+  if (record && record.basis !== basis && hasCharacterAdjustments(record))
+    throw Error('Character adjustments are suspended; restore text or reset all adjustments first');
+  const current = record?.basis === basis ? record : allocate(basis);
+  const units = new Map(current.units.map((unit) => [unit.id, unit.text]));
+  for (const [id, value] of entries) {
+    if (!units.has(id) || units.get(id) === '\n')
+      throw Error('Character shape must reference a known non-newline unit');
+    shapeTransform(value);
+  }
+  const transforms = { ...current.transforms };
+  let changed = false;
+  for (const [id, value] of entries) {
+    const before = transforms[id] || { rotation: 0, scale: 1 };
+    if (before.rotation === value.rotation && before.scale === value.scale) continue;
+    changed = true;
+    if (value.rotation === 0 && value.scale === 1) delete transforms[id];
+    else transforms[id] = { rotation: value.rotation || 0, scale: value.scale };
+  }
+  return changed ? { ...current, version: CHARACTER_TRANSFORM_VERSION, transforms } : record;
+}
+export function resetCharacterTransforms(raw, record, ids) {
+  validateCharacterPositions(record);
+  if (!record) return record;
+  const selected = ids === undefined ? Object.keys(record.transforms || {}) : ids;
+  if (!Array.isArray(selected) || selected.some((id) => typeof id !== 'string'))
+    throw Error('Invalid character shape reset selection');
+  return setCharacterTransforms(
+    raw,
+    record,
+    Object.fromEntries(selected.map((id) => [id, { rotation: 0, scale: 1 }])),
+  );
+}
+/** Explicit full reset is the only shape+XY recovery operation for unknown source edits. */
+export function resetCharacterAdjustments(raw, record) {
+  validateCharacterPositions(record);
+  if (!record) return record;
+  const basis = normalizeCharacterText(raw);
+  if (record.basis !== basis) return allocate(basis, record.nextId);
+  const next = resetCharacterOffsets(raw, record);
+  return resetCharacterTransforms(raw, next);
 }
 function scalarBoundary(raw, at) {
   if (!Number.isInteger(at) || at < 0 || at > raw.length) return false;
@@ -304,17 +401,17 @@ export function reconcileCharacterEdit(record, transaction) {
   if (record.basis === nextBasis && !equivalentReplacement)
     return { record, status: 'unchanged', reason: null };
   function unresolved(reason) {
-    if (!hasCharacterOffsets(record))
+    if (!hasCharacterAdjustments(record))
       return { record: allocate(nextBasis, record.nextId), status: 'applied', reason: null };
     return { record, status: 'suspended', reason };
   }
   if (record.basis !== oldBasis)
     return unresolved(
-      'Character positions remain suspended until the saved text is restored or all positions are reset.',
+      'Character positions remain suspended until the saved text is restored or all adjustments are reset.',
     );
   if (!replacement)
     return unresolved(
-      'Character positions are suspended because this text edit could not be verified. Undo, restore the previous text, or reset all positions.',
+      'Character positions are suspended because this text edit could not be verified. Undo, restore the previous text, or reset all adjustments.',
     );
   const affected = affectedWindow(previousRaw, nextRaw, oldBasis, nextBasis, replacement);
   if (!affected)
@@ -333,6 +430,10 @@ export function reconcileCharacterEdit(record, transaction) {
     Object.entries(record.offsets).filter(([id]) => retained.has(id)),
   );
   const next = { ...record, basis: nextBasis, units, offsets, nextId: allocated.nextId };
+  if (record.transforms)
+    next.transforms = Object.fromEntries(
+      Object.entries(record.transforms).filter(([id]) => retained.has(id)),
+    );
   validateCharacterPositions(next);
   return { record: next, status: 'applied', reason: null };
 }

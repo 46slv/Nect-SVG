@@ -2,8 +2,9 @@ import opentype from 'opentype.js';
 import {
   normalizeCharacterText,
   characterPositionStatus,
-  hasCharacterOffsets,
+  hasCharacterAdjustments,
 } from './character-identity.js';
+import { characterTransform, transformCharacterPoint } from './character-geometry.js';
 
 const rotatePunctuation = new Set([
   ...'ーｰ―—‐‑–−〜～…‥「」『』（）〔〕［］｛｝〈〉《》【】〖〗〘〙〚〛＝',
@@ -277,10 +278,10 @@ export function layoutText(
   }
   const status = characterPositionStatus(text, characterPositions);
   const reason = status.suspended ? status.reason : mappingReason;
-  const suspended = !!reason && hasCharacterOffsets(characterPositions);
+  const suspended = !!reason && hasCharacterAdjustments(characterPositions);
   if (suspended)
     warnings.add(
-      `Character positions suspended: ${reason}. Undo, restore text, or Reset all positions before export.`,
+      `Character positions suspended: ${reason}. Undo, restore text, or Reset all adjustments before export.`,
     );
   const characters = [];
   if (!reason)
@@ -292,31 +293,61 @@ export function layoutText(
       const id = unit?.id || `c${glyph.sourceIndex + 1}`;
       const offset = characterPositions?.offsets[id] || [0, 0];
       const base = [glyph.x, glyph.y];
+      // Fixed normal-layout advance-cell center, never the changing outline bounds.
+      const pivot =
+        writingMode === 'horizontal-tb'
+          ? [glyph.x + glyph.advance / 2, glyph.y - ((font.ascender + font.descender) * scale) / 2]
+          : [glyph.x, glyph.y + glyph.advance / 2];
+      const shape = characterPositions?.transforms?.[id] || { rotation: 0, scale: 1 };
+      const matrix = characterTransform(pivot, offset, shape.scale, shape.rotation);
+      const identityShape = shape.rotation === 0 && shape.scale === 1;
+      const adjust = (point) =>
+        identityShape
+          ? [point[0] + offset[0], point[1] + offset[1]]
+          : transformCharacterPoint(matrix, point);
       for (let i = glyph.commandStart; i < glyph.commandEnd; i++)
         for (const suffix of ['', '1', '2']) {
           const command = path.commands[i];
           if ('x' + suffix in command) {
-            command['x' + suffix] += offset[0];
-            command['y' + suffix] += offset[1];
+            [command['x' + suffix], command['y' + suffix]] = adjust([
+              command['x' + suffix],
+              command['y' + suffix],
+            ]);
           }
         }
       const outline = new opentype.Path();
       outline.commands = path.commands.slice(glyph.commandStart, glyph.commandEnd);
       const box = outline.getBoundingBox(),
         whitespace = !outline.commands.length;
-      const x = glyph.x + offset[0],
-        y = glyph.y + offset[1];
-      const bounds = whitespace
-        ? writingMode === 'horizontal-tb'
-          ? [x, y - size * 0.8, x + Math.max(glyph.advance, size * 0.2), y + size * 0.2]
-          : [x - size * 0.5, y, x + size * 0.5, y + Math.max(glyph.advance, size * 0.2)]
-        : [box.x1, box.y1, box.x2, box.y2];
+      let bounds = [box.x1, box.y1, box.x2, box.y2];
+      if (whitespace) {
+        const [x, y] = base;
+        const cell =
+          writingMode === 'horizontal-tb'
+            ? [x, y - size * 0.8, x + Math.max(glyph.advance, size * 0.2), y + size * 0.2]
+            : [x - size * 0.5, y, x + size * 0.5, y + Math.max(glyph.advance, size * 0.2)];
+        const corners = [
+          [cell[0], cell[1]],
+          [cell[2], cell[1]],
+          [cell[2], cell[3]],
+          [cell[0], cell[3]],
+        ].map(adjust);
+        bounds = [
+          Math.min(...corners.map((p) => p[0])),
+          Math.min(...corners.map((p) => p[1])),
+          Math.max(...corners.map((p) => p[0])),
+          Math.max(...corners.map((p) => p[1])),
+        ];
+      }
       characters.push({
         id,
         text: glyph.char,
         sourceIndex: glyph.sourceIndex,
         bounds,
         base,
+        pivot,
+        rotation: shape.rotation,
+        scale: shape.scale,
         offset: [...offset],
         whitespace,
         path: outline.toPathData(5),

@@ -313,3 +313,9 @@ Implemented: opt-in **Snap artwork** adds other visible ordinary layers’ final
 ## Same-layer Vector2 Reference experiment
 
 Reference exposes one non-rendering Vector2 output selected by stable same-layer node ID and public port ID. Text Position, Null, Vector and other Vector2 outputs are supported; names are display labels only. Normal wires and Reference share dependency/cycle validation and cache invalidation. An unset or deleted target produces an explicit diagnostic and cannot supply zero or stale fallback values. Rename, delete/Undo, internal-vs-external duplicate remapping, typed operation changes and save/load/import are covered. A selected source group can be duplicated as one Undo step; edited Path Remap + source copies are atomically refused until point-provenance remapping exists. Cross-layer references, property-string evaluation and post-Transform coordinate inference are excluded. See [full contract](vector-reference.md) and [ordinary-wire comparison sample](../examples/vector-reference-reuse.json).
+
+## 文字単位の回転・等比拡縮
+
+既存Character positionモードの小型欄とInspectorへRotate ° / Scale ×を追加。stable character IDに形状調整を保存し、normal layout後のadvance-cell中心をpivotとして回転・等比scale、その後XYを適用する。縦Latinの既存90°回転は局所形状調整より先。文字advance、他文字、Text Position/Position OUT、fontSizeとpaint groupingを変更しない。複数選択は各文字自身のpivotで同じ絶対値を適用し、他propertyを保持する。Reset XY / Reset shape / 全調整resetを区別する。
+
+旧XY record v1/schema3を読み続け、初回非identity形状調整だけrecord v2/schema4へ更新。回転±36000°、scale 0.01–100。未検証文字編集・IMEのsuspendと最終Output出自Affineを継承し、singular/unsupported routeはcanvas編集のみ拒否する。新規プロジェクトの既定は引き続きschema2。操作・pivot数式・互換性・受入は[文字形状仕様](character-transform.md)、作例は[character-transform.json](../examples/character-transform.json)。実Chrome/Windows packageは対応commitで別確認し、native IME合格とはみなさない。

@@ -124,3 +124,7 @@ Schema 2 remains unchanged: old Text Path connections work without migration; ol
 ## Same-layer Vector2 Reference
 
 Reference stores a nullable explicit `{nodeId, portId}` descriptor, with `output` mapping to the existing unnamed default socket and `position` mapping to Text Position. `nodeDependencies` unifies parameter wires and this typed dependency for cycle checks; evaluation resolves only active parameter dependencies plus Reference, validates the target before reuse, and keys cached values on target identity and upstream output revision. Missing targets are retained as diagnosed dangling IDs, never numeric fallbacks. Document-wide layer ownership rejects cross-layer references even when the source occurs later in the file. `setOperation` protects referenced Vector2 outputs from Scalar changes. See [Reference persistence, duplication and validation](vector-reference.md).
+
+## Character shape records
+
+New documents remain schema2. XY-only stable-character records require schema3; rotation/uniform-scale records require schema4. `characterPositions` record v2 adds sparse `transforms` to the existing logical IDs/offsets, and all schemas 1–4 are accepted with version-specific validation. `text-layout.js` applies local shape about a normal advance-cell pivot before XY and downstream provenance, without altering advances, Position OUT caching or compound paint grouping. See [the full contract](character-transform.md).

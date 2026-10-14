@@ -65,6 +65,9 @@ import {
   hitCharacter,
   setCharacterOffsets,
   resetCharacterOffsets,
+  setCharacterTransforms,
+  resetCharacterTransforms,
+  resetCharacterAdjustments,
   reconcileCharacterEdit,
   transformHandleGeometry,
   scaleFromHandle,
@@ -720,14 +723,25 @@ function characterFields(context, floating = false) {
     })
     .join(
       '',
-    )}<button data-character-reset="selected" ${disabled ? 'disabled' : ''} title="Reset selected positions">Reset</button></div>`;
+    )}<button data-character-reset="selected" ${disabled ? 'disabled' : ''} title="Reset selected XY offsets only">Reset XY</button></div><div class="character-values character-shape-values">${[
+    ['rotation', 'Rotate °', -36000, 36000, 0],
+    ['scale', 'Scale ×', 0.01, 100, 1],
+  ]
+    .map(([key, label, min, max, fallback]) => {
+      const values = context.selected.map((g) => g[key]),
+        mixed = values.some((v) => v !== values[0]);
+      return `<label>${label}<input type="number" step="${key === 'scale' ? '0.01' : '1'}" min="${min}" max="${max}" data-character-transform="${key}" aria-label="${floating ? 'Floating ' : ''}Character ${key}" placeholder="${mixed ? 'Mixed' : fallback}" value="${mixed ? '' : (values[0] ?? fallback)}" ${disabled ? 'disabled' : ''}></label>`;
+    })
+    .join(
+      '',
+    )}<button data-character-shape-reset ${disabled ? 'disabled' : ''} title="Reset selected rotation and scale only">Reset shape</button></div>`;
 }
 function characterControls(n) {
   if (n.type !== 'Text') return '';
   const context = characterContext();
   return `<section class="character-panel" aria-label="Character position"><div class="character-actions"><button data-character-mode="${n.id}" aria-pressed="${!!context}" ${current().locked ? 'disabled' : ''}>${context ? 'Finish character position' : 'Character position'}</button><button data-edit-text="${n.id}">Edit text</button></div>${
     context
-      ? `<p>Click a character, then drag. Shift-click selects several. Arrows move 1 px; Shift moves 10 px.</p>${context.layout.reason ? `<p class="warning">${esc(context.layout.reason)}. Undo, restore the prior text, or reset all positions.</p>` : ''}${!context.editable.length ? `<p class="warning">${esc(context.occurrences[0]?.reason || 'This Text does not reach the visible Output.')} Local numeric editing remains available when character mapping is valid.</p>` : ''}${context.occurrences.length > 1 ? `<p>Editing shared Text: affects ${context.occurrences.length} displayed instances.</p>` : ''}${
+      ? `<p>Click a character, then drag. Shift-click selects several. Arrows move 1 px; Shift moves 10 px.</p>${context.layout.reason ? `<p class="warning">${esc(context.layout.reason)}. Undo, restore the prior text, or reset all adjustments.</p>` : ''}${!context.editable.length ? `<p class="warning">${esc(context.occurrences[0]?.reason || 'This Text does not reach the visible Output.')} Local numeric editing remains available when character mapping is valid.</p>` : ''}${context.occurrences.length > 1 ? `<p>Editing shared Text: affects ${context.occurrences.length} displayed instances.</p>` : ''}${
           context.editable.length > 1
             ? `<label>Displayed instance<select data-character-instance aria-label="Character displayed instance"><option value="">Choose an instance</option>${context.editable
                 .map(
@@ -745,7 +759,7 @@ function characterControls(n) {
                 )
                 .join('')}</select></label>`
             : ''
-        }<label>Characters <select multiple size="${Math.min(6, Math.max(2, context.layout.characters.length))}" data-character-selection aria-label="Select characters">${context.layout.characters.map((g) => `<option value="${g.id}" ${characterEdit.selected.has(g.id) ? 'selected' : ''}>${g.sourceIndex + 1} · ${g.whitespace ? '[space]' : esc(g.text)}</option>`).join('')}</select></label><p>${context.selected.length} selected${context.selected.some((g) => g.whitespace) ? ' · Moving a space changes its visual position only. Use letterSpacing/kerning for spacing.' : ''}</p>${characterFields(context)}<button data-character-reset="all" ${current().locked ? 'disabled' : ''}>Reset all positions</button><p class="font-note">Local X points right; Y points down, before downstream Transform. Offsets apply after alignment: Position and Position OUT stay fixed. Adjusted outlines can extend beyond that reference.</p>`
+        }<label>Characters <select multiple size="${Math.min(6, Math.max(2, context.layout.characters.length))}" data-character-selection aria-label="Select characters">${context.layout.characters.map((g) => `<option value="${g.id}" ${characterEdit.selected.has(g.id) ? 'selected' : ''}>${g.sourceIndex + 1} · ${g.whitespace ? '[space]' : esc(g.text)}</option>`).join('')}</select></label><p>${context.selected.length} selected${context.selected.some((g) => g.whitespace) ? ' · Moving a space changes its visual position only. Use letterSpacing/kerning for spacing.' : ''}</p>${characterFields(context)}<button data-character-reset="all" ${current().locked ? 'disabled' : ''}>Reset all adjustments</button><p class="font-note">Local X points right; Y points down. Rotation (clockwise) and uniform scale use each normal-layout advance-cell center, then XY is added, before downstream Transform. Selected characters receive the same absolute value around their own pivots. Font size, advance, Position and Position OUT stay fixed.</p>`
       : ''
   }</section>`;
 }
@@ -788,12 +802,18 @@ function positionCharacterFloating() {
   candidates.sort((a, b) => overlap(a) - overlap(b));
   toolbar.style.left = candidates[0][0] + 'px';
   toolbar.style.top = candidates[0][1] + 'px';
-  for (const input of document.querySelectorAll('[data-character-axis]'))
+  for (const input of document.querySelectorAll(
+    '[data-character-axis], [data-character-transform]',
+  ))
     if (input !== document.activeElement) {
-      const values = context.selected.map((g) => g.offset[Number(input.dataset.characterAxis)]),
+      const property = input.dataset.characterTransform,
+        fallback = property === 'scale' ? 1 : 0;
+      const values = context.selected.map((g) =>
+          property ? g[property] : g.offset[Number(input.dataset.characterAxis)],
+        ),
         mixed = values.some((v) => v !== values[0]);
-      input.value = mixed ? '' : String(values[0] ?? 0);
-      input.placeholder = mixed ? 'Mixed' : '0';
+      input.value = mixed ? '' : String(values[0] ?? fallback);
+      input.placeholder = mixed ? 'Mixed' : String(fallback);
     }
 }
 function characterOverlay(result) {
@@ -807,7 +827,7 @@ function characterOverlay(result) {
             const [x1, y1, x2, y2] = g.bounds,
               chosen = characterEdit.selected.has(g.id),
               hovered = characterEdit.hover === `${o.route}:${g.id}`;
-            return `<rect class="character-hit ${chosen ? 'selected' : ''} ${hovered ? 'hovered' : ''} ${g.whitespace ? 'whitespace' : ''}" data-character="${g.id}" data-character-instance-index="${instance}" x="${x1}" y="${y1}" width="${Math.max(0.01, x2 - x1)}" height="${Math.max(0.01, y2 - y1)}"/><path class="character-outline ${chosen ? 'selected' : ''}" d="${esc(g.path)}"/>${chosen ? `<path class="character-base" d="M${g.base[0] - 3} ${g.base[1]}h6 M${g.base[0]} ${g.base[1] - 3}v6"/>` : ''}`;
+            return `<rect class="character-hit ${chosen ? 'selected' : ''} ${hovered ? 'hovered' : ''} ${g.whitespace ? 'whitespace' : ''}" data-character="${g.id}" data-character-instance-index="${instance}" x="${x1}" y="${y1}" width="${Math.max(0.01, x2 - x1)}" height="${Math.max(0.01, y2 - y1)}"/><path class="character-outline ${chosen ? 'selected' : ''}" d="${esc(g.path)}"/>${chosen ? `<path class="character-base" data-character-pivot="${g.id}" d="M${g.pivot[0] + g.offset[0] - 3} ${g.pivot[1] + g.offset[1]}h6 M${g.pivot[0] + g.offset[0]} ${g.pivot[1] + g.offset[1] - 3}v6"/>` : ''}`;
           })
           .join('')}</g>`,
     )
@@ -819,7 +839,7 @@ function writeCharacterChanges(changes) {
   const next = setCharacterOffsets(n.text, n.characterPositions, changes);
   if (next) {
     n.characterPositions = next;
-    history.doc.schemaVersion = 3;
+    history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 3);
   }
 }
 function chooseCharacter(hit, additive = false) {
@@ -1095,20 +1115,38 @@ app.addEventListener('click', async (e) => {
       ?.focus({ preventScroll: true });
     return;
   }
-  if (d.characterReset) {
+  if (d.characterShapeReset !== undefined) {
+    const context = characterContext();
+    if (!context?.selected.length || context.layout.reason) return;
     change(() => {
       const target = selectedNode();
-      if (!target || target.type !== 'Text' || !target.characterPositions) return;
-      const next = resetCharacterOffsets(
-        target.text,
-        target.characterPositions,
-        d.characterReset === 'all' ? undefined : [...characterEdit.selected],
-      );
-      if (next) {
-        target.characterPositions = next;
-        history.doc.schemaVersion = 3;
-      }
-    }, 'Character positions reset');
+      if (target.characterPositions)
+        target.characterPositions = resetCharacterTransforms(
+          target.text,
+          target.characterPositions,
+          [...characterEdit.selected],
+        );
+    }, 'Character shapes reset');
+    return;
+  }
+  if (d.characterReset) {
+    change(
+      () => {
+        const target = selectedNode();
+        if (!target || target.type !== 'Text' || !target.characterPositions) return;
+        const next =
+          d.characterReset === 'all'
+            ? resetCharacterAdjustments(target.text, target.characterPositions)
+            : resetCharacterOffsets(target.text, target.characterPositions, [
+                ...characterEdit.selected,
+              ]);
+        if (next) {
+          target.characterPositions = next;
+          history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 3);
+        }
+      },
+      d.characterReset === 'all' ? 'All character adjustments reset' : 'Character XY offsets reset',
+    );
     return;
   }
   if (d.layoutCancel !== undefined) {
@@ -1717,6 +1755,43 @@ app.addEventListener('change', async (e) => {
     if (characterEdit)
       characterEdit.selected = new Set([...el.selectedOptions].map((o) => o.value));
     render();
+    return;
+  }
+  if (d.characterTransform !== undefined) {
+    const context = characterContext(),
+      property = d.characterTransform,
+      value = Number(el.value);
+    if (
+      !['rotation', 'scale'].includes(property) ||
+      !el.value.trim() ||
+      !Number.isFinite(value) ||
+      (property === 'rotation' ? Math.abs(value) > 36000 : value < 0.01 || value > 100)
+    ) {
+      notify('Character rotation: -36000 to 36000 degrees; uniform scale: 0.01 to 100', true);
+      return;
+    }
+    if (context?.selected.length && !context.layout.reason)
+      change(
+        () => {
+          const next = setCharacterTransforms(
+            context.n.text,
+            context.n.characterPositions,
+            Object.fromEntries(
+              context.selected.map((g) => [
+                g.id,
+                { rotation: g.rotation, scale: g.scale, [property]: value },
+              ]),
+            ),
+          );
+          if (next) {
+            context.n.characterPositions = next;
+            if (next.version === 2)
+              history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 4);
+          }
+        },
+        'Character shapes updated',
+        true,
+      );
     return;
   }
   if (d.characterAxis !== undefined) {
@@ -3039,6 +3114,23 @@ document.addEventListener('keydown', (e) => {
     // Delete, history or tool shortcuts interleave a second document action.
     e.preventDefault();
     e.stopImmediatePropagation();
+    return;
+  }
+  if (
+    e.key === 'Escape' &&
+    e.target.matches?.('[data-character-transform], [data-character-axis]')
+  ) {
+    const input = e.target,
+      context = characterContext();
+    if (context) {
+      const property = input.dataset.characterTransform,
+        axis = Number(input.dataset.characterAxis);
+      const values = context.selected.map((g) => (property ? g[property] : g.offset[axis]));
+      input.value = values.some((v) => v !== values[0])
+        ? ''
+        : String(values[0] ?? (property === 'scale' ? 1 : 0));
+    }
+    e.preventDefault();
     return;
   }
   if (editingControl(e.target)) return;
