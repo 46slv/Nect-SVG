@@ -68,6 +68,11 @@ try {
   assert.equal((await state()).svg, second.svg);
   await page.evaluate((json) => window.nect.load(json), second.document);
   assert.equal((await state()).svg, second.svg);
+  // Reload selects the first node; explicitly reopen the Text inspector.
+  await page
+    .locator('.node-head strong')
+    .filter({ hasText: /^Text$/ })
+    .click();
   assert.equal(await picker().inputValue(), second.font);
   await page.evaluate(() => {
     window.rejectFont = true;
