@@ -11,7 +11,7 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('dialog', (d) => d.accept());
 const value = async (name, text) => {
-  const el = page.getByRole('spinbutton', { name, exact: true });
+  const el = page.locator('.inspector-body').getByRole('spinbutton', { name, exact: true });
   await el.fill(String(text));
   await el.press('Tab');
 };
@@ -240,6 +240,7 @@ try {
     .setInputFiles({ name: 'saved.json', mimeType: 'application/json', buffer: saved });
   await page.waitForFunction(() => window.nect.document.width === 320);
   await page.locator('#png-scale').selectOption('2');
+  await page.locator(`[data-select-layer="${imageId}"]`).click();
   await page.screenshot({ path: 'test-results/workflow-image-editor.png', fullPage: true });
   assert.notEqual(before, restored);
   assert.deepEqual(errors, []);
