@@ -19,6 +19,10 @@ Resolve / Blender のように制作面とノードを併用する、白・シ�
 
 パラメーターの優先順位は **接続 → Expression → 直接値**。接続を外すと保存済みの Expression / 値に戻る。型違い、循環、ロックを破る操作は拒否し、変更前のデータを残す。キャンバスの移動は選択した生成ノードを編集し、下流 Boolean の結果を逆算したり、暗黙の Transform を追加したりしない。
 
+### アートボードの表示移動
+
+拡大後も、キャンバス上の中ボタンドラッグまたは Space + 左ドラッグで表示を移動する。図形・ガイド・Pen より表示移動を優先し、入力欄や contenteditable 内の Space は文字入力として扱う。キャプチャにより領域外でもドラッグを継続し、離す・Escape・pointercancel・キャプチャ喪失・ウィンドウフォーカス喪失で終了する。終了時の表示位置を保ち、ドキュメント・選択・Undo を変更しない。Fit で倍率と表示位置を初期化する。
+
 ### 数値のドラッグ調整
 
 Inspector とノード内の Scalar / Vector2 各成分・色 alpha は、数値を押したまま左右へドラッグすると増減する。4 px を超える横移動から開始し、以降は 1 px ごとに通常 1、scale と alpha は 0.01 変化する。上下移動だけでは変更しない。クリックは直接入力、右端のスピンボタンとキーボード矢印は従来どおり使用できる。修飾キーで倍率は変更しない。
@@ -56,7 +60,7 @@ Path Remap は上流を壊さず頂点・ハンドルの差分を編集する。
 
 Value は Scalar、Vector は Vector2 を供給する。
 
-- Separate Vector: Vector2 を入力し、独立した X / Y の Scalar 出力を持つ。接続は `source` に加え `sourcePort: "x"` または `"y"` を保存する。既存の単一出力ノードは sourcePort を省略する。
+- Separate Vector: Vector2 を入力し、独立した X / Y の Scalar 出力を持つ。接続は `source` に加え `sourcePort: "x"` または `"y"` を保存する。従来の既定出力は sourcePort を省略する。Text の追加 Position 出力は第 17 節を参照。
 - Math: Add / Subtract / Multiply / Divide / Min / Max / Abs / Clamp。演算に必要な入力だけを表示・評価する。非表示になった入力値・接続は破棄せず、構造・循環の検証対象として残す。
 - Combine Vector: Scalar の X / Y を Vector2 に組み立てる。
 - Divide のゼロ除算は 0。Clamp は上下限を含み、最小値 > 最大値はエラー。NaN / Infinity、非有限の入力・結果はエラー。
@@ -267,3 +271,19 @@ Nect の product-direction の「Instantiate → parameterize」に挙げられ�
 Objects with Position support choosing the point represented by that coordinate. Text reuses alignment plus visible/advance bounds and a cross-axis reference (see typography). Circle, Ellipse, Rectangle, Polygon, Star, and Image expose `positionReference`: `origin`, or `{left|center|right}-{top|middle|bottom}`. Shape bounds exclude stroke; Image uses its full rectangle including transparent pixels. Changing reference moves geometry while retaining Position; changing dimensions keeps the chosen reference fixed. The serialized shape parameter remains `center` for existing sockets, expressions and saved files, while its displayed label is Position.
 
 Omitted references preserve legacy construction origin exactly, including asymmetric polygons/stars and top-left images. An explicit bounds center can differ from a radial shape's construction center. Curve, Imported Path and compound operators do not receive artificial Position controls. Transform Anchor is unchanged, and Position output sockets are outside this change. References participate in cache invalidation, validation, JSON, Undo/Redo, driven inputs, canvas dragging and snapping.
+
+## 17. Text Position OUT（実験実装、実 Chrome 検証待ち）
+
+Text は既存の Path 出力を保ち、Vector2 の Position 出力を追加する。Position は接続元 → Expression → 直接値の優先順位で評価した入力座標であり、その Text に保存された Position reference の座標を表す。フォント・文字列・参照設定でアウトラインが変わっても、Position 自体を別の点へ読み替えない。
+
+- Position OUT は Text 生成時点の座標。下流 Transform、別の Transform 枝、キャンバスのズーム・パンは含めない。共通の最終移動は Join Geometry → Transform で行う。
+- XY は Text.Position → 別の Text.Position。X のみは Separate Vector.X → Combine Vector.X とし、Y は Combine の直接値・式・別ソースで独立させる。間隔は Scalar Math または Vector Math の Add で明示する。
+- 編集・スナップの持ち主は接続元。追従先の接続中 Position をドラッグして上流を書き換えず、自動オフセットも追加しない。ロック・式駆動の既存制限を維持する。
+- Path は既存どおり sourcePort を省略し、Position は `sourcePort: "position"`。安定した source ID を使い、名前変更で参照を切らない。削除で通常接続と同じく切断し、保存済みの式／値に戻る。Undo / Redo で接続を復元する。単一ノード複製は外部の参照元を保持し、元ノードの追従先を複製へ付け替えない。
+- schemaVersion は 2 を維持し、旧 Text Path 接続の移行は不要。未知ポート、型不一致、自己・間接循環を拒否する。旧版で新しい Position 接続を読む互換性は保証しない。
+- Position は独立した評価・キャッシュを持ち、フォントが未読込でも有効な座標は取り出せる。Path のフォント／アウトラインエラーを隠すことはなく、Path を必要とする描画では従来どおり診断する。
+- `examples/text-position-reuse.json` はマスター、XY 追従、独立 Y の X 追従、Vector Math オフセットと共通 Join → Transform を含む試用例。マスターの Position、Combine の Y、Vector Math の B、共有 Transform の offset を順に編集して比較できる。
+
+型・優先順位・キャッシュ・Transform 空間・循環・JSON・履歴・既存 Path と、DOM のメニュー／配線／取消／スナップ所有権／削除／複製をテストする。実 Chrome の同操作と JSON/SVG/PNG 出力は `tests/text-position-output.e2e.js` に用意し、Windows CI の対応コミットで別途実行する。ローカル環境の Chromium socket 制限は解消していないため、この実装時点で Chrome／NSIS 合格とはしない。
+
+[Position 再利用の実験候補](position-reuse-candidates.md) に4案を維持する。Text Position OUT のみ今回試作し、Null・ハンドル付き Vector・Reference は未実装。クロスレイヤー参照、ポスト Transform 点、キャンバスリサイズは今回含めない。試用後に採否・併存・統合を判断する。

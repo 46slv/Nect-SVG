@@ -804,6 +804,21 @@ image.guide-layer-shape {
   top: 42px;
 }
 
+/* Text preserves its legacy unnamed Path socket beside a typed Position output. */
+.node-head:has([data-source-port='position']) {
+  padding-right: 82px;
+}
+.node-head:has([data-source-port='position']) .output-port {
+  position: absolute;
+  right: 0;
+  padding-right: 12px;
+  font-size: 11px;
+  top: 12px;
+}
+.node-head .output-port:has([data-source-port='position']) {
+  top: 42px;
+}
+
 .wire-preview {
   stroke: #2588d8;
   stroke-width: 2.5;

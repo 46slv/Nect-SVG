@@ -258,10 +258,16 @@ export function outputPorts(n) {
         { id: 'x', label: 'X', type: 'Scalar' },
         { id: 'y', label: 'Y', type: 'Scalar' },
       ]
-    : [{ id: undefined, label: '', type: outputType(n) }];
+    : n.type === 'Text'
+      ? [
+          { id: undefined, label: 'Path', type: 'Path' },
+          { id: 'position', label: 'Position', type: 'Vector2' },
+        ]
+      : [{ id: undefined, label: '', type: outputType(n) }];
 }
 export function outputType(n, port) {
   if (n.type === 'Separate Vector') return ['x', 'y'].includes(port) ? 'Scalar' : undefined;
+  if (n.type === 'Text' && port === 'position') return 'Vector2';
   if (port !== undefined) return undefined;
   if (n.type === 'Vector Math')
     return ['length', 'distance', 'dot'].includes(n.operation) ? 'Scalar' : 'Vector2';
@@ -638,54 +644,70 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   let computed = 0,
     reused = 0;
   const byId = new Map(layer.nodes.map((n) => [n.id, n]));
+  // Separate shares one vector evaluation. Text's value output has its own cache entry
+  // and dependencies, so reading Position never requires font/outline generation.
+  const outputKey = (id, port) =>
+    byId.get(id)?.type === 'Text' && port === 'position' ? `${id}\0position` : id;
   function run(id, port) {
     const n = byId.get(id);
     if (!n || !outputType(n, port)) throw Error('Missing output socket');
-    const value = runNode(id);
+    const value = runNode(id, port);
     return n.type === 'Separate Vector' ? value[port === 'x' ? 0 : 1] : value;
   }
-  function runNode(id) {
-    if (values.has(id)) return values.get(id);
+  function runNode(id, port) {
+    const key = outputKey(id, port),
+      positionOutput = key !== id;
+    if (values.has(key)) return values.get(key);
     if (active.has(id)) throw Error('Cycle detected');
     if (active.size >= 256) throw Error('Graph depth exceeds 256 nodes');
     let n = byId.get(id);
     if (!n) throw Error('Missing source node');
     active.add(id);
     try {
-      const inputs = activeParameters(n);
-      const deps = inputs.filter(([, q]) => q.source).map(([, q]) => q.source);
-      for (const dep of deps) runNode(dep);
-      const cacheKey = JSON.stringify([
-        n.type,
-        inputs,
-        n.type === 'Fill' ? layer.fill : null,
-        n.points,
-        n.operation,
-        n.edits,
-        n.text,
-        n.font,
-        n.writingMode,
-        n.alignment,
-        n.referenceBounds,
-        n.crossAlignment,
-        n.positionReference,
-        n.kerning,
-        n.strokeCap,
-        n.strokeJoin,
-        n.strokeDash,
-        n.rawPath,
-        n.asset,
-        n.asset && imageAssets[n.asset]
-          ? [imageAssets[n.asset].width, imageAssets[n.asset].height]
-          : null,
-        deps.map((dep) => [dep, versions.get(dep)]),
+      const inputs = positionOutput ? [['position', n.params.position]] : activeParameters(n);
+      const deps = inputs.filter(([, q]) => q.source).map(([, q]) => q);
+      for (const dep of deps) run(dep.source, dep.sourcePort);
+      const dependencyVersions = deps.map((q) => [
+        q.source,
+        q.sourcePort,
+        versions.get(outputKey(q.source, q.sourcePort)),
       ]);
-      const existing = cache.get(id);
-      if (existing && existing.key === cacheKey && existing.font === fonts[n.font]) {
+      const cacheFont = positionOutput ? null : fonts[n.font];
+      const cacheKey = JSON.stringify(
+        positionOutput
+          ? [inputs, dependencyVersions]
+          : [
+              n.type,
+              inputs,
+              n.type === 'Fill' ? layer.fill : null,
+              n.points,
+              n.operation,
+              n.edits,
+              n.text,
+              n.font,
+              n.writingMode,
+              n.alignment,
+              n.referenceBounds,
+              n.crossAlignment,
+              n.positionReference,
+              n.kerning,
+              n.strokeCap,
+              n.strokeJoin,
+              n.strokeDash,
+              n.rawPath,
+              n.asset,
+              n.asset && imageAssets[n.asset]
+                ? [imageAssets[n.asset].width, imageAssets[n.asset].height]
+                : null,
+              dependencyVersions,
+            ],
+      );
+      const existing = cache.get(key);
+      if (existing && existing.key === cacheKey && existing.font === cacheFont) {
         reused++;
         const result = clone(existing.value);
-        values.set(id, result);
-        versions.set(id, existing.version);
+        values.set(key, result);
+        versions.set(key, existing.version);
         active.delete(id);
         warnings.push(...existing.warnings);
         return result;
@@ -711,7 +733,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         return value;
       }
       let result;
-      if (['Value', 'Vector', 'Expression', 'Toggle', 'Color'].includes(n.type))
+      if (positionOutput) result = read('position');
+      else if (['Value', 'Vector', 'Expression', 'Toggle', 'Color'].includes(n.type))
         result = read('value');
       else if (n.type === 'Vector Math') {
         result = vectorMathValue(n.operation, read);
@@ -981,12 +1004,12 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               point.position = point.position.map((v, axis) => v + delta[axis]);
       }
       active.delete(id);
-      values.set(id, result);
+      values.set(key, result);
       const version = ++revision;
-      versions.set(id, version);
-      cache.set(id, {
+      versions.set(key, version);
+      cache.set(key, {
         key: cacheKey,
-        font: fonts[n.font],
+        font: cacheFont,
         value: clone(result),
         version,
         warnings: warnings.slice(warningStart),
@@ -1003,7 +1026,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   } catch (e) {
     error = e.message;
   }
-  for (const id of cache.keys()) if (!byId.has(id)) cache.delete(id);
+  for (const key of cache.keys()) if (!byId.has(key.split('\0')[0])) cache.delete(key);
   return { path, error, warnings, values, run, stats: { computed, reused } };
 }
 export function connect(layer, sourceId, targetId, key, validating = false, sourcePort) {
@@ -1112,7 +1135,7 @@ export function validate(doc) {
     if (typeof q.locked !== 'boolean') throw Error('Invalid lock state');
     if (q.source !== undefined && (typeof q.source !== 'string' || !idPattern.test(q.source)))
       throw Error('Invalid source ID');
-    if (q.sourcePort !== undefined && (!q.source || !['x', 'y'].includes(q.sourcePort)))
+    if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
   if (!doc || ![1, 2].includes(doc.schemaVersion)) throw Error('Unsupported project version');
