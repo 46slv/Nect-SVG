@@ -12,14 +12,15 @@ npm run dev -- --host 127.0.0.1
 npm run check
 ```
 
-The workspace uses a white/silver interface, lower resizable graph, right Layers/Inspector and square artboard. Each layer owns a separate graph. Circle, Ellipse, Rectangle, Curve and Text feed Boolean, Transform, Path Remap and Output. Scalar/Vector/Boolean/Color value nodes connect to matching parameter fields. Expressions support arithmetic and a small numeric function allowlist, never JavaScript evaluation.
+The workspace uses a white/silver interface, lower resizable graph, right Layers/Inspector and square artboard. Each layer owns a separate graph. Circle, Ellipse, Rectangle, Curve and Text feed Boolean, Transform and Path Remap, then explicit Fill / Stroke nodes and Output. Scalar/Vector/Boolean/Color value nodes connect to matching parameter fields. Expressions support arithmetic and a small numeric function allowlist, never JavaScript evaluation.
 
 - Pen: click corner points, drag Bézier handles, click the first point to close, Escape to finish open.
 - Select a generator node, then drag the canvas to move its own parameters. Locked, connected or expression-driven positions refuse movement.
 - Node graph navigation: middle-button drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (25–200%). Ctrl/Cmd+1 restores actual size while the graph is focused; Home resets zoom and scroll. Plain wheel/two-finger scrolling remains available. Form controls do not start graph navigation.
 - Drag nodes near a graph edge to scroll continuously, even with the pointer outside the panel. Right/bottom bounds grow with the drag; left/top stop at the existing nonnegative origin. Escape, pointer cancellation or focus loss rolls back the drag. A completed drag is one Undo step, and JSON keeps world positions.
 - Drag an output to a matching field. Connected inputs appear alongside that field. Drag input to empty graph space or right-click it to disconnect and restore fallback.
-- Color: add a Color node, choose its color and alpha (0–1), then connect it to Output → fill. Disconnect restores the saved Output fallback; “Use layer fill” returns to the original layer color. SVG and transparent PNG retain alpha.
+- Paint: geometry owns size and position; Fill owns color/alpha and Stroke owns color/alpha/width (px). Connect geometry → Fill → Stroke → Output, or use Stroke alone for an outline. Each paint node preserves the other channel; the last node of the same kind wins. Geometry operations go before paint. A bare Path connected directly to Output has no implicit paint. Shape tools and “Use as output” add an explicit Fill for convenience.
+- Color: a Color node connects to Fill or Stroke → color. Disconnect restores the saved paint fallback. SVG and transparent PNG retain independent fill/stroke alpha. Older JSON projects migrate to explicit Fill nodes when opened, preserving appearance and connections; save explicitly to keep the new version.
 - Text supports local static TTF/OTF loading, Japanese outlines, multiline text, horizontal/vertical writing, letter spacing and line/column spacing. Saved JSON embeds the font for later editing; check its license before sharing. See [typography and limits](docs/typography.md).
 - JSON saves the current editable model (the Undo/Redo stack is session-only); SVG exports evaluated paths, not the graph.
 - Undo/redo: Ctrl+Z / Ctrl+Shift+Z. Space-drag or middle-drag pans. Fit resets zoom/pan.

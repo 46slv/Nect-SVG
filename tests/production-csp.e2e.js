@@ -83,9 +83,11 @@ try {
   );
   await page.locator('.inspector-body [data-color="alpha"]').fill('0.5');
   await page.locator('.inspector-body [data-color="alpha"]').press('Tab');
-  const outputId = await page.evaluate(() => window.nect.document.layers[0].output);
+  const outputId = await page.evaluate(
+    () => window.nect.document.layers[0].nodes.find((n) => n.type === 'Fill').id,
+  );
   await page.locator(`.graph .node[data-id="${outputId}"] .node-head strong`).click();
-  await page.locator('.inspector-body [data-key="fill"] [data-connect-menu]').click();
+  await page.locator('.inspector-body [data-key="color"] [data-connect-menu]').click();
   await page.locator('dialog select').selectOption(colorId);
   await page.locator('dialog [data-confirm]').click();
   await page.waitForFunction(

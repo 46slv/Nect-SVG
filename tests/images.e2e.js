@@ -54,11 +54,14 @@ try {
     d.width = 320;
     d.height = 240;
     const rect = node('Rectangle'),
+      paint = node('Fill'),
       out = node('Output');
     rect.params.center.value = [60, 100];
     rect.params.size.value = [60, 80];
-    out.params.path.source = rect.id;
-    d.layers[0].nodes = [rect, out];
+    paint.params.path.source = rect.id;
+    paint.params.color.value = { hex: '#2040ff', alpha: 1 };
+    out.params.path.source = paint.id;
+    d.layers[0].nodes = [rect, paint, out];
     d.layers[0].output = out.id;
     d.layers[0].fill = '#2040ff';
     window.nect.load(JSON.stringify(d));

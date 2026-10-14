@@ -13,7 +13,17 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
     if (!allowed.has(el.localName)) throw Error(`Unsupported SVG element: ${el.localName}`);
     if (el !== root && el.localName === 'svg')
       throw Error('Nested SVG viewports are not supported');
-    const common = ['id', 'fill', 'fill-opacity', 'fill-rule', 'stroke'];
+    const common = [
+      'id',
+      'fill',
+      'fill-opacity',
+      'fill-rule',
+      'stroke',
+      'stroke-opacity',
+      'stroke-width',
+      'stroke-linecap',
+      'stroke-linejoin',
+    ];
     const attrs = {
       svg: ['xmlns', 'width', 'height', 'viewBox'],
       g: [],
@@ -27,13 +37,18 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
     for (const attr of el.attributes)
       if (![...common, ...attrs[el.localName]].includes(attr.name))
         throw Error(`Unsupported SVG attribute: ${attr.name}`);
-    if (el.hasAttribute('fill-opacity')) {
-      const raw = el.getAttribute('fill-opacity');
-      if (!/^(?:\d*\.)?\d+(?:e[+-]?\d+)?$/i.test(raw) || Number(raw) < 0 || Number(raw) > 1)
-        throw Error('SVG fill-opacity must be a number from 0 to 1');
-    }
-    if (el.hasAttribute('stroke') && el.getAttribute('stroke') !== 'none')
-      throw Error('SVG strokes are not supported yet');
+    for (const key of ['fill-opacity', 'stroke-opacity'])
+      if (el.hasAttribute(key)) {
+        const raw = el.getAttribute(key);
+        if (!/^(?:\d*\.)?\d+(?:e[+-]?\d+)?$/i.test(raw) || Number(raw) < 0 || Number(raw) > 1)
+          throw Error('SVG fill-opacity must be a number from 0 to 1');
+      }
+    for (const [key, supported] of [
+      ['stroke-linecap', 'butt'],
+      ['stroke-linejoin', 'miter'],
+    ])
+      if (el.hasAttribute(key) && el.getAttribute(key) !== supported)
+        throw Error(`Unsupported SVG ${key}`);
     if (el.hasAttribute('fill-rule') && el.getAttribute('fill-rule') !== 'nonzero')
       throw Error('Even-odd SVG import is not supported yet; use nonzero contours');
   }
@@ -65,32 +80,38 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
   result.width = viewBox?.[2] ?? number(root, 'width', 960);
   result.height = viewBox?.[3] ?? number(root, 'height', 540);
   for (const el of root.querySelectorAll('path,circle,ellipse,rect')) {
-    let fill = el.getAttribute('fill'),
-      parent = el.parentElement;
-    while (fill === null && parent) {
-      fill = parent.getAttribute('fill');
-      parent = parent.parentElement;
-    }
-    let alpha = null,
-      ancestor = el;
-    while (alpha === null && ancestor) {
-      alpha = ancestor.getAttribute('fill-opacity');
-      ancestor = ancestor.parentElement;
-    }
-    alpha = alpha === null ? 1 : Number(alpha);
-    fill ??= '#000000';
-    if (fill === 'none') continue;
-    if (/^#[0-9a-f]{3}$/i.test(fill)) fill = '#' + [...fill.slice(1)].map((x) => x + x).join('');
-    const named = {
-      black: '#000000',
-      white: '#ffffff',
-      red: '#ff0000',
-      blue: '#0000ff',
-      green: '#008000',
+    const inherited = (key, fallback) => {
+      let ancestor = el;
+      while (ancestor) {
+        if (ancestor.hasAttribute(key)) return ancestor.getAttribute(key);
+        ancestor = ancestor.parentElement;
+      }
+      return fallback;
     };
-    fill = named[fill] || fill;
-    if (!/^#[0-9a-f]{6}$/i.test(fill))
-      throw Error('Import currently supports solid hex fills and basic named colors');
+    const color = (raw) => {
+      if (raw === 'none') return null;
+      if (/^#[0-9a-f]{3}$/i.test(raw)) raw = '#' + [...raw.slice(1)].map((x) => x + x).join('');
+      const named = {
+        black: '#000000',
+        white: '#ffffff',
+        red: '#ff0000',
+        blue: '#0000ff',
+        green: '#008000',
+      };
+      raw = named[raw] || raw;
+      if (!/^#[0-9a-f]{6}$/i.test(raw))
+        throw Error('Import currently supports solid hex fills and strokes and basic named colors');
+      return raw;
+    };
+    const fill = color(inherited('fill', '#000000')),
+      stroke = color(inherited('stroke', 'none')),
+      alpha = Number(inherited('fill-opacity', '1')),
+      strokeAlpha = Number(inherited('stroke-opacity', '1'));
+    const widthRaw = inherited('stroke-width', '1');
+    if (!/^(?:\d*\.)?\d+(?:e[+-]?\d+)?(?:px)?$/i.test(widthRaw))
+      throw Error('Unsupported stroke-width units');
+    const width = Number(widthRaw.replace(/px$/i, ''));
+    if (!Number.isFinite(width) || width < 0 || width > 100000) throw Error('Invalid stroke width');
     let n;
     if (el.localName === 'path') {
       n = node('Imported Path');
@@ -122,15 +143,27 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
           `Imported ${result.layers.length + 1}`,
       ),
       remap = node('Path Remap', 350, 40),
-      out = node('Output', 650, 40);
+      out = node('Output', 1250, 40);
     remap.params.path.source = n.id;
-    out.params.path.source = remap.id;
-    l.nodes = [n, remap, out];
+    l.nodes = [n, remap];
+    let source = remap.id;
+    for (const [type, hex, opacity] of [
+      ['Fill', fill, alpha],
+      ['Stroke', stroke, strokeAlpha],
+    ]) {
+      if (!hex) continue;
+      const paint = node(type, type === 'Fill' ? 650 : 950, 40);
+      paint.params.path.source = source;
+      paint.params.color.value = { hex, alpha: opacity };
+      if (type === 'Stroke') paint.params.width.value = width;
+      l.nodes.push(paint);
+      source = paint.id;
+    }
+    out.params.path.source = source;
+    l.nodes.push(out);
     l.output = out.id;
-    l.fill = fill;
-    if (alpha !== 1) out.params.fill.value = { hex: fill, alpha };
     result.layers.push(l);
   }
-  if (!result.layers.length) throw Error('SVG contains no supported filled shapes');
+  if (!result.layers.length) throw Error('SVG contains no supported shapes');
   return validate(result);
 }

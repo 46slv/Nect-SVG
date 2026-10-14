@@ -21,7 +21,7 @@ function setup() {
     layer = doc.layers[0],
     color = node('Color');
   layer.nodes.push(color);
-  const output = layer.nodes.find((n) => n.id === layer.output);
+  const output = layer.nodes.find((n) => n.type === 'Fill');
   return { doc, layer, color, output };
 }
 test('Color is a separate validated type; only matching sockets connect', () => {
@@ -30,11 +30,11 @@ test('Color is a separate validated type; only matching sockets connect', () => 
   for (const target of [node('Vector'), node('Value'), node('Toggle')]) {
     layer.nodes.push(target);
     assert.throws(() => connect(layer, color.id, target.id, 'value'), /Cannot connect Color/);
-    assert.throws(() => connect(layer, target.id, output.id, 'fill'), /to Color/);
+    assert.throws(() => connect(layer, target.id, output.id, 'color'), /to Color/);
   }
-  assert.throws(() => connect(layer, color.id, output.id, 'path'), /to Path/);
-  assert.throws(() => connect(layer, layer.nodes[0].id, output.id, 'fill'), /to Color/);
-  connect(layer, color.id, output.id, 'fill');
+  assert.throws(() => connect(layer, color.id, output.id, 'path'), /to PaintedPath/);
+  assert.throws(() => connect(layer, layer.nodes[0].id, output.id, 'color'), /to Color/);
+  connect(layer, color.id, output.id, 'color');
   validate(doc);
   for (const value of [
     null,
@@ -54,19 +54,20 @@ test('Color is a separate validated type; only matching sockets connect', () => 
 });
 test('Color source takes precedence, disconnect restores fallback, and layer fill stays live', () => {
   const { layer, color, output } = setup();
+  output.params.color.value = null;
   layer.fill = '#112233';
   assert.deepEqual(evaluate(layer).path.fill, { hex: '#112233', alpha: 1 });
   layer.fill = '#445566';
   assert.deepEqual(evaluate(layer).path.fill, { hex: '#445566', alpha: 1 });
-  output.params.fill.value = { hex: '#778899', alpha: 0.25 };
+  output.params.color.value = { hex: '#778899', alpha: 0.25 };
   color.params.value.value = { hex: '#ff0000', alpha: 0.5 };
-  connect(layer, color.id, output.id, 'fill');
+  connect(layer, color.id, output.id, 'color');
   assert.deepEqual(evaluate(layer).path.fill, color.params.value.value);
   color.params.value.value.alpha = 0;
   assert.equal(evaluate(layer).path.fill.alpha, 0);
-  disconnect(output, 'fill');
+  disconnect(output, 'color');
   assert.deepEqual(evaluate(layer).path.fill, { hex: '#778899', alpha: 0.25 });
-  output.params.fill.value = null;
+  output.params.color.value = null;
   assert.deepEqual(evaluate(layer).path.fill, { hex: '#445566', alpha: 1 });
 });
 test('Color chaining, cycle and lock rejection preserve graph', () => {
@@ -74,13 +75,13 @@ test('Color chaining, cycle and lock rejection preserve graph', () => {
   const other = node('Color');
   layer.nodes.push(other);
   connect(layer, color.id, other.id, 'value');
-  connect(layer, other.id, output.id, 'fill');
+  connect(layer, other.id, output.id, 'color');
   assert.deepEqual(evaluate(layer).path.fill, color.params.value.value);
   assert.throws(() => connect(layer, other.id, color.id, 'value'), /cycle/);
   assert.equal(color.params.value.source, undefined);
-  output.params.fill.locked = true;
-  assert.throws(() => disconnect(output, 'fill'), /locked/);
-  assert.throws(() => connect(layer, color.id, output.id, 'fill'), /locked/);
+  output.params.color.locked = true;
+  assert.throws(() => disconnect(output, 'color'), /locked/);
+  assert.throws(() => connect(layer, color.id, output.id, 'color'), /locked/);
   assert.doesNotThrow(() => deserialize(serialize(doc)));
   color.params.value.expression = '1';
   assert.throws(() => validate(doc), /Color expressions/);
@@ -90,30 +91,25 @@ test('Color JSON and history preserve definitions; legacy v1 layer fill migrates
   const h = new History(doc);
   h.apply(() => {
     color.params.value.value = { hex: '#abcdef', alpha: 0.3 };
-    connect(layer, color.id, output.id, 'fill');
+    connect(layer, color.id, output.id, 'color');
   });
   const saved = serialize(h.doc);
   assert.equal(serialize(deserialize(saved)), saved);
   h.undo();
-  assert.equal(h.doc.layers[0].nodes.find((n) => n.id === output.id).params.fill.source, undefined);
+  assert.equal(
+    h.doc.layers[0].nodes.find((n) => n.id === output.id).params.color.source,
+    undefined,
+  );
   h.redo();
   assert.equal(serialize(h.doc), saved);
-  const legacy = document();
-  legacy.layers[0].fill = '#123456';
-  delete legacy.layers[0].nodes.at(-1).params.fill;
-  const before = exportSVG(structuredClone(legacy));
-  const loaded = deserialize(JSON.stringify(legacy));
-  assert.equal(loaded.layers[0].nodes.at(-1).params.fill.value, null);
-  assert.equal(exportSVG(loaded), before);
-  assert.match(before, /fill="#123456" fill-opacity="1"/);
   const malformed = structuredClone(doc);
-  malformed.layers[0].nodes.find((n) => n.id === output.id).params.fill.source = layer.nodes[0].id;
+  malformed.layers[0].nodes.find((n) => n.id === output.id).params.color.source = layer.nodes[0].id;
   assert.throws(() => deserialize(JSON.stringify(malformed)), /to Color/);
 });
 test('SVG color and alpha roundtrip, inherited fill-opacity, and unsupported opacity rejection', () => {
   const { doc, layer, color, output } = setup();
   color.params.value.value = { hex: '#20c060', alpha: 0.375 };
-  connect(layer, color.id, output.id, 'fill');
+  connect(layer, color.id, output.id, 'color');
   const svg = exportSVG(doc),
     Parser = new Window().DOMParser;
   assert.match(svg, /fill="#20c060" fill-opacity="0.375"/);

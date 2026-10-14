@@ -121,7 +121,7 @@ test('JSON round trip preserves full graph, fallback, locks and SVG', () => {
 test('untrusted JSON and malformed fields rejected', () => {
   let [d] = scene();
   for (const mutate of [
-    (x) => (x.schemaVersion = 2),
+    (x) => (x.schemaVersion = 99),
     (x) => (x.width = -1),
     (x) => (x.layers[0].nodes[0].params.radius.value = 'bad'),
     (x) => (x.layers[0].nodes[0].params.center.type = 'Scalar'),
@@ -212,13 +212,13 @@ test('Transform preserves stable Curve vertex IDs after deletion', () => {
 test('incremental evaluation recomputes only the changed dependency chain', () => {
   let [, l] = scene();
   let first = evaluate(l);
-  assert.equal(first.stats.computed, 5);
+  assert.equal(first.stats.computed, 6);
   let again = evaluate(l);
   assert.equal(again.stats.computed, 0);
-  assert.equal(again.stats.reused, 5);
+  assert.equal(again.stats.reused, 6);
   l.nodes[0].params.radius.value = 130;
   let changed = evaluate(l);
-  assert.equal(changed.stats.computed, 4);
+  assert.equal(changed.stats.computed, 5);
   assert.equal(changed.stats.reused, 1);
   l.nodes[0].position = [800, 800];
   assert.equal(evaluate(l).stats.computed, 0);

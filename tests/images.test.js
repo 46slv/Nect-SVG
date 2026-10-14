@@ -79,7 +79,7 @@ test('Image cannot enter Path-only Boolean, Transform, Remap or Output, even thr
     l.nodes.push(target);
     assert.throws(
       () => connect(l, n.id, target.id, type === 'Boolean' ? 'a' : 'path'),
-      /Cannot connect Image to Path/,
+      /Cannot connect Image to (?:Painted)?Path/,
     );
   }
   const circle = node('Circle');
@@ -87,7 +87,7 @@ test('Image cannot enter Path-only Boolean, Transform, Remap or Output, even thr
   assert.throws(() => connect(l, circle.id, out.id, 'path'), /Cannot connect Path to Image/);
   const target = l.nodes.find((n) => n.type === 'Boolean');
   target.params.a.source = n.id;
-  assert.throws(() => deserialize(serialize(doc)), /Cannot connect Image to Path/);
+  assert.throws(() => deserialize(serialize(doc)), /Cannot connect Image to (?:Painted)?Path/);
 });
 test('Image assets enforce format, dimensions, aggregate bytes and local-only data', () => {
   const { doc } = imageDoc();

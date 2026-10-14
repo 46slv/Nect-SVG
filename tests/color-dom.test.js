@@ -47,23 +47,23 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   };
   await change(document.querySelector('#add-node'), 'Color');
   const colorId = win.nect.document.layers[0].nodes.at(-1).id;
-  const outputId = win.nect.document.layers[0].output;
+  const outputId = win.nect.document.layers[0].nodes.find((n) => n.type === 'Fill').id;
   const field = (id, key) =>
     document.querySelector(`.graph .field[data-node="${id}"][data-key="${key}"]`);
   await change(field(colorId, 'value').querySelector('[data-color="hex"]'), '#ff8000');
   await change(field(colorId, 'value').querySelector('[data-color="alpha"]'), '0.5');
-  await change(field(outputId, 'fill').querySelector('[data-color="hex"]'), '#2040ff');
-  await change(field(outputId, 'fill').querySelector('[data-color="alpha"]'), '0.25');
+  await change(field(outputId, 'color').querySelector('[data-color="hex"]'), '#2040ff');
+  await change(field(outputId, 'color').querySelector('[data-color="alpha"]'), '0.25');
   assert.deepEqual(win.nect.evaluate().path.fill, { hex: '#2040ff', alpha: 0.25 });
   document
     .querySelector(`[data-source="${colorId}"]`)
     .dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true }));
-  field(outputId, 'fill').dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true }));
+  field(outputId, 'color').dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true }));
   await tick();
   assert.deepEqual(win.nect.evaluate().path.fill, { hex: '#ff8000', alpha: 0.5 });
-  assert.equal(field(outputId, 'fill').querySelector('[data-color="hex"]').value, '#ff8000');
-  assert.equal(field(outputId, 'fill').querySelector('[data-color="alpha"]').disabled, true);
-  field(outputId, 'fill')
+  assert.equal(field(outputId, 'color').querySelector('[data-color="hex"]').value, '#ff8000');
+  assert.equal(field(outputId, 'color').querySelector('[data-color="alpha"]').disabled, true);
+  field(outputId, 'color')
     .querySelector('.input')
     .dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true }));
   await tick();
@@ -72,8 +72,8 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   assert.equal(win.nect.evaluate().path.fill.alpha, 0.5);
   document.querySelector('[data-action="redo"]').click();
   assert.equal(win.nect.evaluate().path.fill.alpha, 0.25);
-  field(outputId, 'fill').querySelector('[data-color-layer]').click();
-  assert.deepEqual(win.nect.evaluate().path.fill, { hex: '#36434e', alpha: 1 });
+  assert.equal(document.querySelector('[data-fill]'), null);
+  assert.equal(document.querySelector('[data-color-layer]'), null);
   await change(field(colorId, 'value').querySelector('[data-color="alpha"]'), '0');
   assert.equal(win.nect.document.layers[0].nodes.at(-1).params.value.value.alpha, 0);
   const saved = JSON.stringify(win.nect.document);

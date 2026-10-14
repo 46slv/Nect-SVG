@@ -67,7 +67,7 @@ try {
   assert.equal(vectorBoxes.length, 2);
   assert.ok(Math.abs(vectorBoxes[0].y - vectorBoxes[1].y) < 1);
   assert.ok(vectorBoxes.every((b) => b.width >= 60));
-  assert.equal(await page.locator('.node').count(), 5);
+  assert.equal(await page.locator('.node').count(), 6);
   // Interrupted canvas gestures neither commit history nor resume on a later pointer move.
   const beforeInterruptedDrag = await page.evaluate(() => JSON.stringify(window.nect.document));
   const canvas = await page.locator('.artboard').boundingBox();

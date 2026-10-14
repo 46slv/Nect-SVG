@@ -142,15 +142,18 @@ try {
   for (const [index, mode] of ['horizontal-tb', 'vertical-rl'].entries()) {
     const composition = layer(index ? 'Vertical · right to left' : 'Horizontal · Japanese OTF');
     const t = node('Text', 40, 40),
-      out = node('Output', 390, 40);
+      paint = node('Fill', 390, 40),
+      out = node('Output', 700, 40);
     t.text = index ? text : '日本語、。ー（文章）\nNect SVG · ガパヴ';
     t.font = fontId;
     t.writingMode = mode;
     t.params.position.value = index ? [775, 25] : [55, 90];
     t.params.size.value = index ? 40 : 32;
     t.params.lineSpacing.value = 1.6;
-    out.params.path.source = t.id;
-    composition.nodes = [t, out];
+    paint.params.path.source = t.id;
+    paint.params.color.value = { hex: index ? '#36434e' : '#58758b', alpha: 1 };
+    out.params.path.source = paint.id;
+    composition.nodes = [t, paint, out];
     composition.output = out.id;
     composition.fill = index ? '#36434e' : '#58758b';
     showcase.layers.push(composition);

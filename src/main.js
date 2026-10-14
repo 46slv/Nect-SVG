@@ -25,6 +25,7 @@ import {
   parameters,
   parameter,
   outputType,
+  socketCompatible,
   evaluate,
   enableRemapPoint,
   rebindRemapPoint,
@@ -168,9 +169,9 @@ function field(n, key, q) {
       displayed = renderEvaluation.run(source.id);
     } catch {}
   }
-  if (['Path', 'Image'].includes(q.type))
+  if (['Path', 'PaintedPath', 'Image'].includes(q.type))
     control = `<select data-path-source aria-label="${esc(n.name + ' ' + name)}"><option value="">Connect ${q.type}…</option>${current()
-      .nodes.filter((x) => outputType(x) === q.type && x.id !== n.id)
+      .nodes.filter((x) => socketCompatible(outputType(x), q.type) && x.id !== n.id)
       .map(
         (x) =>
           `<option value="${x.id}" ${q.source === x.id ? 'selected' : ''}>${esc(x.name)} · ${x.id.slice(-4)}</option>`,
@@ -187,10 +188,10 @@ function field(n, key, q) {
     control = (q.type === 'Vector2' ? displayed : [displayed])
       .map(
         (v, i) =>
-          `<input type="number" step="any" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(v.toFixed?.(3) ?? v)}" ${locked ? 'disabled' : ''}>`,
+          `<input type="number" step="any" ${n.type === 'Stroke' && key === 'width' ? 'min="0" max="100000"' : ''} aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(v.toFixed?.(3) ?? v)}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
-  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}</label><div class="field-tools">${!['Path', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name)} · connected value</span>` : ''}${n.type === 'Output' && key === 'fill' ? `<span class="color-fallback">${q.value === null ? 'Fallback: layer fill · alpha 1' : 'Saved output fallback'}${q.value !== null ? ` <button class="mini" data-color-layer ${locked ? 'disabled' : ''}>Use layer fill</button>` : ''}</span>` : ''}</div>`;
+  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name)} · connected value</span>` : ''}</div>`;
 }
 function remapFields(n, result) {
   let input;
@@ -257,7 +258,7 @@ function expandedNodeBody(n, result) {
     .map(([k, q]) => field(n, k, q))
     .join(
       '',
-    )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${['Path', 'Image'].includes(outputType(n)) && !['Output', 'Image Output'].includes(n.type) ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div>`;
+    )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${['Path', 'PaintedPath', 'Image'].includes(outputType(n)) && !['Output', 'Image Output'].includes(n.type) ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div>`;
 }
 function nodeHTML(n, result) {
   const body = n.collapsed
@@ -335,11 +336,11 @@ function render(resetView = false) {
       ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n)}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${textControls(n)}${Object.entries(
           n.params,
         )
-          .filter(([, q]) => !['Path', 'Image'].includes(q.type))
+          .filter(([, q]) => !['Path', 'PaintedPath', 'Image'].includes(q.type))
           .map(([k, q]) => field(n, k, q))
           .join('')}`
       : '<p>Select a node.</p>'
-  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label>Fill</label><input type="color" data-fill value="${esc(l.fill)}" aria-label="Layer fill" ${outputType(l.nodes.find((x) => x.id === l.output)) === 'Image' ? 'disabled title="Image pixels retain their original colors"' : ''}></div><div class="field"><label>Artboard W</label><input type="number" data-dimension="width" value="${doc.width}" aria-label="Artboard width"></div><div class="field"><label>Artboard H</label><input type="number" data-dimension="height" value="${doc.height}" aria-label="Artboard height"></div>${results
+  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label>Artboard W</label><input type="number" data-dimension="width" value="${doc.width}" aria-label="Artboard width"></div><div class="field"><label>Artboard H</label><input type="number" data-dimension="height" value="${doc.height}" aria-label="Artboard height"></div>${results
     .filter(([, r]) => r.error || r.warnings.length)
     .map(
       ([x, r]) => `<p class="warning">${esc(x.name)}: ${esc(r.error || r.warnings.join(' '))}</p>`,
@@ -626,7 +627,14 @@ function addNode(type, preview = false) {
       n = node(type, ...position);
     l.nodes.push(n);
     selected = n.id;
-    if (preview) connect(l, n.id, l.output, 'path');
+    if (preview) {
+      if (outputType(n) === 'Path') {
+        const paint = node('Fill', ...freePosition('Fill'));
+        paint.params.path.source = n.id;
+        l.nodes.push(paint);
+        connect(l, paint.id, l.output, 'path');
+      } else connect(l, n.id, l.output, 'path');
+    }
   }, `Added ${type}`);
   if (selected) revealNode(selected);
 }
@@ -857,7 +865,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Select a node to edit its parameters or move its source shape on the canvas.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap to Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Space + drag or middle drag: pan. Use Fit to reset.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (25–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Home resets the graph view.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Select a node to edit its parameters or move its source shape on the canvas.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Space + drag or middle drag: pan. Use Fit to reset.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (25–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Home resets the graph view.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => dialog.remove();
           document.body.append(dialog);
           dialog.showModal();
@@ -920,24 +928,13 @@ app.addEventListener('click', async (e) => {
     render();
     return;
   }
-  if (d.colorLayer !== undefined) {
-    const f = b.closest('.field');
-    change(() => {
-      const n = current().nodes.find((x) => x.id === f.dataset.node),
-        q = parameter(n, f.dataset.key);
-      if (q.locked || q.source)
-        throw Error('Disconnect and unlock input before editing its fallback');
-      q.value = null;
-    }, 'Output uses layer fill');
-    return;
-  }
   if (d.connectMenu !== undefined) {
     let f = b.closest('.field'),
       nn = current().nodes.find((x) => x.id === f.dataset.node),
       q = parameter(nn, f.dataset.key);
     let dialog = document.createElement('dialog');
     dialog.innerHTML = `<h3>Connect ${esc(nn.name)} · ${esc(f.dataset.key)}</h3><p>Choose a ${q.type} source. Disconnect restores the saved value or expression.</p><select aria-label="Input source"><option value="">Disconnected</option>${current()
-      .nodes.filter((x) => x.id !== nn.id && outputType(x) === q.type)
+      .nodes.filter((x) => x.id !== nn.id && socketCompatible(outputType(x), q.type))
       .map(
         (x) =>
           `<option value="${x.id}" ${q.source === x.id ? 'selected' : ''}>${esc(x.name)} · ${x.id.slice(-4)}</option>`,
@@ -977,7 +974,16 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.preview)
-    change(() => connect(current(), d.preview, current().output, 'path'), 'Output connected');
+    change(() => {
+      const l = current(),
+        source = l.nodes.find((n) => n.id === d.preview);
+      if (outputType(source) === 'Path') {
+        const paint = node('Fill', ...freePosition('Fill'));
+        paint.params.path.source = source.id;
+        l.nodes.push(paint);
+        connect(l, paint.id, l.output, 'path');
+      } else connect(l, source.id, l.output, 'path');
+    }, 'Output connected');
   if (d.collapse)
     change(() => {
       const nn = current().nodes.find((n) => n.id === d.collapse);
@@ -1226,7 +1232,6 @@ app.addEventListener('change', async (e) => {
       else if (d.writingMode)
         current().nodes.find((n) => n.id === d.writingMode).writingMode = el.value;
       else if (d.layerName !== undefined) current().name = el.value;
-      else if (d.fill !== undefined) current().fill = el.value;
       else if (d.dimension) {
         let v = Number(el.value);
         if (!(v > 0 && v <= 100000)) throw Error('Artboard dimension must be between 1 and 100000');
@@ -1288,6 +1293,12 @@ app.addEventListener('change', async (e) => {
           let value = q.type === 'Boolean' ? el.checked : Number(el.value);
           if (q.type !== 'Boolean' && !Number.isFinite(value))
             throw Error('Expected a finite number');
+          if (
+            nn.type === 'Stroke' &&
+            f.dataset.key === 'width' &&
+            (el.value === '' || value < 0 || value > 100000)
+          )
+            throw Error('Stroke width must be from 0 to 100000 px');
           if (q.type === 'Vector2') q.value[Number(d.axis)] = value;
           else q.value = value;
         }
@@ -1456,7 +1467,10 @@ app.addEventListener('pointerdown', (e) => {
     document
       .querySelectorAll('.graph .field')
       .forEach((f) =>
-        f.classList.toggle('compatible', f.dataset.type === type && f.dataset.node !== id),
+        f.classList.toggle(
+          'compatible',
+          socketCompatible(type, f.dataset.type) && f.dataset.node !== id,
+        ),
       );
     updateGraphBounds();
     drawWires();
@@ -1570,7 +1584,7 @@ app.addEventListener('pointerdown', (e) => {
   let pos = canvasPoint(e),
     n = selectedNode();
   if (tool === 'pen') {
-    if (current().nodes.find((x) => x.id === current().output).params.path.type !== 'Path') {
+    if (current().nodes.find((x) => x.id === current().output).params.path.type === 'Image') {
       notify('Pen needs a vector composition; add or select a vector layer first', true);
       return;
     }
@@ -1602,7 +1616,10 @@ app.addEventListener('pointerdown', (e) => {
       current().nodes.push(nn);
       penId = nn.id;
       selected = nn.id;
-      connect(current(), nn.id, current().output, 'path');
+      const paint = node('Fill', ...freePosition('Fill'));
+      paint.params.path.source = nn.id;
+      current().nodes.push(paint);
+      connect(current(), paint.id, current().output, 'path');
     }
     let nn = current().nodes.find((x) => x.id === penId),
       pt = point(...pos);

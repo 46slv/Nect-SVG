@@ -70,8 +70,13 @@ export const definitions = {
   Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
   Vector: { value: p('Vector2', [300, 250]) },
   Expression: { value: p('Scalar', 100) },
-  // null fill keeps the live layer color as the legacy fallback.
-  Output: { path: p('Path', null), fill: p('Color', null) },
+  Fill: { path: p('PaintedPath', null), color: p('Color', { hex: '#36434e', alpha: 1 }) },
+  Stroke: {
+    path: p('PaintedPath', null),
+    color: p('Color', { hex: '#36434e', alpha: 1 }),
+    width: p('Scalar', 2),
+  },
+  Output: { path: p('PaintedPath', null) },
   Text: {
     position: p('Vector2', [200, 300]),
     size: p('Scalar', 100),
@@ -115,24 +120,26 @@ export function layer(name = 'Composition 1') {
     b = node('Rectangle', 40, 280),
     op = node('Boolean', 330, 50),
     remap = node('Path Remap', 620, 50),
-    out = node('Output', 920, 50);
+    paint = node('Fill', 920, 50),
+    out = node('Output', 1220, 50);
   op.params.a.source = a.id;
   op.params.b.source = b.id;
   remap.params.path.source = op.id;
-  out.params.path.source = remap.id;
+  paint.params.path.source = remap.id;
+  out.params.path.source = paint.id;
   return {
     id: uid('layer'),
     name,
     visible: true,
     locked: false,
     fill: '#36434e',
-    nodes: [a, b, op, remap, out],
+    nodes: [a, b, op, remap, paint, out],
     output: out.id,
   };
 }
 export function document() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     name: 'Untitled composition',
     width: 960,
     height: 540,
@@ -140,6 +147,7 @@ export function document() {
   };
 }
 export function outputType(n) {
+  if (['Fill', 'Stroke', 'Output'].includes(n.type)) return 'PaintedPath';
   if (n.type === 'Color') return 'Color';
   if (n.type === 'Image' || n.type === 'Image Output') return 'Image';
   return n.type === 'Value' || n.type === 'Expression'
@@ -149,6 +157,9 @@ export function outputType(n) {
       : n.type === 'Toggle'
         ? 'Boolean'
         : 'Path';
+}
+export function socketCompatible(sourceType, targetType) {
+  return sourceType === targetType || (sourceType === 'Path' && targetType === 'PaintedPath');
 }
 export function parameters(n) {
   const entries = Object.entries(n.params);
@@ -394,7 +405,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     const cacheKey = JSON.stringify([
       n.type,
       n.params,
-      n.type === 'Output' ? layer.fill : null,
+      n.type === 'Fill' ? layer.fill : null,
       n.points,
       n.operation,
       n.edits,
@@ -430,10 +441,10 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           ? q.type === 'Vector2'
             ? q.expression.split(';').map(expression)
             : expression(q.expression)
-          : n.type === 'Output' && key === 'fill' && q.value === null
+          : n.type === 'Fill' && key === 'color' && q.value === null
             ? { hex: layer.fill, alpha: 1 }
             : clone(q.value);
-      if (q.source && outputType(byId.get(q.source)) !== q.type)
+      if (q.source && !socketCompatible(outputType(byId.get(q.source)), q.type))
         throw Error('Incompatible socket types');
       assertValue(q.type, value);
       return value;
@@ -532,8 +543,12 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       result = read('path');
       if (!result) throw Error(`Connect a ${n.params.path.type} input`);
       result = clone(result);
-      if (n.type === 'Output')
-        result.fill = n.params.fill ? read('fill') : { hex: layer.fill, alpha: 1 };
+      if (n.type === 'Fill') result.fill = read('color');
+      if (n.type === 'Stroke') {
+        const width = read('width');
+        if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
+        result.stroke = { ...read('color'), width };
+      }
       if (n.type === 'Path Remap') {
         let offset = read('offset');
         for (const contour of result.contours)
@@ -596,7 +611,8 @@ export function connect(layer, sourceId, targetId, key, validating = false) {
     q = to && parameter(to, key);
   if (!from || !q) throw Error('Missing socket');
   if (q.locked && !validating) throw Error('Parameter is locked');
-  if (outputType(from) !== q.type) throw Error(`Cannot connect ${outputType(from)} to ${q.type}`);
+  if (!socketCompatible(outputType(from), q.type))
+    throw Error(`Cannot connect ${outputType(from)} to ${q.type}`);
   const old = q.source;
   q.source = sourceId;
   const seen = new Set(),
@@ -623,6 +639,48 @@ export function disconnect(n, key) {
   if (q.locked) throw Error('Parameter is locked');
   delete q.source;
 }
+// Upgrade on load/validation only; storage is never written by migration.
+export function migratePaint(doc) {
+  if (doc.schemaVersion !== 1) return doc;
+  if (!Array.isArray(doc.layers)) throw Error('Invalid layers');
+  for (const l of doc.layers) {
+    if (!Array.isArray(l.nodes)) throw Error('Invalid composition');
+    const outputs = new Map(l.nodes.filter((n) => n.type === 'Output').map((n) => [n.id, n]));
+    if (l.nodes.length + outputs.size > 2000)
+      throw Error('Invalid composition: migration exceeds 2000 nodes');
+    // Legacy Output also exposed geometry. Retain its geometry connections before inserting paint.
+    const geometrySource = (source, seen = new Set()) => {
+      if (!outputs.has(source)) return source;
+      if (seen.has(source)) throw Error('Cycle detected');
+      seen.add(source);
+      return geometrySource(outputs.get(source).params?.path?.source, seen);
+    };
+    for (const n of l.nodes) {
+      if (!n.params) throw Error('Invalid node');
+      for (const [, q] of parameters(n)) {
+        if (q.type === 'Path' && outputs.has(q.source) && n.type !== 'Output') {
+          const source = geometrySource(q.source);
+          if (source) q.source = source;
+          else delete q.source;
+        }
+      }
+    }
+    for (const out of outputs.values()) {
+      if (!out.params?.path || out.params.path.type !== 'Path')
+        throw Error('Invalid parameter type');
+      if (Object.keys(out.params).some((key) => !['path', 'fill'].includes(key)))
+        throw Error('Unexpected parameter');
+      const fill = node('Fill', out.position?.[0] ?? 40, (out.position?.[1] ?? 40) + 280);
+      fill.params.path = { ...clone(out.params.path), type: 'PaintedPath' };
+      fill.params.color = out.params.fill ? clone(out.params.fill) : p('Color', null);
+      out.params.path = { ...out.params.path, type: 'PaintedPath', source: fill.id };
+      delete out.params.fill;
+      l.nodes.splice(l.nodes.indexOf(out), 0, fill);
+    }
+  }
+  doc.schemaVersion = 2;
+  return doc;
+}
 export function validate(doc) {
   const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
   const ids = new Set();
@@ -640,7 +698,7 @@ export function validate(doc) {
   function param(q, type, layerFillFallback = false) {
     if (!q || q.type !== type) throw Error('Invalid parameter type');
     if (!(layerFillFallback && q.value === null)) assertValue(type, q.value);
-    if (['Path', 'Image'].includes(type) && q.value !== null)
+    if (['Path', 'PaintedPath', 'Image'].includes(type) && q.value !== null)
       throw Error('Path fallback must be null');
     text(q.expression);
     if (type === 'Color' && q.expression) throw Error('Color expressions are not supported');
@@ -648,7 +706,8 @@ export function validate(doc) {
     if (q.source !== undefined && (typeof q.source !== 'string' || !idPattern.test(q.source)))
       throw Error('Invalid source ID');
   }
-  if (!doc || doc.schemaVersion !== 1) throw Error('Unsupported project version');
+  if (!doc || ![1, 2].includes(doc.schemaVersion)) throw Error('Unsupported project version');
+  if (doc.schemaVersion === 1) migratePaint(doc);
   text(doc.name);
   validateFontAssets(doc.fontAssets);
   validateImageAssets(doc.imageAssets);
@@ -705,12 +764,12 @@ export function validate(doc) {
       if (n.type === 'Text')
         for (const key of ['letterSpacing', 'lineSpacing'])
           if (!Object.hasOwn(n.params, key)) n.params[key] = clone(definitions.Text[key]);
-      if (n.type === 'Output' && !Object.hasOwn(n.params, 'fill'))
-        n.params.fill = clone(definitions.Output.fill);
       if (Object.keys(n.params).length !== Object.keys(definitions[n.type]).length)
         throw Error('Unexpected parameter');
       for (const [key, def] of Object.entries(definitions[n.type]))
-        param(n.params[key], def.type, n.type === 'Output' && key === 'fill');
+        param(n.params[key], def.type, n.type === 'Fill' && key === 'color');
+      if (n.type === 'Stroke' && (n.params.width.value < 0 || n.params.width.value > 100000))
+        throw Error('Stroke width must be from 0 to 100000 px');
       if (n.points.length > 10000 || n.edits.length > 10000) throw Error('Too many vertices');
       for (const pt of n.points) {
         id(pt.id);
@@ -761,9 +820,15 @@ export function renderElement(value, l, assets = {}, attributes = '') {
     if (!asset) throw Error('Missing image asset');
     return `<image ${attributes} data-layer="${escape(l.name)}" x="${value.position[0]}" y="${value.position[1]}" width="${value.size[0]}" height="${value.size[1]}" preserveAspectRatio="none" href="${imageURL(asset)}"/>`;
   }
-  const fill = value.fill || { hex: l.fill, alpha: 1 };
-  assertValue('Color', fill);
-  return `<path ${attributes} data-layer="${escape(l.name)}" d="${escape(pathData(value))}" fill="${escape(fill.hex)}" fill-opacity="${fill.alpha}" fill-rule="nonzero"/>`;
+  const fill = value.fill,
+    stroke = value.stroke;
+  if (fill) assertValue('Color', fill);
+  if (stroke) {
+    assertValue('Color', { hex: stroke.hex, alpha: stroke.alpha });
+    if (!Number.isFinite(stroke.width) || stroke.width < 0 || stroke.width > 100000)
+      throw Error('Invalid stroke width');
+  }
+  return `<path ${attributes} data-layer="${escape(l.name)}" d="${escape(pathData(value))}" fill="${fill ? escape(fill.hex) : 'none'}"${fill ? ` fill-opacity="${fill.alpha}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${stroke.alpha}" stroke-width="${stroke.width}"` : ''}/>`;
 }
 export function exportScene(doc, fonts = {}) {
   validate(doc);
