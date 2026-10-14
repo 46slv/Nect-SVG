@@ -37,3 +37,9 @@ For each step record PASS / FAIL / NOT RUN, exact commit/run, observable result,
 ### Installed-font native acceptance
 
 In the packaged Windows app, verify automatic system and per-user face lists, choose a static Latin font and both faces of an installed Japanese TTC (for example Meiryo), then edit Japanese vertical text. Confirm selected face names, punctuation, undo/redo, save/reopen with newly typed characters and identical SVG output. Verify unsupported variable/color faces are disabled; restricted embedding is rejected without changing the document. Confirm cancellation/manual picker, removed font file, concurrent document edits and locked layers remain safe. Test a standard per-user installation after restart. This actual WebView2/installed-Japanese-font acceptance is NOT RUN by synthetic DOM tests or NSIS packaging alone.
+
+### Installed-font CI evidence (2026-10-14)
+
+Commit `f2e924df7045013ce784c1ebe9f34daec846e9f8`, [Windows run 38566656095](https://github.com/46slv/Nect-SVG/actions/runs/38566656095), passed 83 JavaScript tests, actual Chrome interaction tests, 7 Rust tests and NSIS packaging. On that runner, native extraction of `msgothic.ttc` produced the MS Gothic face; the existing JavaScript parser, editable-embedding checks, Japanese horizontal/vertical outline evaluation and JSON reload all passed. Extracted installed-font bytes were deleted and were not uploaded as artifacts.
+
+This verifies native font-file extraction and headless layout on Windows. The packaged WebView2 font list, native IPC/UI integration, dialogs, install/uninstall and high-DPI acceptance above remain NOT RUN. The checked-in Cargo.lock preserves the matched Tauri 2.9 native crate baseline; CI tests and builds with `--locked`.

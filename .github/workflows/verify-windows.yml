@@ -41,18 +41,11 @@ jobs:
         shell: pwsh
         run: |
           rustup default stable
-          # Resolve the matching official Tauri 2.9 crate family before compiling.
-          # Preserve the lock as evidence so this baseline can be checked in.
-          foreach ($pin in @('tauri-runtime-wry:2.9.0', 'tauri-runtime:2.9.0', 'tauri-build:2.5.0', 'tauri-macros:2.5.0', 'tauri-codegen:2.5.0', 'tauri-utils:2.8.0')) {
-            $parts = $pin.Split(':')
-            cargo update --manifest-path src-tauri/Cargo.toml -p $parts[0] --precise $parts[1]
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
           cargo test --locked --manifest-path src-tauri/Cargo.toml -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/native-font-smoke.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npx --yes @tauri-apps/cli@2 build
+          npx --yes @tauri-apps/cli@2 build -- --locked
       - name: Preserve bounded development evidence
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
