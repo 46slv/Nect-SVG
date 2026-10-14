@@ -16,6 +16,8 @@ The workspace uses a white/silver interface, lower resizable graph, right Layers
 
 - Pen: click corner points, drag Bézier handles, click the first point to close, Escape to finish open.
 - Select a generator node, then drag the canvas to move its own parameters. Locked, connected or expression-driven positions refuse movement.
+- Node graph navigation: middle-button drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (25–200%). Ctrl/Cmd+1 restores actual size while the graph is focused; Home resets zoom and scroll. Plain wheel/two-finger scrolling remains available. Form controls do not start graph navigation.
+- Drag nodes near a graph edge to scroll continuously, even with the pointer outside the panel. Right/bottom bounds grow with the drag; left/top stop at the existing nonnegative origin. Escape, pointer cancellation or focus loss rolls back the drag. A completed drag is one Undo step, and JSON keeps world positions.
 - Drag an output to a matching field. Connected inputs appear alongside that field. Drag input to empty graph space or right-click it to disconnect and restore fallback.
 - Color: add a Color node, choose its color and alpha (0–1), then connect it to Output → fill. Disconnect restores the saved Output fallback; “Use layer fill” returns to the original layer color. SVG and transparent PNG retain alpha.
 - Text supports local static TTF/OTF loading, Japanese outlines, multiline text, horizontal/vertical writing, letter spacing and line/column spacing. Saved JSON embeds the font for later editing; check its license before sharing. See [typography and limits](docs/typography.md).

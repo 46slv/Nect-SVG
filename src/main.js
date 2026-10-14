@@ -60,6 +60,7 @@ let history = new History(newDocument()),
   snapMatches = [],
   pan = [0, 0],
   graphHeight = 42,
+  graphZoom = 1,
   message = 'Ready • edit a generator or connect a node',
   error = false,
   fonts = {},
@@ -143,6 +144,7 @@ function change(fn, text, deferRender = false) {
   }
 }
 function resetTransient() {
+  stopGraphDrag();
   imageRequest++;
   imagePick = null;
   layoutDraft = null;
@@ -318,7 +320,7 @@ function render(resetView = false) {
     .map((x) => `<option>${x}</option>`)
     .join(
       '',
-    )}</select><button data-action="graph-fit" title="Scroll to graph origin">Home</button></div><div class="graph-scroll"><div class="graph"><svg class="wires"></svg>${l.nodes.map((x) => nodeHTML(x, result)).join('')}</div></div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer">+ Composition</button></div>${[
+    )}</select><button data-action="graph-fit" title="Reset graph zoom and scroll to origin">Home</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" title="Middle drag or Ctrl/Cmd+Shift+drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg>${l.nodes.map((x) => nodeHTML(x, result)).join('')}</div></div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer">+ Composition</button></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -345,6 +347,9 @@ function render(resetView = false) {
     .join(
       '',
     )}<p>Dynamic sockets<br>Drag a node output onto a compatible field. Drag a connected input into empty graph space to disconnect. Right-click an input also disconnects.</p><p>Expressions: arithmetic, pi, sin, cos, sqrt, min/max. Vector2: x expression; y expression.</p></div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+  if (resetView) graphZoom = 1;
+  document.querySelector('.graph').style.zoom = graphZoom;
+  updateGraphBounds();
   const gs = document.querySelector('.graph-scroll');
   gs.scrollLeft = oldScroll[0];
   gs.scrollTop = oldScroll[1];
@@ -581,10 +586,10 @@ function drawWires() {
       if (!from || !to) continue;
       let a = from.getBoundingClientRect(),
         b = to.getBoundingClientRect(),
-        x = a.x + a.width / 2 - rect.x,
-        y = a.y + a.height / 2 - rect.y,
-        xx = b.x + b.width / 2 - rect.x,
-        yy = b.y + b.height / 2 - rect.y;
+        x = (a.x + a.width / 2 - rect.x) / graphZoom,
+        y = (a.y + a.height / 2 - rect.y) / graphZoom,
+        xx = (b.x + b.width / 2 - rect.x) / graphZoom,
+        yy = (b.y + b.height / 2 - rect.y) / graphZoom;
       html += `<path class="wire" d="M${x},${y} C${x + 80},${y} ${xx - 80},${yy} ${xx},${yy}"/>`;
     }
   svg.innerHTML = html;
@@ -844,12 +849,15 @@ app.addEventListener('click', async (e) => {
           render();
           break;
         case 'graph-fit':
+          graphZoom = 1;
+          document.querySelector('.graph').style.zoom = graphZoom;
+          drawWires();
           document.querySelector('.graph-scroll').scrollTo(0, 0);
           break;
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Select a node to edit its parameters or move its source shape on the canvas.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap to Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Space + drag or middle drag: pan. Use Fit to reset.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Select a node to edit its parameters or move its source shape on the canvas.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap to Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Space + drag or middle drag: pan. Use Fit to reset.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (25–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Home resets the graph view.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => dialog.remove();
           document.body.append(dialog);
           dialog.showModal();
@@ -1296,7 +1304,150 @@ function canvasPoint(event) {
   return [r.x, r.y];
 }
 let space = false;
+// Graph navigation stays in screen pixels; document positions remain world coordinates.
+let graphFrame = null;
+function stopGraphDrag() {
+  if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
+  graphFrame = null;
+  if (drag?.capture?.hasPointerCapture?.(drag.pointerId))
+    drag.capture.releasePointerCapture(drag.pointerId);
+}
+function captureGraphPointer(e) {
+  drag.pointerId = e.pointerId;
+  drag.capture = document.querySelector('.graph-scroll');
+  drag.capture.setPointerCapture?.(e.pointerId);
+}
+function graphPoint(x, y) {
+  const r = document.querySelector('.graph').getBoundingClientRect();
+  return [(x - r.x) / graphZoom, (y - r.y) / graphZoom];
+}
+function moveGraphNodes() {
+  if (drag?.type !== 'node' || current().locked) return;
+  const point = graphPoint(...drag.pointer);
+  // Clamp the group as a unit, preserving relative spacing at the origin.
+  const delta = point.map((v, i) =>
+    Math.max(v - drag.startWorld[i], -Math.min(...drag.originals.map((o) => o.position[i]))),
+  );
+  for (const original of drag.originals) {
+    const n = current().nodes.find((x) => x.id === original.id);
+    n.position = original.position.map((v, i) => v + delta[i]);
+    const el = document.querySelector(`.node[data-id="${n.id}"]`);
+    el.style.left = n.position[0] + 'px';
+    el.style.top = n.position[1] + 'px';
+  }
+  updateGraphBounds();
+  drawWires();
+}
+function edgeVelocity(value, low, high) {
+  const band = Math.min(64, (high - low) / 3);
+  if (band <= 0) return 0;
+  if (value < low + band) return -720 * Math.min(1, (low + band - value) / band) ** 2;
+  if (value > high - band) return 720 * Math.min(1, (value - high + band) / band) ** 2;
+  return 0;
+}
+function graphAutoPan(time) {
+  graphFrame = null;
+  if (drag?.type !== 'node' || current().locked) return;
+  const dt = Math.min(0.05, Math.max(0, (time - (drag.frameTime ?? time)) / 1000));
+  drag.frameTime = time;
+  const viewport = document.querySelector('.graph-scroll'),
+    r = viewport.getBoundingClientRect();
+  const vx = edgeVelocity(drag.pointer[0], r.left, r.left + viewport.clientWidth),
+    vy = edgeVelocity(drag.pointer[1], r.top, r.top + viewport.clientHeight);
+  // Grow ahead of the pointer, including when the node itself is beyond the viewport.
+  const graph = document.querySelector('.graph');
+  if (vx > 0)
+    graph.style.width =
+      Math.max(graph.offsetWidth, (viewport.scrollLeft + viewport.clientWidth + 160) / graphZoom) +
+      'px';
+  if (vy > 0)
+    graph.style.height =
+      Math.max(graph.offsetHeight, (viewport.scrollTop + viewport.clientHeight + 160) / graphZoom) +
+      'px';
+  viewport.scrollLeft += vx * dt;
+  viewport.scrollTop += vy * dt;
+  moveGraphNodes();
+  graphFrame = requestAnimationFrame(graphAutoPan);
+}
+function cancelInteraction() {
+  if (!drag && !wiring) return;
+  const before = drag?.before;
+  const old = drag;
+  drag = null;
+  if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
+  graphFrame = null;
+  if (old?.capture?.hasPointerCapture?.(old.pointerId))
+    old.capture.releasePointerCapture(old.pointerId);
+  if (before) history.doc = before;
+  pointerActive = false;
+  snapMatches = [];
+  wiring = null;
+  render();
+}
+function zoomGraph(next, clientX, clientY) {
+  const viewport = document.querySelector('.graph-scroll'),
+    r = viewport.getBoundingClientRect();
+  const x = clientX - r.left,
+    y = clientY - r.top,
+    ratio = next / graphZoom;
+  const scroll = [(viewport.scrollLeft + x) * ratio - x, (viewport.scrollTop + y) * ratio - y];
+  graphZoom = next;
+  document.querySelector('.graph').style.zoom = next;
+  viewport.scrollLeft = scroll[0];
+  viewport.scrollTop = scroll[1];
+  drawWires();
+}
+app.addEventListener(
+  'wheel',
+  (e) => {
+    if (
+      !e.target.closest('.graph-scroll') ||
+      e.target.closest('input,textarea,select,[contenteditable="true"]')
+    )
+      return;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      if (drag || wiring) return;
+      zoomGraph(
+        Math.max(0.25, Math.min(2, graphZoom * Math.exp(-e.deltaY * 0.002))),
+        e.clientX,
+        e.clientY,
+      );
+    }
+  },
+  { passive: false },
+);
+window.addEventListener('blur', () => {
+  space = false;
+  cancelInteraction();
+});
+app.addEventListener('lostpointercapture', (e) => {
+  if (drag?.pointerId === e.pointerId) cancelInteraction();
+});
+
 app.addEventListener('pointerdown', (e) => {
+  if (drag) return;
+  const viewport = e.target.closest('.graph-scroll');
+  const control = e.target.closest('input,textarea,select,[contenteditable="true"]');
+  if (
+    viewport &&
+    !control &&
+    (e.button === 1 || (e.button === 0 && (space || (e.shiftKey && (e.ctrlKey || e.metaKey)))))
+  ) {
+    drag = {
+      type: 'graph-pan',
+      start: [e.clientX, e.clientY],
+      scroll: [viewport.scrollLeft, viewport.scrollTop],
+    };
+    viewport.focus({ preventScroll: true });
+    captureGraphPointer(e);
+    e.preventDefault();
+    return;
+  }
+  if (e.button !== 0) {
+    if (viewport && control && e.button === 1) e.preventDefault();
+    return;
+  }
   if (e.target.closest('.output')) {
     let id = e.target.closest('.output').dataset.source;
     wiring = { source: id };
@@ -1335,9 +1486,11 @@ app.addEventListener('pointerdown', (e) => {
     }
     if (!selection.has(id)) selection = new Set([id]);
     selected = id;
-    const n = selectedNode();
+    if (current().locked) return;
     drag = {
       type: 'node',
+      pointer: [e.clientX, e.clientY],
+      startWorld: graphPoint(e.clientX, e.clientY),
       id,
       start: [e.clientX, e.clientY],
       originals: [...selection].map((id) => ({
@@ -1346,6 +1499,8 @@ app.addEventListener('pointerdown', (e) => {
       })),
       before: cloneDocument(history.doc),
     };
+    captureGraphPointer(e);
+    graphFrame = requestAnimationFrame(graphAutoPan);
     document
       .querySelectorAll('.node')
       .forEach((x) => x.classList.toggle('selected', selection.has(x.dataset.id)));
@@ -1568,9 +1723,15 @@ app.addEventListener('pointerdown', (e) => {
   } else notify('Select only shape, Text, Image or Curve generators to move them');
 });
 document.addEventListener('pointermove', (e) => {
-  if (!drag) return;
+  if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
+  if (drag.type === 'graph-pan') {
+    const viewport = document.querySelector('.graph-scroll');
+    viewport.scrollLeft = drag.scroll[0] - e.clientX + drag.start[0];
+    viewport.scrollTop = drag.scroll[1] - e.clientY + drag.start[1];
+    return;
+  }
   if (drag.type === 'resize') {
-    const width = Math.max(220, Math.min(550, drag.width + e.clientX - drag.startX));
+    const width = Math.max(220, Math.min(550, drag.width + (e.clientX - drag.startX) / graphZoom));
     document.querySelector(`.node[data-id="${drag.id}"]`).style.width = width + 'px';
     updateGraphBounds();
     drawWires();
@@ -1597,17 +1758,8 @@ document.addEventListener('pointermove', (e) => {
     return;
   }
   if (drag.type === 'node') {
-    if (current().locked) return;
-    for (const original of drag.originals) {
-      const n = current().nodes.find((x) => x.id === original.id);
-      n.position = original.position.map((v, i) =>
-        Math.max(0, v + [e.clientX - drag.start[0], e.clientY - drag.start[1]][i]),
-      );
-      const el = document.querySelector(`.node[data-id="${n.id}"]`);
-      el.style.left = n.position[0] + 'px';
-      el.style.top = n.position[1] + 'px';
-    }
-    drawWires();
+    drag.pointer = [e.clientX, e.clientY];
+    moveGraphNodes();
     return;
   }
   let pos = canvasPoint(e),
@@ -1658,15 +1810,9 @@ document.addEventListener('pointermove', (e) => {
   }
   updateCanvas();
 });
-document.addEventListener('pointercancel', () => {
-  if (!drag && !wiring) return;
-  if (drag?.before) history.doc = drag.before;
-  drag = null;
-  snapMatches = [];
-  wiring = null;
-  render();
-});
+document.addEventListener('pointercancel', cancelInteraction);
 document.addEventListener('pointerup', (e) => {
+  if (drag?.pointerId !== undefined && drag.pointerId !== e.pointerId) return;
   if (wiring) {
     let w = wiring;
     wiring = null;
@@ -1696,6 +1842,9 @@ document.addEventListener('pointerup', (e) => {
       n.width = Math.max(220, Math.min(550, el.offsetWidth));
     }
     drag = null;
+    if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
+    graphFrame = null;
+    if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
     snapMatches = [];
     if (d.before && !sameDocument(d.before, history.doc)) {
       history.record(d.before);
@@ -1734,7 +1883,16 @@ document.addEventListener('keydown', (e) => {
     space = true;
     e.preventDefault();
   }
+  if ((e.ctrlKey || e.metaKey) && e.key === '1' && e.target.closest('.graph-scroll')) {
+    e.preventDefault();
+    if (!drag && !wiring) {
+      const r = document.querySelector('.graph-scroll').getBoundingClientRect();
+      zoomGraph(1, r.left + r.width / 2, r.top + r.height / 2);
+    }
+    return;
+  }
   if (e.key === 'Escape') {
+    cancelInteraction();
     layoutDraft = null;
     layoutPreview = false;
     if (drag?.before) history.doc = drag.before;

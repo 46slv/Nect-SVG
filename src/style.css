@@ -198,6 +198,8 @@ header {
   text-transform: uppercase;
 }
 .graph-scroll {
+  overscroll-behavior: contain;
+  touch-action: none;
   overflow: auto;
   flex: 1;
   position: relative;
