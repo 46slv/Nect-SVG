@@ -128,6 +128,12 @@ try {
   const vmValue = () => page.evaluate((id) => window.nect.evaluate().run(id), vectorIds.vm);
   assert.equal(await vmValue(), 5);
   await vmOp().selectOption('normalize');
+  // Rejected operations restore the select in the deferred render.
+  // Wait for that observable rollback instead of racing the render timer.
+  await page.waitForFunction(
+    (id) => document.querySelector(`.inspector-body [data-operation="${id}"]`)?.value === 'length',
+    vectorIds.vm,
+  );
   assert.equal(await vmOp().inputValue(), 'length');
   assert.equal(await vmValue(), 5);
   await inspect(vectorIds.r);
