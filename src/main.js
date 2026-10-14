@@ -191,7 +191,7 @@ function nodeHTML(n, result) {
     .map(([k, q]) => field(n, k, q))
     .join(
       '',
-    )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${outputType(n) === 'Path' && n.type !== 'Output' ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${n.type !== 'Output' ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div></section>`;
+    )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${outputType(n) === 'Path' && n.type !== 'Output' ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${n.type !== 'Output' ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div><div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
 function render(resetView = false) {
   needsRender = false;
@@ -843,13 +843,18 @@ app.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     return;
   }
-  const resized = e.target.closest('.node');
+  const resized = e.target.closest('.node-resize')?.closest('.node');
   if (resized) {
-    const bounds = resized.getBoundingClientRect();
-    if (e.clientX > bounds.right - 18 && e.clientY > bounds.bottom - 18) {
-      drag = { type: 'resize', id: resized.dataset.id, before: clone(history.doc) };
-      return;
-    }
+    if (current().locked) return;
+    drag = {
+      type: 'resize',
+      id: resized.dataset.id,
+      startX: e.clientX,
+      width: resized.offsetWidth,
+      before: clone(history.doc),
+    };
+    e.preventDefault();
+    return;
   }
   let stage = e.target.closest('.canvas-stage');
   if (!stage) return;
@@ -999,7 +1004,13 @@ app.addEventListener('pointerdown', (e) => {
 });
 document.addEventListener('pointermove', (e) => {
   if (!drag) return;
-  if (drag.type === 'resize') return;
+  if (drag.type === 'resize') {
+    const width = Math.max(220, Math.min(550, drag.width + e.clientX - drag.startX));
+    document.querySelector(`.node[data-id="${drag.id}"]`).style.width = width + 'px';
+    updateGraphBounds();
+    drawWires();
+    return;
+  }
   if (drag.type === 'split') {
     graphHeight = Math.max(
       18,
@@ -1068,6 +1079,13 @@ document.addEventListener('pointermove', (e) => {
     }
   }
   updateCanvas();
+});
+document.addEventListener('pointercancel', () => {
+  if (!drag && !wiring) return;
+  if (drag?.before) history.doc = drag.before;
+  drag = null;
+  wiring = null;
+  render();
 });
 document.addEventListener('pointerup', (e) => {
   if (wiring) {

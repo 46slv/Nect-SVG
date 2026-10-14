@@ -172,5 +172,80 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   pointer(document.querySelector('.artboard'), 'pointerdown', 50, 50);
   pointer(document, 'pointerup', 50, 50);
   assert.equal(JSON.stringify(win.nect.document), lockedOutput);
+
+  // Cancellation rolls back provisional edits without consuming undo or redo history.
+  win.nect.load(serialized);
+  radius = document.querySelector(
+    `.graph [data-node="${circle.id}"][data-key="radius"] [data-value]`,
+  );
+  radius.value = '75';
+  radius.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  const committed = JSON.stringify(win.nect.document);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), serialized);
+  const cancelAndCheck = (before) => {
+    pointer(document, 'pointercancel');
+    assert.equal(JSON.stringify(win.nect.document), before);
+    pointer(document, 'pointermove', 700, 600);
+    pointer(document, 'pointerup', 700, 600);
+    assert.equal(JSON.stringify(win.nect.document), before);
+  };
+  pointer(document.querySelector('.artboard'), 'pointerdown', 100, 100);
+  pointer(document, 'pointermove', 150, 170);
+  assert.notEqual(JSON.stringify(win.nect.document), serialized);
+  cancelAndCheck(serialized);
+  assert.equal(document.querySelector('[data-action="undo"]').disabled, true);
+  assert.equal(document.querySelector('[data-action="redo"]').disabled, false);
+  document.querySelector('[data-action="redo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), committed);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), serialized);
+
+  // Node layout uses the same transaction boundary; a cancelled move cannot resume.
+  pointer(document.querySelector(`.node[data-id="${circle.id}"] .node-head`), 'pointerdown');
+  pointer(document, 'pointermove', 80, 60);
+  assert.notEqual(JSON.stringify(win.nect.document), serialized);
+  cancelAndCheck(serialized);
+
+  // A cancelled first Pen point removes its new node and restores Output routing.
+  document.querySelector('[data-tool="pen"]').click();
+  pointer(document.querySelector('.artboard'), 'pointerdown', 100, 100);
+  pointer(document, 'pointermove', 130, 120);
+  cancelAndCheck(serialized);
+  pointer(document.querySelector('.artboard'), 'pointerdown', 200, 100);
+  pointer(document, 'pointerup', 200, 100);
+  const firstPoint = JSON.stringify(win.nect.document);
+  assert.deepEqual(win.nect.document.layers[0].nodes.at(-1).points[0].position.value, [200, 100]);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), serialized);
+  document.querySelector('[data-action="redo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), firstPoint);
+
+  // Cancelling a vertex move preserves the prior committed Pen history.
+  const penNodeId = win.nect.document.layers[0].nodes.at(-1).id;
+  pointer(document.querySelector(`.node[data-id="${penNodeId}"] .node-head`), 'pointerdown');
+  pointer(document, 'pointerup');
+  document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const vertex = document.querySelector('.vertex');
+  pointer(vertex, 'pointerdown', 200, 100);
+  pointer(document, 'pointermove', 230, 140);
+  assert.notEqual(JSON.stringify(win.nect.document), firstPoint);
+  cancelAndCheck(firstPoint);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), serialized);
+
+  // Cancelling a connection clears its highlight and ignores a later target release.
+  win.nect.load(serialized);
+  pointer(document.querySelector(`[data-source="${value.id}"]`), 'pointerdown');
+  assert.ok(document.querySelectorAll('.compatible').length > 0);
+  pointer(document, 'pointercancel');
+  assert.equal(document.querySelectorAll('.compatible').length, 0);
+  pointer(
+    document.querySelector(`.graph [data-node="${circle.id}"][data-key="radius"]`),
+    'pointerup',
+  );
+  assert.equal(JSON.stringify(win.nect.document), serialized);
+  assert.equal(document.querySelector('[data-action="undo"]').disabled, true);
   await win.happyDOM.close();
 });

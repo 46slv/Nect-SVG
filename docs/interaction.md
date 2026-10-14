@@ -37,3 +37,9 @@ Numeric/text drafts stay in the focused control until `change`; typing alone doe
 Open and Import SVG ask before replacing unsaved work; Cancel preserves the project. New already requires explicit confirmation. Browser imports/open and native open remain transactional; stale asynchronous reads cannot overwrite edits made while the file dialog/read was pending. JSON stores the editable model, not the session-only undo stack. Native OS close behavior is still a Windows verification item.
 
 Remap point checkboxes select an explicit subset for a shared Δ Position. “Move selected points” adds that delta to each selected point in one undo step; any locked, expression-driven, connected, missing or suspended target rejects the entire batch. No canvas or Blender gesture is assigned. Deselect clears only the transient selection. Undo/document replacement clears transient batch selection, while saved per-point edits remain.
+
+## Pointer interruption and border ports
+
+Pointer cancellation restores the document snapshot from before the active drag, clears pending wiring and redraws without adding or consuming undo/redo entries. A later pointer move or release cannot resume the cancelled gesture. Ordinary pointer release still commits one undo entry.
+
+Graph input socket centers sit on the left card border at their value row; output sockets sit on the right header border. Disconnected inputs remain hidden, and Inspector sockets retain their inline placement. Expanded hit targets follow the socket elements, and wires use their measured centers. Cards allow their ports to overflow visibly; the graph keeps a margin around zero-position cards. A dedicated bottom-right drag handle retains horizontal resizing, while the outer graph viewport retains scrolling for tall Curve and Remap cards.

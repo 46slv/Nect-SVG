@@ -202,6 +202,7 @@ header {
 }
 .graph {
   position: relative;
+  margin: 16px;
   width: 2400px;
   height: 1600px;
   background-image: radial-gradient(#c8d0d7 0.65px, transparent 0.65px);
@@ -221,6 +222,7 @@ header {
   fill: none;
 }
 .node {
+  --body-inset: 8px;
   position: absolute;
   width: 244px;
   min-width: 220px;
@@ -229,20 +231,22 @@ header {
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 3px 8px #1f32460d;
-  resize: horizontal;
-  overflow: auto;
+  overflow: visible;
+  scroll-margin: 16px;
 }
 .node.selected {
   border-color: #526a7c;
   box-shadow: 0 0 0 1px #526a7c;
 }
 .node-head {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 9px 10px;
   border-bottom: 1px solid var(--line);
   background: linear-gradient(#fff, #edf0f3);
+  border-radius: 7px 7px 0 0;
   cursor: grab;
   user-select: none;
 }
@@ -267,8 +271,41 @@ header {
 .socket.output {
   background: #8799a7;
 }
+.node .socket {
+  position: absolute;
+  z-index: 2;
+}
+.node .socket::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+}
+.node .socket.output {
+  top: 50%;
+  right: -1px;
+  transform: translate(50%, -50%);
+}
+.node .field-controls {
+  position: relative;
+}
+.node .socket.input {
+  left: calc(-1 * (var(--body-inset) + 1px));
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+.node-resize {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 16px;
+  height: 16px;
+  cursor: ew-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 60%, #b6c0c8 60%, #b6c0c8 67%, transparent 67%);
+}
 .node-body {
-  padding: 8px;
+  padding: var(--body-inset);
 }
 .field {
   display: flex;

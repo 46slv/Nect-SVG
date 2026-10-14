@@ -9,10 +9,51 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 let errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
+async function assertBorderSockets() {
+  await page.waitForTimeout(50);
+  const geometry = await page.evaluate(() => {
+    const visible = (el) => el.getBoundingClientRect().width > 0;
+    const sockets = [...document.querySelectorAll('.graph .socket')].filter(visible);
+    const origin = document.querySelector('.wires').getBoundingClientRect();
+    const center = (el) => {
+      const r = el.getBoundingClientRect();
+      return [r.x + r.width / 2 - origin.x, r.y + r.height / 2 - origin.y];
+    };
+    const wires = [...document.querySelectorAll('.wire')].map((el) => {
+      const a = el.getPointAtLength(0),
+        b = el.getPointAtLength(el.getTotalLength());
+      return [a.x, a.y, b.x, b.y];
+    });
+    return {
+      offsets: sockets.map((el) => {
+        const r = el.getBoundingClientRect(),
+          n = el.closest('.node').getBoundingClientRect();
+        return r.x + r.width / 2 - (el.classList.contains('input') ? n.left : n.right);
+      }),
+      wired: [...document.querySelectorAll('.graph .field.connected')]
+        .filter((el) => visible(el.querySelector('.input')))
+        .map((field) => {
+          const layer = window.nect.document.layers.find((l) =>
+            l.nodes.some((n) => n.id === field.dataset.node),
+          );
+          const n = layer.nodes.find((n) => n.id === field.dataset.node);
+          const q = n.params[field.dataset.key];
+          if (!q) return true; // Nested point fields are covered by the border assertion.
+          const from = document.querySelector(`.graph [data-source="${q.source}"]`);
+          const expected = [...center(from), ...center(field.querySelector('.input'))];
+          return wires.some((w) => w.every((v, i) => Math.abs(v - expected[i]) < 1));
+        }),
+    };
+  });
+  assert.ok(geometry.offsets.length > 0);
+  assert.ok(geometry.offsets.every((offset) => Math.abs(offset) < 1));
+  assert.ok(geometry.wired.every(Boolean));
+}
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForSelector('.shape');
   await page.waitForTimeout(500);
+  await assertBorderSockets();
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/editor-initial-1600x900.png', fullPage: true });
   const vectorBoxes = await page
@@ -27,6 +68,55 @@ try {
   assert.ok(Math.abs(vectorBoxes[0].y - vectorBoxes[1].y) < 1);
   assert.ok(vectorBoxes.every((b) => b.width >= 60));
   assert.equal(await page.locator('.node').count(), 5);
+  // Interrupted canvas gestures neither commit history nor resume on a later pointer move.
+  const beforeInterruptedDrag = await page.evaluate(() => JSON.stringify(window.nect.document));
+  const canvas = await page.locator('.artboard').boundingBox();
+  await page.locator('.artboard').dispatchEvent('pointerdown', {
+    clientX: canvas.x + 50,
+    clientY: canvas.y + 50,
+    button: 0,
+  });
+  await page.evaluate(
+    ({ x, y }) => {
+      document.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y }));
+    },
+    { x: canvas.x + 80, y: canvas.y + 70 },
+  );
+  assert.notEqual(
+    await page.evaluate(() => JSON.stringify(window.nect.document)),
+    beforeInterruptedDrag,
+  );
+  await page.evaluate(() => {
+    document.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 700, clientY: 600 }));
+    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 700, clientY: 600 }));
+  });
+  assert.equal(
+    await page.evaluate(() => JSON.stringify(window.nect.document)),
+    beforeInterruptedDrag,
+  );
+  assert.equal(await page.getByTitle('Ctrl+Z', { exact: true }).isDisabled(), true);
+  // A connected node at the graph origin retains the outer half of its input ports.
+  const initialDocument = await page.evaluate(() => JSON.stringify(window.nect.document));
+  await page.evaluate(() => {
+    const doc = structuredClone(window.nect.document);
+    doc.layers[0].nodes.find((n) => n.type === 'Boolean').position = [0, 0];
+    window.nect.load(JSON.stringify(doc));
+  });
+  const edgeInput = page.locator('.node').filter({ hasText: 'Boolean' }).first().locator('.input');
+  const edge = await edgeInput.first().boundingBox();
+  const viewport = await page.locator('.graph-scroll').boundingBox();
+  assert.ok(edge.x >= viewport.x && edge.y >= viewport.y);
+  assert.equal(
+    await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.matches('.socket.input'), {
+      x: edge.x + 2,
+      y: edge.y + edge.height / 2,
+    }),
+    true,
+  );
+  await assertBorderSockets();
+  await page.screenshot({ path: 'test-results/editor-ports-origin.png', fullPage: true });
+  await page.evaluate((text) => window.nect.load(text), initialDocument);
   // Editing commits once on change and preserves Tab focus across structural redraws.
   const inspectorX = page.locator('.inspector-body').getByLabel('Circle center X', { exact: true });
   await inspectorX.fill('370');
@@ -99,6 +189,10 @@ try {
   await page.mouse.up();
   // Dynamic socket use through DOM pointer events permits offscreen graph targets, then independently checks visible DOM.
   await page.locator(`[data-source="${valId}"]`).dispatchEvent('pointerdown', { button: 0 });
+  await page.locator(`.node[data-id="${circleId}"]`).scrollIntoViewIfNeeded();
+  assert.ok(await page.locator('.compatible').count());
+  await assertBorderSockets();
+  await page.screenshot({ path: 'test-results/editor-ports-connecting.png', fullPage: true });
   await page
     .locator(`.graph .field[data-node="${circleId}"][data-key="radius"]`)
     .dispatchEvent('pointerup', { button: 0 });
@@ -110,6 +204,31 @@ try {
     await page.locator(`.graph .field[data-node="${circleId}"][data-key="radius"] .input`).count(),
     1,
   );
+  await assertBorderSockets();
+  const inputPort = page.locator(
+    `.graph .field[data-node="${circleId}"][data-key="radius"] .input`,
+  );
+  const inputBox = await inputPort.boundingBox();
+  assert.equal(
+    await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.matches('.socket.input'), {
+      x: inputBox.x + 2,
+      y: inputBox.y + inputBox.height / 2,
+    }),
+    true,
+  );
+  await page.screenshot({ path: 'test-results/editor-ports-connected.png', fullPage: true });
+  const circleNode = page.locator(`.node[data-id="${circleId}"]`);
+  const widthBefore = (await circleNode.boundingBox()).width;
+  const resize = await circleNode.locator('.node-resize').boundingBox();
+  await page.mouse.move(resize.x + 8, resize.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(resize.x + 48, resize.y + 8, { steps: 4 });
+  await page.mouse.up();
+  assert.equal((await circleNode.boundingBox()).width, widthBefore + 40);
+  await assertBorderSockets();
+  await page.getByTitle('Ctrl+Z', { exact: true }).click();
+  assert.equal((await circleNode.boundingBox()).width, widthBefore);
+  await assertBorderSockets();
   await page
     .locator(`.graph .field[data-node="${circleId}"][data-key="radius"] .input`)
     .dispatchEvent('contextmenu');
@@ -309,6 +428,7 @@ try {
     .click({ position: { x: 40, y: 15 } });
   await page.screenshot({ path: 'test-results/editor-remap-controls.png', fullPage: true });
   await page.locator(`.node[data-id="${curve.id}"] [data-add-point]`).scrollIntoViewIfNeeded();
+  await assertBorderSockets();
   const lastButton = await page
       .locator(`.node[data-id="${curve.id}"] [data-add-point]`)
       .boundingBox(),
