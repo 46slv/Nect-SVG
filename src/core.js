@@ -58,6 +58,7 @@ export const definitions = {
   Rectangle: { center: p('Vector2', [460, 250]), size: p('Vector2', [180, 220]) },
   Curve: { closed: p('Boolean', true) },
   Boolean: { a: p('Path', null), b: p('Path', null) },
+  'Join Geometry': { a: p('Path', null), b: p('Path', null) },
   'Convert to Path': { path: p('Path', null) },
   'Path Remap': { path: p('Path', null), offset: p('Vector2', [0, 0]) },
   Transform: {
@@ -88,6 +89,8 @@ export const definitions = {
     path: p('PaintedPath', null),
     color: p('Color', { hex: '#36434e', alpha: 1 }),
     width: p('Scalar', 2),
+    miterLimit: p('Scalar', 4),
+    dashOffset: p('Scalar', 0),
   },
   Output: { path: p('PaintedPath', null) },
   Text: {
@@ -99,6 +102,34 @@ export const definitions = {
   'Text to Path': { path: p('Path', null) },
   'Imported Path': {},
 };
+export function parseStrokeDash(value) {
+  const raw = value.trim();
+  if (!raw || raw === 'none') return [];
+  if (/^,|,$|,\s*,/.test(raw)) throw Error('Invalid dash pattern');
+  const tokens = raw.split(/[\s,]+/);
+  if (
+    tokens.length > 32 ||
+    tokens.some((t) => !/^[+]?(?:\d*\.)?\d+(?:e[+-]?\d+)?(?:px)?$/i.test(t))
+  )
+    throw Error('Dash pattern needs up to 32 nonnegative pixel lengths');
+  const dash = tokens.map((t) => Number(t.replace(/px$/i, '')));
+  validateStrokeStyle({ strokeDash: dash });
+  return dash;
+}
+export function validateStrokeStyle(n) {
+  if (n.strokeCap !== undefined && !['butt', 'round', 'square'].includes(n.strokeCap))
+    throw Error('Invalid stroke cap');
+  if (n.strokeJoin !== undefined && !['miter', 'round', 'bevel'].includes(n.strokeJoin))
+    throw Error('Invalid stroke join');
+  const dash = n.strokeDash === undefined ? [] : n.strokeDash;
+  if (
+    !Array.isArray(dash) ||
+    dash.length > 32 ||
+    dash.some((v) => !Number.isFinite(v) || v < 0 || v > 100000)
+  )
+    throw Error('Dash pattern needs up to 32 lengths from 0 to 100000 px');
+  return { cap: n.strokeCap ?? 'butt', join: n.strokeJoin ?? 'miter', dash: [...dash] };
+}
 export function point(x, y) {
   return {
     id: uid('point'),
@@ -437,6 +468,31 @@ function toPaper(path) {
   }
   return compound;
 }
+function contourGroups(path) {
+  const groups = new Map();
+  for (const c of path.contours) {
+    const key = c.group ?? '';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+  return [...groups.values()];
+}
+function booleanOperand(path) {
+  if (!path.contours.some((c) => c.group !== undefined)) return toPaper(path);
+  let result = null;
+  for (const contours of contourGroups(path)) {
+    const item = toPaper({ contours });
+    if (!result) {
+      result = item;
+      continue;
+    }
+    const union = result.unite(item, { insert: false });
+    result.remove();
+    item.remove();
+    result = union;
+  }
+  return result || toPaper({ contours: [] });
+}
 function fromPaper(item, prefix) {
   let children = item.children || [item];
   return {
@@ -473,7 +529,11 @@ export function parsePath(data, prefix = 'imported') {
 }
 export function signature(path) {
   return JSON.stringify(
-    path.contours.map((c) => [c.closed, c.points.map((p) => [p.position, p.handleA, p.handleB])]),
+    path.contours.map((c) => [
+      c.closed,
+      c.points.map((p) => [p.position, p.handleA, p.handleB]),
+      ...(c.group === undefined ? [] : [c.group]),
+    ]),
   );
 }
 export function pathData(path) {
@@ -500,7 +560,7 @@ export function pathBounds(path) {
   ];
 }
 export function pathArea(path) {
-  const obj = toPaper(path);
+  const obj = booleanOperand(path);
   obj.reorient(true, true);
   const area = Math.abs(obj.area);
   obj.remove();
@@ -550,6 +610,9 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         n.writingMode,
         n.alignment,
         n.kerning,
+        n.strokeCap,
+        n.strokeJoin,
+        n.strokeDash,
         n.rawPath,
         n.asset,
         n.asset && imageAssets[n.asset]
@@ -663,6 +726,34 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         result.unstable = true;
         result.fingerprint = signature(result);
         item.remove();
+      } else if (n.type === 'Join Geometry') {
+        const a = read('a'),
+          b = read('b');
+        if (!a || !b) throw Error('Connect both Join Geometry paths');
+        const contours = [...a.contours, ...b.contours];
+        if (
+          contours.length > 10000 ||
+          contours.reduce((sum, c) => sum + c.points.length, 0) > 100000
+        )
+          throw Error('Join exceeds geometry budget');
+        const groups = [...contourGroups(a), ...contourGroups(b)];
+        if (groups.length > 256) throw Error('Join exceeds 256 independent groups');
+        const prefix = fingerprint(n.id);
+        result = {
+          contours: groups.flatMap((group, gi) =>
+            group.map((c, ci) => ({
+              ...clone(c),
+              id: `${prefix}:g${gi}:c${ci}`,
+              group: `${prefix}:g${gi}`,
+              points: c.points.map((pt, pi) => ({
+                ...clone(pt),
+                id: `${prefix}:g${gi}:c${ci}:p${pi}`,
+              })),
+            })),
+          ),
+        };
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Geometry Repeater') {
         const source = read('path');
         if (!source) throw Error('Connect a Path input');
@@ -674,6 +765,12 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           source.contours.reduce((sum, c) => sum + c.points.length, 0) * count > 100000
         )
           throw Error('Repeater exceeds geometry budget');
+        const grouped = source.contours.some((c) => c.group !== undefined);
+        const groups = grouped
+          ? new Map(contourGroups(source).map((group, i) => [group[0].group ?? '', i]))
+          : null;
+        if (grouped && groups.size * count > 256)
+          throw Error('Repeater exceeds 256 independent groups');
         const linear = n.operation === 'linear';
         if (!operationOptions['Geometry Repeater'].includes(n.operation))
           throw Error('Invalid repeater operation');
@@ -706,6 +803,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           for (const [ci, c] of source.contours.entries())
             result.contours.push({
               id: `${prefix}:copy${copy}:c${ci}`,
+              ...(grouped ? { group: `${prefix}:copy${copy}:g${groups.get(c.group ?? '')}` } : {}),
               closed: c.closed,
               points: c.points.map((pt, pi) => ({
                 id: `${prefix}:copy${copy}:c${ci}:p${pi}`,
@@ -727,8 +825,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         if (!a || !b) throw Error('Connect both Boolean paths');
         if ([...a.contours, ...b.contours].some((c) => !c.closed))
           throw Error('Boolean requires closed contours');
-        let pa = toPaper(a),
-          pb = toPaper(b);
+        let pa = booleanOperand(a),
+          pb = booleanOperand(b);
         let op = {
           union: 'unite',
           subtract: 'subtract',
@@ -751,7 +849,14 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         if (n.type === 'Stroke') {
           const width = read('width');
           if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
-          result.stroke = { ...read('color'), width };
+          const style = validateStrokeStyle(n),
+            miterLimit = n.params.miterLimit ? read('miterLimit') : 4,
+            dashOffset = n.params.dashOffset ? read('dashOffset') : 0;
+          if (miterLimit < 1 || miterLimit > 10000)
+            throw Error('Miter limit must be from 1 to 10000');
+          if (Math.abs(dashOffset) > 100000)
+            throw Error('Dash offset must be from -100000 to 100000 px');
+          result.stroke = { ...read('color'), width, ...style, miterLimit, dashOffset };
         }
         if (n.type === 'Path Remap') {
           let offset = read('offset');
@@ -778,6 +883,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           let transformed = fromPaper(obj, n.id);
           transformed.contours.forEach((c, ci) => {
             c.id = result.contours[ci].id;
+            if (result.contours[ci].group !== undefined) c.group = result.contours[ci].group;
             c.points.forEach((p, pi) => (p.id = result.contours[ci].points[pi].id));
           });
           transformed.unstable = result.unstable;
@@ -983,6 +1089,11 @@ export function validate(doc) {
       if (n.type === 'Text')
         for (const key of ['letterSpacing', 'lineSpacing'])
           if (!Object.hasOwn(n.params, key)) n.params[key] = clone(definitions.Text[key]);
+      if (n.type === 'Stroke') {
+        validateStrokeStyle(n);
+        for (const key of ['miterLimit', 'dashOffset'])
+          if (!Object.hasOwn(n.params, key)) n.params[key] = clone(definitions.Stroke[key]);
+      }
       if (Object.keys(n.params).length !== Object.keys(definitions[n.type]).length)
         throw Error('Unexpected parameter');
       for (const [key, def] of Object.entries(definitions[n.type]))
@@ -996,6 +1107,13 @@ export function validate(doc) {
         throw Error('Repeater count must be an integer from 1 to 256');
       if (n.type === 'Stroke' && (n.params.width.value < 0 || n.params.width.value > 100000))
         throw Error('Stroke width must be from 0 to 100000 px');
+      if (
+        n.type === 'Stroke' &&
+        (n.params.miterLimit.value < 1 ||
+          n.params.miterLimit.value > 10000 ||
+          Math.abs(n.params.dashOffset.value) > 100000)
+      )
+        throw Error('Invalid stroke miter limit or dash offset');
       if (n.points.length > 10000 || n.edits.length > 10000) throw Error('Too many vertices');
       for (const pt of n.points) {
         id(pt.id);
@@ -1047,6 +1165,12 @@ export function renderElement(value, l, assets = {}, attributes = '') {
     if (!asset) throw Error('Missing image asset');
     return `<image ${attributes} data-layer="${escape(l.name)}" x="${value.position[0]}" y="${value.position[1]}" width="${value.size[0]}" height="${value.size[1]}" preserveAspectRatio="none" href="${imageURL(asset)}"/>`;
   }
+  if (value.contours.some((c) => c.group !== undefined))
+    return `<g ${attributes} data-layer="${escape(l.name)}">${contourGroups(value)
+      .map((contours) =>
+        renderElement({ ...value, contours: contours.map(({ group, ...c }) => c) }, l, assets),
+      )
+      .join('')}</g>`;
   const fill = value.fill,
     stroke = value.stroke;
   if (fill) assertValue('Color', fill);
@@ -1055,7 +1179,7 @@ export function renderElement(value, l, assets = {}, attributes = '') {
     if (!Number.isFinite(stroke.width) || stroke.width < 0 || stroke.width > 100000)
       throw Error('Invalid stroke width');
   }
-  return `<path ${attributes} data-layer="${escape(l.name)}" d="${escape(pathData(value))}" fill="${fill ? escape(fill.hex) : 'none'}"${fill ? ` fill-opacity="${fill.alpha}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${stroke.alpha}" stroke-width="${stroke.width}"` : ''}/>`;
+  return `<path ${attributes} data-layer="${escape(l.name)}" d="${escape(pathData(value))}" fill="${fill ? escape(fill.hex) : 'none'}"${fill ? ` fill-opacity="${fill.alpha}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${stroke.alpha}" stroke-width="${stroke.width}" stroke-linecap="${stroke.cap}" stroke-linejoin="${stroke.join}" stroke-miterlimit="${stroke.miterLimit}" stroke-dasharray="${stroke.dash.length ? stroke.dash.join(' ') : 'none'}" stroke-dashoffset="${stroke.dashOffset}"` : ''}/>`;
 }
 export function exportScene(doc, fonts = {}) {
   validate(doc);

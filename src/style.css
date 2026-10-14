@@ -717,7 +717,8 @@ summary input[type='checkbox'] {
   cursor: default;
 }
 
-.guide-layer-shape {
+.guide-layer-shape,
+.guide-layer-shape path {
   fill-opacity: 0.12;
   stroke: #0694aa;
   stroke-width: 1;

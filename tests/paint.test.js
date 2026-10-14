@@ -46,7 +46,16 @@ test('bare geometry is unpainted; Fill and Stroke preserve independent channels 
   const r = evaluate(l);
   assert.equal(r.error, null);
   assert.deepEqual(r.path.fill, fill2.params.color.value);
-  assert.deepEqual(r.path.stroke, { hex: '#00ff00', alpha: 0.5, width: 8 });
+  assert.deepEqual(r.path.stroke, {
+    hex: '#00ff00',
+    alpha: 0.5,
+    width: 8,
+    cap: 'butt',
+    join: 'miter',
+    dash: [],
+    miterLimit: 4,
+    dashOffset: 0,
+  });
   assert.equal(r.run(shape.id).fill, undefined);
   assert.equal(r.run(shape.id).stroke, undefined);
   assert.equal(r.run(fill.id).stroke, undefined);
@@ -182,7 +191,16 @@ test('SVG import/export supports inherited solid strokes, open paths and explici
     [a, b] = d.layers.map((l) => evaluate(l).path);
   assert.equal(a.contours[0].closed, false);
   assert.equal(a.fill, undefined);
-  assert.deepEqual(a.stroke, { hex: '#ff0000', alpha: 0.5, width: 8 });
+  assert.deepEqual(a.stroke, {
+    hex: '#ff0000',
+    alpha: 0.5,
+    width: 8,
+    cap: 'butt',
+    join: 'miter',
+    dash: [],
+    miterLimit: 4,
+    dashOffset: 0,
+  });
   assert.equal(b.fill.alpha, 0);
   assert.equal(b.stroke.width, 0);
   const again = importSVG(exportSVG(d), Parser);
@@ -199,9 +217,9 @@ test('SVG import/export supports inherited solid strokes, open paths and explici
   for (const attr of [
     'stroke="url(#g)"',
     'style="stroke:red"',
-    'stroke-dasharray="2 3"',
-    'stroke-linecap="round"',
-    'stroke-linejoin="round"',
+    'stroke-dasharray="2 -3"',
+    'stroke-linecap="invalid"',
+    'stroke-linejoin="invalid"',
     'opacity="0.5"',
     'stroke-opacity="1.1"',
     'stroke-width="-1"',

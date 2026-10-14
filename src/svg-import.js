@@ -1,4 +1,12 @@
-import { document, layer, node, parsePath, validate } from './core.js';
+import {
+  document,
+  layer,
+  node,
+  parsePath,
+  validate,
+  parseStrokeDash,
+  validateStrokeStyle,
+} from './core.js';
 /** Conservative SVG adapter. Requires a caller-supplied DOM parser; the core stays DOM-free. */
 export function importSVG(text, Parser = globalThis.DOMParser) {
   if (/<!DOCTYPE|<!ENTITY|<\?xml-stylesheet/i.test(text))
@@ -23,10 +31,13 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
       'stroke-width',
       'stroke-linecap',
       'stroke-linejoin',
+      'stroke-miterlimit',
+      'stroke-dasharray',
+      'stroke-dashoffset',
     ];
     const attrs = {
       svg: ['xmlns', 'width', 'height', 'viewBox'],
-      g: [],
+      g: ['data-layer'],
       path: ['d', 'data-layer'],
       circle: ['cx', 'cy', 'r'],
       ellipse: ['cx', 'cy', 'rx', 'ry'],
@@ -43,12 +54,33 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
         if (!/^(?:\d*\.)?\d+(?:e[+-]?\d+)?$/i.test(raw) || Number(raw) < 0 || Number(raw) > 1)
           throw Error('SVG fill-opacity must be a number from 0 to 1');
       }
-    for (const [key, supported] of [
-      ['stroke-linecap', 'butt'],
-      ['stroke-linejoin', 'miter'],
+    if (el.hasAttribute('stroke-dasharray') && !el.getAttribute('stroke-dasharray').trim())
+      throw Error('Invalid empty stroke-dasharray');
+    validateStrokeStyle({
+      ...(el.hasAttribute('stroke-linecap')
+        ? { strokeCap: el.getAttribute('stroke-linecap') }
+        : {}),
+      ...(el.hasAttribute('stroke-linejoin')
+        ? { strokeJoin: el.getAttribute('stroke-linejoin') }
+        : {}),
+      ...(el.hasAttribute('stroke-dasharray')
+        ? { strokeDash: parseStrokeDash(el.getAttribute('stroke-dasharray')) }
+        : {}),
+    });
+    for (const [key, min, max] of [
+      ['stroke-miterlimit', 1, 10000],
+      ['stroke-dashoffset', -100000, 100000],
     ])
-      if (el.hasAttribute(key) && el.getAttribute(key) !== supported)
-        throw Error(`Unsupported SVG ${key}`);
+      if (el.hasAttribute(key)) {
+        const raw = el.getAttribute(key);
+        if (
+          !/^[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?(?:px)?$/i.test(raw) ||
+          (key === 'stroke-miterlimit' && /px$/i.test(raw))
+        )
+          throw Error(`Unsupported ${key} units`);
+        const value = Number(raw.replace(/px$/i, ''));
+        if (!Number.isFinite(value) || value < min || value > max) throw Error(`Invalid ${key}`);
+      }
     if (el.hasAttribute('fill-rule') && el.getAttribute('fill-rule') !== 'nonzero')
       throw Error('Even-odd SVG import is not supported yet; use nonzero contours');
   }
@@ -64,6 +96,7 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
   const result = document();
   result.name = root.querySelector('title')?.textContent || 'Imported SVG';
   result.layers = [];
+  const bundles = [];
   let viewBox = root
     .getAttribute('viewBox')
     ?.trim()
@@ -79,7 +112,9 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
     throw Error('Only zero-origin SVG viewBox is supported');
   result.width = viewBox?.[2] ?? number(root, 'width', 960);
   result.height = viewBox?.[3] ?? number(root, 'height', 540);
+  let importedIndex = 0;
   for (const el of root.querySelectorAll('path,circle,ellipse,rect')) {
+    importedIndex++;
     const inherited = (key, fallback) => {
       let ancestor = el;
       while (ancestor) {
@@ -138,9 +173,7 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
       n.params.center.value = [number(el, 'x', 0) + w / 2, number(el, 'y', 0) + h / 2];
     }
     const l = layer(
-        el.getAttribute('data-layer') ||
-          el.getAttribute('id') ||
-          `Imported ${result.layers.length + 1}`,
+        el.getAttribute('data-layer') || el.getAttribute('id') || `Imported ${importedIndex}`,
       ),
       remap = node('Path Remap', 350, 40),
       out = node('Output', 1250, 40);
@@ -155,13 +188,76 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
       const paint = node(type, type === 'Fill' ? 650 : 950, 40);
       paint.params.path.source = source;
       paint.params.color.value = { hex, alpha: opacity };
-      if (type === 'Stroke') paint.params.width.value = width;
+      if (type === 'Stroke') {
+        paint.params.width.value = width;
+        paint.strokeCap = inherited('stroke-linecap', 'butt');
+        paint.strokeJoin = inherited('stroke-linejoin', 'miter');
+        paint.strokeDash = parseStrokeDash(inherited('stroke-dasharray', 'none'));
+        paint.params.miterLimit.value = Number(inherited('stroke-miterlimit', '4'));
+        paint.params.dashOffset.value = Number(
+          inherited('stroke-dashoffset', '0').replace(/px$/i, ''),
+        );
+      }
       l.nodes.push(paint);
       source = paint.id;
     }
     out.params.path.source = source;
     l.nodes.push(out);
     l.output = out.id;
+    const owner = el.closest('g[data-layer]');
+    const paintKey = JSON.stringify(
+      l.nodes
+        .filter((n) => ['Fill', 'Stroke'].includes(n.type))
+        .map((n) => [
+          n.type,
+          ...Object.entries(n.params).filter(([key]) => key !== 'path'),
+          n.strokeCap,
+          n.strokeJoin,
+          n.strokeDash,
+        ]),
+    );
+    const last = bundles.at(-1);
+    if (owner && last?.owner === owner && last.paintKey === paintKey) last.layers.push(l);
+    else bundles.push({ owner, paintKey, layers: [l] });
+  }
+  for (const bundle of bundles) {
+    const l = bundle.layers[0];
+    if (bundle.layers.length > 1) {
+      if (bundle.layers.length > 256) throw Error('SVG group exceeds 256 independent paths');
+      const paints = l.nodes.slice(2),
+        nodes = bundle.layers.flatMap((child) => child.nodes.slice(0, 2));
+      bundle.layers.forEach((child, index) =>
+        child.nodes.slice(0, 2).forEach((n, column) => {
+          n.position = [40 + column * 310, 40 + index * 160];
+          n.collapsed = true;
+        }),
+      );
+      let sources = bundle.layers.map((child) => child.nodes[1].id),
+        depth = 0;
+      while (sources.length > 1) {
+        const next = [];
+        for (let i = 0; i < sources.length; i += 2) {
+          if (i + 1 === sources.length) {
+            next.push(sources[i]);
+            continue;
+          }
+          const join = node('Join Geometry', 650 + depth * 300, 40 + i * 160);
+          join.collapsed = true;
+          join.params.a.source = sources[i];
+          join.params.b.source = sources[i + 1];
+          nodes.push(join);
+          next.push(join.id);
+        }
+        sources = next;
+        depth++;
+      }
+      paints[0].params.path.source = sources[0];
+      paints.forEach((paint, i) => {
+        paint.position = [650 + (depth + i) * 300, 40];
+      });
+      l.nodes = [...nodes, ...paints];
+      l.name = bundle.owner.getAttribute('data-layer') || l.name;
+    }
     result.layers.push(l);
   }
   if (!result.layers.length) throw Error('SVG contains no supported shapes');

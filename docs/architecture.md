@@ -37,7 +37,7 @@ Parameter: `{type, value, expression, locked, source?}`. Types: Scalar, Vector2,
 
 Point: `{id, position:Parameter, handleA:Parameter, handleB:Parameter, handleType}`. Handles are relative vectors. `corner`, `smooth`, `symmetric` affect interactive handle movement. Curve points are owned and edited by the Curve generator, without requiring Remap.
 
-Evaluated Path: `{contours:[{id,closed,points:[{id,position,handleA,handleB}]}], unstable?, fingerprint?}`. No Paper.js objects escape the evaluator. Parsed font objects are caller-supplied dependencies in `fonts` and are not serialized; imported original bytes are embedded separately in `fontAssets`. `exportSVG` resolves them automatically.
+Evaluated Path: `{contours:[{id,closed,group?,points:[{id,position,handleA,handleB}]}], unstable?, fingerprint?}`. No Paper.js objects escape the evaluator. Parsed font objects are caller-supplied dependencies in `fonts` and are not serialized; imported original bytes are embedded separately in `fontAssets`. `exportSVG` resolves them automatically.
 
 ## Geometry and correspondence
 
@@ -57,7 +57,7 @@ An evaluation failure reports an error instead of overwriting stored source data
 
 Supported: zero-origin viewBox, pixel/unitless dimensions, nested groups with solid inherited fills/strokes, independent numeric paint alpha (0–1), and bounded pixel stroke widths, nonzero compound paths, circles, ellipses, unrounded rectangles. Each imported graphic becomes its own composition with Remap, explicit Fill/Stroke, and Output. Imported path geometry is retained as immutable source path data, with secondary editing through Remap. Own exported SVG metadata preserves layer names.
 
-Rejected: scripts, external references, declarations/entities, styles/CSS/classes, transformations, nested viewports, clipping/masks/filters, group/object opacity, gradients, dashes, non-default caps/joins, even-odd fill and rounded rectangles. Rejection preserves the currently open project. This is intentionally a subset, not arbitrary SVG fidelity.
+Rejected: scripts, external references, declarations/entities, styles/CSS/classes, transformations, nested viewports, clipping/masks/filters, group/object opacity, gradients, unsupported stroke styles/units, even-odd fill and rounded rectangles. Rejection preserves the currently open project. This is intentionally a subset, not arbitrary SVG fidelity.
 
 ## Individual Remap controls and graph layout
 
@@ -71,7 +71,7 @@ Node width (optional, 220–550 px) and position are editor state excluded from 
 
 Color is a separate socket type with a serializable `{hex: "#RRGGBB", alpha: 0..1}` value. Color inputs preserve the source/fallback/lock model and reject numeric expressions. Fill and Stroke accept Path or PaintedPath and output PaintedPath. `socketCompatible` is shared by validation, evaluation, selectors, and drag highlighting. Boolean/Transform/Remap/conversion nodes accept only Path, keeping geometry before painting. Output accepts either Path or PaintedPath; an unpainted Path renders with `fill="none"`.
 
-Fill replaces only `fill`; Stroke replaces only `stroke` (`{hex,alpha,width}`), cloning upstream geometry before changing it. Repeated same-channel nodes use the last value. Width is a finite 0–100000 px Scalar; zero width and zero alpha are preserved. SVG uses standard fill-then-stroke order, and PNG rasterizes the identical scene. Solid fill/stroke colors, independent alpha inheritance, open paths and stroke-only shapes import explicitly. CSS, gradients, dashes, non-default caps/joins, transforms and general/group opacity remain rejected.
+Fill replaces only `fill`; Stroke replaces only `stroke` (`{hex,alpha,width,cap,join,dash,miterLimit,dashOffset}`), cloning upstream geometry before changing it. Repeated same-channel nodes use the last value. Width is a finite 0–100000 px Scalar; zero width and zero alpha are preserved. SVG uses standard fill-then-stroke order, and PNG rasterizes the identical scene. Solid fill/stroke colors, independent alpha inheritance, open paths and stroke-only shapes import explicitly. CSS, gradients, unsupported stroke styles/units, transforms and general/group opacity remain rejected.
 
 Schema-v1 migration inserts a Fill before each old Output, copying the complete old Output.fill parameter including source, fallback, expression and lock. Missing fill becomes null; only Fill.color permits null to retain the old live layer.fill fallback. Layer fill remains serialized for legacy fidelity but has no editor control. Output owns only its path. Old geometry consumers of Output are redirected to its pre-paint geometry, preserving editing order. Existing node/layer/asset/guide IDs remain intact. Migration is idempotent, checks the 2000-node limit after insertion, never auto-saves, and the normal validator rejects malformed migrated values. New default layers, shape tools, Pen, and “Use as output” create explicit Fill nodes.
 
@@ -102,3 +102,9 @@ The transient wiring state stores screen pointer coordinates and the selected so
 `Geometry Repeater` has Path input/output with linear, radial-fit and radial-step operations. Count is 1–256 inclusive; count includes the first copy. Linear translates by per-copy step. Radial rotates geometry and relative Bézier handles about center, with startAngle on the first copy. A ±360° fit divides by count; other fit arcs divide by count−1 (or 1 for a single copy), with fit arc bounded to ±360°. Step mode uses angle directly. No paint replication/stack semantics are implied. The point budget is 100000 and contour budget is 10000 for each evaluated output, including nested repeaters. Copies get unique IDs and an unstable fingerprint, so changed repetition suspends downstream Remap edits until explicit rebind.
 
 Text alignment/kerning are optional node properties with legacy defaults start/true. A single shaped run determines both rendered paths and signed inline advance; only n−1 tracking intervals count. Each explicit line/column shifts by 0, −advance/2 or −advance. Cache keys include both properties. Schema 2 remains the save format; older JSON does not need new required properties.
+
+## Join groups and styled strokes
+
+Join Geometry concatenates independently painted geometry groups, not Boolean contours. Derived contours carry an optional group ID. Transform and Remap preserve it; repeated grouped input gets unique groups per copy. `renderElement` emits a g with one path per group, preserving opposite-winding overlaps, compound holes and independent alpha. Ordinary ungrouped paths retain their prior single-compound rendering. Boolean explicitly unions groups within each operand before its requested operation. A 256-group limit applies to Join and grouped Repeater. Geometry IDs/fingerprints use bounded SHA-256; group identity participates in signatures only when present, preserving old ungrouped Remap fingerprints.
+
+Stroke adds optional cap/join/dash metadata and typed Scalar miterLimit/dashOffset parameters. Missing old parameters migrate to 4/0; optional styles default butt/miter/solid. Strict shared dash/style validation is used by JSON, evaluation, UI and SVG import; SVG inherits these presentation properties and exports them explicitly. Documentation of precise bounds is in product-spec section 14.

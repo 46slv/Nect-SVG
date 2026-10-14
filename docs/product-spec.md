@@ -23,7 +23,7 @@ Resolve / Blender のように制作面とノードを併用する、白・シ�
 
 ### 3.1 型と形状
 
-値の型は Scalar、Vector2、Boolean、Color、Path、PaintedPath、Image。Circle / Ellipse / Rectangle / Curve / Text / Imported Path から Path を生成する。Boolean は結合・差分・交差・排他的差分に対応し、Transform、Convert to Path、Text to Path、Path Remap と組み合わせる。面積 Boolean に開いた輪郭を渡した場合はエラーとする。
+値の型は Scalar、Vector2、Boolean、Color、Path、PaintedPath、Image。Circle / Ellipse / Rectangle / Curve / Text / Imported Path から Path を生成する。Join Geometry は形状を独立したグループとして束ねる。Geometry Repeater は線形／放射に複製する。Boolean は結合・差分・交差・排他的差分に対応し、Transform、Convert to Path、Text to Path、Path Remap と組み合わせる。面積 Boolean に開いた輪郭を渡した場合はエラーとする。
 
 Curve は頂点と相対 Bézier ハンドルを自身で持つ。Pen はクリックで角点、ドラッグでハンドル、始点クリックで閉じ、Escape で開いた線として終了する。
 
@@ -203,4 +203,31 @@ Text の Windows font から、標準システム／ユーザー Fonts フォル
 
 新規 unit / synthetic DOM テストは線形・放射・負角度・1 コピー・上限・有限性・型・キャッシュ・JSON・Undo / Redo・ロック・文字 advance を対象とする。実 Chrome テストは両 UI、履歴、不正 count の保全、JSON / SVG / PNG 保存を `workflow-creation.*` に出力する。ローカル Chromium 起動は実行環境の socket 制限で停止したため、実ブラウザーと Windows パッケージの合格は、この変更を含む CI の実行結果が出てから記録する。
 
-グラフィックの次候補は Polygon / Star、Stroke の cap / join / dash。タイポグラフィの次候補は明確なフレーム幅と折り返し・禁則。これらは今回の実装済み機能と混同しない。Nect 統合、マクロ、クラウド、本流マージ、公開リリースは引き続き別判断。
+グラフィックの次候補は Polygon / Star。Stroke の cap / join / dash と Join Geometry は第 14 節で実装。タイポグラフィの次候補は明確なフレーム幅と折り返し・禁則。これらは今回の実装済み機能と混同しない。Nect 統合、マクロ、クラウド、本流マージ、公開リリースは引き続き別判断。
+
+## 14. Stroke の線表現と Join Geometry（追加制作要素）
+
+### Stroke style
+
+- Line cap: butt / round / square。Line join: miter / round / bevel。
+- miterLimit は 1〜10000 の比率、dashOffset は -100000〜100000 px。既存の Scalar 接続・Expression・ロックに従う。直接値の範囲外入力は元の値を保つ。
+- Dash / gap は空欄または none で実線。非負の px 数値を空白／カンマで区切り、最大 32 項、各 0〜100000。奇数項は SVG の規則で配列を二度繰り返す。全項 0 は実線。負数、非有限数、パーセント、未対応単位は拒否する。
+- 古い Stroke は butt / miter / miterLimit 4 / 実線 / offset 0 として同じ見た目を保持する。
+- SVG 出力と入力は cap / join / miterlimit / dasharray / dashoffset を共有し、入力では親からの継承と子の上書きを保つ。未対応の値を黙って捨てない。塗りと線の alpha は引き続き独立。
+- 対応範囲は Nect が参照する AE の基本線表現を SVG に適用したもの。[Adobe の shape attributes / paint operations](https://helpx.adobe.com/after-effects/desktop/drawing-painting-and-paths/shapes-and-shape-attributes/shape-attributes-paint-operations-path.html) を仕様根拠とし、ブラシや可変幅 Stroke は含めない。
+
+### Join Geometry
+
+利用者の「二つの Shape を同じまとまりとして扱いたい」という追加依頼に対応する。Boolean は輪郭を計算して変える操作、Join は形状を保持して束ねる操作として区別する。
+
+- A / B の Path を受け Path を返す。Fill / Stroke より前に置き、後続の Transform、Remap、Repeater、共通の Fill / Stroke へまとめて渡す。PaintedPath、Image、異なるレイヤーの出力は束ねない。
+- 元の輪郭、穴、開いた線を保持し、左右の入力を独立した形状グループとして扱う。重なった輪郭を溶接したり切り取ったりしない。
+- SVG はグループごとの path を出力する。逆向きの輪郭同士の重なりが相殺されず、各入力の穴も保持する。共通 Fill が半透明の場合、重なりは独立描画によって濃くなる。重なりを一つの面として塗る場合は Boolean Union を使用する。
+- Transform / Remap はグループを保持し、Repeater は各コピーで独立したグループを作る。通常のグループを持たない既存 Path / Repeater の描画は変更しない。
+- Join を Boolean へ渡す場合、Boolean の各入力内にある独立グループを先に Union して面の集合にしてから指定演算を行う。Join 自体の保存形状は変更しない。開いた線を含む Boolean は従来どおり拒否する。
+- 最大 256 独立グループ、10000 輪郭、100000 点。Join とグループを持つ Repeater の双方に上限を適用する。ID と fingerprint は長い上流 ID やネストで増大しない固定長 SHA-256 を用い、下流 Remap の保存と再読込を保つ。
+- SVG の再読み込みでは、本アプリのタグ付きグループで同じペイントを持つ path 群を、深さを抑えた Join ツリーの一つのコンポジションへ戻す（最大 256 グループ）。元の Join 接続、共有 Transform、コピー構成をそのまま編集再開する場合は JSON を使う。異なるペイントを持つ一般 SVG は従来どおり個別レイヤーへ読み込む。
+
+### 受入
+
+unit / synthetic DOM は SVG の継承・再読込、旧値、範囲、型、履歴、ロック、穴、逆向きの重なり、Transform / Remap / Repeater と Boolean の組合せを検査する。実 Chrome の `join-stroke.e2e.js` は重なりの alpha、穴、丸い線端、破線の空隙を PNG ピクセルで検査し、`workflow-join-stroke` の JSON / SVG / PNG / 編集画面を保存する。ソース実装と実 Chrome / NSIS の CI 合格は別に確認する。

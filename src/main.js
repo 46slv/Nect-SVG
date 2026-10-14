@@ -26,6 +26,8 @@ import {
   activeParameters,
   operationOptions,
   setOperation,
+  parseStrokeDash,
+  validateStrokeStyle,
   parameter,
   outputType,
   outputPorts,
@@ -264,13 +266,17 @@ function textControls(n) {
       '',
     )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p><div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Alignment</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></div><div class="field"><label>Kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Alignment anchors each line/column by its advance, including spaces. letterSpacing: extra px per glyph. lineSpacing: × text size. Enter starts a new line or column. Vertical position is the first column center/top.</p></div>`;
 }
+function strokeControls(n) {
+  if (n.type !== 'Stroke') return '';
+  return `<div class="field"><label>Line cap</label><select data-stroke-cap="${n.id}" aria-label="Stroke line cap">${['butt', 'round', 'square'].map((v) => `<option value="${v}" ${(n.strokeCap || 'butt') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Line join</label><select data-stroke-join="${n.id}" aria-label="Stroke line join">${['miter', 'round', 'bevel'].map((v) => `<option value="${v}" ${(n.strokeJoin || 'miter') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Dash / gap (px)</label><input data-stroke-dash="${n.id}" aria-label="Stroke dash pattern" value="${esc((n.strokeDash || []).join(' '))}" placeholder="Solid, or e.g. 12 6"></div><p class="font-note">Odd patterns repeat twice. Empty/none or all zero is solid. Miter limit is a ratio; dashOffset is px.</p>`;
+}
 function operationControls(n) {
   const options = operationOptions[n.type];
   if (!options) return '';
   return `<div class="field"><label>Operation</label><select data-operation="${n.id}" aria-label="${esc(n.name)} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
+  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
     n,
   )
     .filter(([k]) => Object.hasOwn(n.params, k))
@@ -352,7 +358,7 @@ function render(resetView = false) {
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
+      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${strokeControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
           n,
         )
           .filter(
@@ -1328,7 +1334,15 @@ app.addEventListener('change', async (e) => {
   change(
     () => {
       if (d.operation) setOperation(current(), d.operation, el.value);
-      else if (d.text) current().nodes.find((n) => n.id === d.text).text = el.value;
+      else if (d.strokeCap || d.strokeJoin || d.strokeDash) {
+        const n = current().nodes.find(
+          (n) => n.id === (d.strokeCap || d.strokeJoin || d.strokeDash),
+        );
+        if (d.strokeCap) n.strokeCap = el.value;
+        else if (d.strokeJoin) n.strokeJoin = el.value;
+        else n.strokeDash = parseStrokeDash(el.value);
+        validateStrokeStyle(n);
+      } else if (d.text) current().nodes.find((n) => n.id === d.text).text = el.value;
       else if (d.font) current().nodes.find((n) => n.id === d.font).font = el.value;
       else if (d.textAlignment) {
         if (!['start', 'center', 'end'].includes(el.value)) throw Error('Invalid text alignment');
@@ -1411,6 +1425,12 @@ app.addEventListener('change', async (e) => {
             (!Number.isInteger(value) || value < 1 || value > 256)
           )
             throw Error('Repeater count must be an integer from 1 to 256');
+          if (
+            nn.type === 'Stroke' &&
+            ((f.dataset.key === 'miterLimit' && (value < 1 || value > 10000)) ||
+              (f.dataset.key === 'dashOffset' && Math.abs(value) > 100000))
+          )
+            throw Error('Invalid stroke miter limit or dash offset');
           if (q.type === 'Vector2') q.value[Number(d.axis)] = value;
           else q.value = value;
         }
