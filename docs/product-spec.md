@@ -176,3 +176,31 @@ Layout grid は列数・行数（各 1〜40）、左右上下のマージン、�
 ## 12. Windows インストール済みフォント（2026-10-14 追加）
 
 Text の Windows font から、標準システム／ユーザー Fonts フォルダー内のフォントを自動列挙して選ぶ。選んだ face だけを読み込み、静的 TTC/OTC は単独 SFNT に再構成して JSON に埋め込む。可変・カラー形式は理由付きで無効表示。ライセンス判定・日本語／縦書き・サイズ制限・失敗時の文書保全・Undo は既存の TTF/OTF 読込と共通。標準外配置の登録フォントは自動列挙対象外。ブラウザー版はファイル指定を継続する。詳細と検証境界は typography.md と windows-acceptance.md を参照。
+
+## 13. 制作用要素: Geometry Repeater とテキストアンカー（2026-10-14）
+
+今回の追加依頼に基づき、Nect の [product-direction.md](https://github.com/46slv/Nect/blob/main/docs/product-direction.md) の local repeater / radial design、および [r05-a-text-coverage.md](https://github.com/46slv/Nect/blob/main/docs/r05-a-text-coverage.md) と [r05-c-text-path-entry.md](https://github.com/46slv/Nect/blob/main/docs/r05-c-text-path-entry.md) の alignment / advance を、SVG-first の小さな制作単位へ適用した。これは Nect 全体、AE のペイントスタック、DirectWrite の段落レイアウトの完全移植ではない。
+
+### Geometry Repeater
+
+- Path → Path。既存形状を繰り返してから Fill / Stroke へ接続する。PaintedPath / Image は入力しない。個別コピーへの色・不透明度・スタイル配分やコピーの Boolean 結合は行わない。
+- Linear は step（XY）×コピー番号で移動。Radial は元の形状と Bézier ハンドルを center の周囲で回転する。半径は元形状と center の距離から決まり、円周への自動整列ではない。
+- Count は元に相当する最初のコピーを含む整数 1〜256。Radial の最初のコピーにも startAngle を適用する。
+- Radial-fit の angle は -360〜360° の総弧。部分弧は count−1 で割り両端を含め、±360° は count で割り重複した終点を作らない。count=1 は startAngle の一つだけ。0° は重なるコピーとなる。
+- Radial-step の angle はコピーごとの角度差。負の角度も使用できる。Linear と Radial の非表示パラメーターは保存し、モード切替で接続・値・式を破棄しない。
+- count / step / center / startAngle / angle は既存の型付き入力、直接値、Expression、ロックに従う。出力は最大 10000 輪郭・100000 点。ネストした Repeater も各出力の上限で拒否し、非有限座標はエラー。
+- 各コピーに一意な ID を生成する。下流 Remap は反復結果の変更時に既存差分を保持して停止し、明示的 Rebind を必要とする。元の形状は変更しない。
+
+### テキストアンカーと Kerning
+
+- Text の Alignment は start / center / end。横書きは各行の X、縦書きは各列の Y を、position に対する進行方向のアンカーとして扱う。横書きの baseline、縦書きの列の X と列間隔は変えない。
+- 文字の見た目の外接矩形ではなく、同じ glyph run の advance と文字間隔から測る。空白の advance を含み、最後の glyph の後ろの余分な letterSpacing を含めない。空行は advance 0。負の字間で advance が負になる場合も符号付きの値で配置する。
+- Kerning は横書きの既存の既定動作（ON）を明示的に切り替える UI。今回初めてカーニングを実装したという意味ではない。選択フォントの対応情報を使い、値を捏造しない。縦書きでは変更しない。
+- 古い JSON の省略値は alignment=start、kerning=true として従来の描画を維持する。SVG は引き続き輪郭で出力し、JSON に編集用の設定を保存する。
+- 幅固定のテキストフレーム、折り返し、禁則、均等割付、文字別属性、任意の複雑なシェーピング、フォント自動代替は今回含めない。
+
+### 検証と次の候補
+
+新規 unit / synthetic DOM テストは線形・放射・負角度・1 コピー・上限・有限性・型・キャッシュ・JSON・Undo / Redo・ロック・文字 advance を対象とする。実 Chrome テストは両 UI、履歴、不正 count の保全、JSON / SVG / PNG 保存を `workflow-creation.*` に出力する。ローカル Chromium 起動は実行環境の socket 制限で停止したため、実ブラウザーと Windows パッケージの合格は、この変更を含む CI の実行結果が出てから記録する。
+
+グラフィックの次候補は Polygon / Star、Stroke の cap / join / dash。タイポグラフィの次候補は明確なフレーム幅と折り返し・禁則。これらは今回の実装済み機能と混同しない。Nect 統合、マクロ、クラウド、本流マージ、公開リリースは引き続き別判断。

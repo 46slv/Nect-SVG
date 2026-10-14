@@ -13,6 +13,7 @@ export {
 import paper from 'paper/dist/paper-core.js';
 import { validateFontAssets, resolveFonts, MAX_PROJECT_BYTES, utf8ByteLength } from './fonts.js';
 import { layoutText } from './text-layout.js';
+import { fingerprint } from './fingerprint.js';
 const scope = new paper.PaperScope();
 scope.setup(new scope.Size(1200, 800));
 export const clone = (x) => structuredClone(x);
@@ -65,6 +66,14 @@ export const definitions = {
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
   },
+  'Geometry Repeater': {
+    path: p('Path', null),
+    count: p('Scalar', 6),
+    step: p('Vector2', [60, 0]),
+    center: p('Vector2', [480, 270]),
+    startAngle: p('Scalar', 0),
+    angle: p('Scalar', 360),
+  },
   Value: { value: p('Scalar', 100) },
   Math: { a: p('Scalar', 0), b: p('Scalar', 0), min: p('Scalar', 0), max: p('Scalar', 1) },
   'Vector Math': { a: p('Vector2', [0, 0]), b: p('Vector2', [0, 0]), scale: p('Scalar', 1) },
@@ -110,11 +119,16 @@ export function node(type, x = 40, y = 40) {
     collapsed: false,
     params: clone(definitions[type]),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
-    operation: ['Math', 'Vector Math'].includes(type) ? 'add' : 'subtract',
+    operation:
+      type === 'Geometry Repeater'
+        ? 'linear'
+        : ['Math', 'Vector Math'].includes(type)
+          ? 'add'
+          : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
-    ...(type === 'Text' ? { writingMode: 'horizontal-tb' } : {}),
+    ...(type === 'Text' ? { writingMode: 'horizontal-tb', alignment: 'start', kerning: true } : {}),
     rawPath: '',
     ...(type === 'Image' ? { asset: '' } : {}),
   };
@@ -189,6 +203,7 @@ export function parameters(n) {
   return entries;
 }
 export const operationOptions = {
+  'Geometry Repeater': ['linear', 'radial-fit', 'radial-step'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
   Math: ['add', 'subtract', 'multiply', 'divide', 'min', 'max', 'abs', 'clamp'],
   'Vector Math': [
@@ -205,6 +220,13 @@ export const operationOptions = {
 };
 export function activeParameters(n) {
   const entries = parameters(n);
+  if (n.type === 'Geometry Repeater')
+    return entries.filter(([key]) =>
+      (n.operation === 'linear'
+        ? ['path', 'count', 'step']
+        : ['path', 'count', 'center', 'startAngle', 'angle']
+      ).includes(key),
+    );
   if (n.type === 'Vector Math') {
     const keys =
       n.operation === 'scale'
@@ -526,6 +548,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         n.text,
         n.font,
         n.writingMode,
+        n.alignment,
+        n.kerning,
         n.rawPath,
         n.asset,
         n.asset && imageAssets[n.asset]
@@ -627,6 +651,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           position: read('position'),
           size: read('size'),
           writingMode: n.writingMode,
+          alignment: n.alignment,
+          kerning: n.kerning,
           letterSpacing: n.params.letterSpacing ? read('letterSpacing') : 0,
           lineSpacing: n.params.lineSpacing ? read('lineSpacing') : 1.2,
         });
@@ -637,6 +663,60 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         result.unstable = true;
         result.fingerprint = signature(result);
         item.remove();
+      } else if (n.type === 'Geometry Repeater') {
+        const source = read('path');
+        if (!source) throw Error('Connect a Path input');
+        const count = read('count');
+        if (!Number.isInteger(count) || count < 1 || count > 256)
+          throw Error('Repeater count must be an integer from 1 to 256');
+        if (
+          source.contours.length * count > 10000 ||
+          source.contours.reduce((sum, c) => sum + c.points.length, 0) * count > 100000
+        )
+          throw Error('Repeater exceeds geometry budget');
+        const linear = n.operation === 'linear';
+        if (!operationOptions['Geometry Repeater'].includes(n.operation))
+          throw Error('Invalid repeater operation');
+        const step = linear ? read('step') : [0, 0];
+        const center = linear ? [0, 0] : read('center');
+        const start = linear ? 0 : read('startAngle');
+        const angle = linear ? 0 : read('angle');
+        if (n.operation === 'radial-fit' && Math.abs(angle) > 360)
+          throw Error('Fit arc must be between -360 and 360 degrees');
+        const increment =
+          n.operation === 'radial-fit'
+            ? angle / (Math.abs(angle) === 360 ? count : Math.max(1, count - 1))
+            : angle;
+        result = { contours: [] };
+        const prefix = fingerprint(n.id);
+        for (let copy = 0; copy < count; copy++) {
+          const radians = (((start + increment * copy) % 360) * Math.PI) / 180;
+          const cos = Math.cos(radians),
+            sin = Math.sin(radians);
+          function transform(v, handle = false) {
+            const x = v[0] - (handle ? 0 : center[0]),
+              y = v[1] - (handle ? 0 : center[1]);
+            const next = [
+              x * cos - y * sin + (handle ? 0 : center[0] + step[0] * copy),
+              x * sin + y * cos + (handle ? 0 : center[1] + step[1] * copy),
+            ];
+            assertValue('Vector2', next);
+            return next;
+          }
+          for (const [ci, c] of source.contours.entries())
+            result.contours.push({
+              id: `${prefix}:copy${copy}:c${ci}`,
+              closed: c.closed,
+              points: c.points.map((pt, pi) => ({
+                id: `${prefix}:copy${copy}:c${ci}:p${pi}`,
+                position: transform(pt.position),
+                handleA: transform(pt.handleA, true),
+                handleB: transform(pt.handleB, true),
+              })),
+            });
+        }
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Imported Path') {
         result = parsePath(n.rawPath, n.id);
         result.unstable = true;
@@ -874,6 +954,10 @@ export function validate(doc) {
       text(n.text);
       text(n.font);
       if (n.type === 'Text') {
+        if (n.alignment !== undefined && !['start', 'center', 'end'].includes(n.alignment))
+          throw Error('Invalid text alignment');
+        if (n.kerning !== undefined && typeof n.kerning !== 'boolean')
+          throw Error('Invalid kerning setting');
         if (n.font !== 'default' && !Object.hasOwn(doc.fontAssets || {}, n.font))
           throw Error('Missing font asset');
         if (
@@ -903,6 +987,13 @@ export function validate(doc) {
         throw Error('Unexpected parameter');
       for (const [key, def] of Object.entries(definitions[n.type]))
         param(n.params[key], def.type, n.type === 'Fill' && key === 'color');
+      if (
+        n.type === 'Geometry Repeater' &&
+        (!Number.isInteger(n.params.count.value) ||
+          n.params.count.value < 1 ||
+          n.params.count.value > 256)
+      )
+        throw Error('Repeater count must be an integer from 1 to 256');
       if (n.type === 'Stroke' && (n.params.width.value < 0 || n.params.width.value > 100000))
         throw Error('Stroke width must be from 0 to 100000 px');
       if (n.points.length > 10000 || n.edits.length > 10000) throw Error('Too many vertices');

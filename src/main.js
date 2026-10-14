@@ -262,7 +262,7 @@ function textControls(n) {
     )
     .join(
       '',
-    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p><div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><p class="font-note">letterSpacing: extra px per glyph. lineSpacing: × text size. Enter starts a new line or column. Vertical position is the first column center/top.</p></div>`;
+    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p><div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Alignment</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></div><div class="field"><label>Kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Alignment anchors each line/column by its advance, including spaces. letterSpacing: extra px per glyph. lineSpacing: × text size. Enter starts a new line or column. Vertical position is the first column center/top.</p></div>`;
 }
 function operationControls(n) {
   const options = operationOptions[n.type];
@@ -270,7 +270,9 @@ function operationControls(n) {
   return `<div class="field"><label>Operation</label><select data-operation="${n.id}" aria-label="${esc(n.name)} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${textControls(n)}${activeParameters(n)
+  return `<div class="node-body">${operationControls(n)}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
+    n,
+  )
     .filter(([k]) => Object.hasOwn(n.params, k))
     .map(([k, q]) => field(n, k, q))
     .join(
@@ -350,7 +352,7 @@ function render(resetView = false) {
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${textControls(n)}${activeParameters(
+      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
           n,
         )
           .filter(
@@ -1328,6 +1330,11 @@ app.addEventListener('change', async (e) => {
       if (d.operation) setOperation(current(), d.operation, el.value);
       else if (d.text) current().nodes.find((n) => n.id === d.text).text = el.value;
       else if (d.font) current().nodes.find((n) => n.id === d.font).font = el.value;
+      else if (d.textAlignment) {
+        if (!['start', 'center', 'end'].includes(el.value)) throw Error('Invalid text alignment');
+        current().nodes.find((n) => n.id === d.textAlignment).alignment = el.value;
+      } else if (d.textKerning)
+        current().nodes.find((n) => n.id === d.textKerning).kerning = el.checked;
       else if (d.writingMode)
         current().nodes.find((n) => n.id === d.writingMode).writingMode = el.value;
       else if (d.layerName !== undefined) current().name = el.value;
@@ -1398,6 +1405,12 @@ app.addEventListener('change', async (e) => {
             (el.value === '' || value < 0 || value > 100000)
           )
             throw Error('Stroke width must be from 0 to 100000 px');
+          if (
+            nn.type === 'Geometry Repeater' &&
+            f.dataset.key === 'count' &&
+            (!Number.isInteger(value) || value < 1 || value > 256)
+          )
+            throw Error('Repeater count must be an integer from 1 to 256');
           if (q.type === 'Vector2') q.value[Number(d.axis)] = value;
           else q.value = value;
         }

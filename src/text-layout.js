@@ -68,8 +68,18 @@ function transformed(path, transform) {
 export function layoutText(
   font,
   text,
-  { position, size, writingMode = 'horizontal-tb', letterSpacing = 0, lineSpacing = 1.2 },
+  {
+    position,
+    size,
+    writingMode = 'horizontal-tb',
+    letterSpacing = 0,
+    lineSpacing = 1.2,
+    alignment = 'start',
+    kerning = true,
+  },
 ) {
+  if (!['start', 'center', 'end'].includes(alignment)) throw Error('Invalid text alignment');
+  if (typeof kerning !== 'boolean') throw Error('Invalid kerning setting');
   if (!Number.isFinite(size) || size <= 0 || size > 100000)
     throw Error('Text size must be between 0 and 100000');
   if (
@@ -108,19 +118,34 @@ export function layoutText(
     path.extend(outline);
   }
   const lines = normalized.split('\n');
+  const advances = [];
+  const factor = { start: 0, center: 0.5, end: 1 }[alignment];
   for (const [line, content] of lines.entries()) {
+    const commandStart = path.commands.length,
+      glyphStart = glyphs.length;
+    function align(advance) {
+      if (!Number.isFinite(advance)) throw Error('Invalid text advance');
+      advances.push(advance);
+      const shift = -advance * factor;
+      const axis = writingMode === 'horizontal-tb' ? 'x' : 'y';
+      for (let i = commandStart; i < path.commands.length; i++)
+        for (const suffix of ['', '1', '2'])
+          if (axis + suffix in path.commands[i]) path.commands[i][axis + suffix] += shift;
+      for (let i = glyphStart; i < glyphs.length; i++) glyphs[i][axis] += shift;
+    }
     if (writingMode === 'horizontal-tb') {
-      font.forEachGlyph(
+      const end = font.forEachGlyph(
         content,
         position[0],
         position[1] + line * size * lineSpacing,
         size,
-        { letterSpacing: letterSpacing / size },
+        { letterSpacing: letterSpacing / size, kerning },
         (glyph, x, y) => {
           append(glyph.getPath(x, y, size));
           glyphs.push({ id: glyph.index, line, x, y, rotation: 0 });
         },
       );
+      align(end - position[0] - (glyphs.length > glyphStart ? letterSpacing : 0));
       continue;
     }
     const x = position[0] - line * size * lineSpacing;
@@ -177,11 +202,12 @@ export function layoutText(
       });
       y += advance + letterSpacing;
     }
+    align(y - position[1] - (glyphs.length > glyphStart ? letterSpacing : 0));
   }
   if (path.commands.length > 500000) throw Error('Text outline is too complex');
   for (const cmd of path.commands)
     for (const [key, value] of Object.entries(cmd))
       if (key !== 'type' && !Number.isFinite(value))
         throw Error('Font produced invalid outline coordinates');
-  return { path, glyphs, warnings: [...warnings] };
+  return { path, glyphs, advances, warnings: [...warnings] };
 }
