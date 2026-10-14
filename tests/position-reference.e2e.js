@@ -107,6 +107,9 @@ try {
     await page.locator(`[data-action="${action}"]`).click();
     await (await pending).saveAs(`test-results/workflow-object-position-references.${ext}`);
   }
+  await page
+    .locator('.artboard')
+    .screenshot({ path: 'test-results/workflow-object-position-references-artwork.png' });
   await page.screenshot({
     path: 'test-results/workflow-object-position-references-editor.png',
     fullPage: true,

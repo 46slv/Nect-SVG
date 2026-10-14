@@ -118,7 +118,9 @@ try {
   await page.screenshot({ path: 'test-results/editor-ports-origin.png', fullPage: true });
   await page.evaluate((text) => window.nect.load(text), initialDocument);
   // Editing commits once on change and preserves Tab focus across structural redraws.
-  const inspectorX = page.locator('.inspector-body').getByLabel('Circle center X', { exact: true });
+  const inspectorX = page
+    .locator('.inspector-body')
+    .getByLabel('Circle Position X', { exact: true });
   await inspectorX.fill('370');
   assert.equal(
     await page.evaluate(() => window.nect.document.layers[0].nodes[0].params.center.value[0]),
@@ -129,7 +131,7 @@ try {
   await page.waitForTimeout(50);
   assert.equal(
     await page.evaluate(() => document.activeElement.getAttribute('aria-label')),
-    'Circle center Y',
+    'Circle Position Y',
   );
   await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.type('270');
