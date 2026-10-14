@@ -72,6 +72,14 @@ try {
   assert.equal(await field('angle').locator('[data-value]').inputValue(), '360');
   await count.fill('0');
   await count.press('Tab');
+  await page.waitForFunction(
+    (id) =>
+      window.nect.document.layers[0].nodes.find((n) => n.id === id).params.count.value === 8 &&
+      document.querySelector(
+        `.inspector-body .field[data-node="${id}"][data-key="count"] [data-value]`,
+      )?.value === '8',
+    ids.rep,
+  );
   assert.equal(await count.inputValue(), '8');
   await page.evaluate(({ layer }) => {
     document.querySelector(`[data-select-layer="${layer}"]`).click();
