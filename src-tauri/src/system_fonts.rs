@@ -3,7 +3,12 @@ use std::{collections::HashSet, fs::File, io::{Read, Seek, SeekFrom}, path::{Pat
 const MAX_FONT: usize = 20_000_000;
 const MAX_SOURCE: u64 = 128_000_000;
 const MAX_FILES: usize = 4096;
-type Entry = (PathBuf, PathBuf, u32);
+type Identity = (u64, Option<std::time::SystemTime>, Option<std::time::SystemTime>);
+type Entry = (PathBuf, PathBuf, u32, Identity);
+fn identity(file: &File) -> Result<Identity, String> {
+    let m = file.metadata().map_err(|e| e.to_string())?;
+    Ok((m.len(),m.modified().ok(),m.created().ok()))
+}
 #[derive(Default)]
 pub struct Catalog(pub Mutex<Vec<Entry>>);
 fn read_at(file: &mut File, offset: u64, size: usize) -> Result<Vec<u8>, String> {
@@ -154,14 +159,15 @@ pub async fn list_system_fonts(state: tauri::State<'_, Catalog>) -> Result<Vec<(
             if !seen.insert(path.clone()) { continue; }
             let Ok(mut file) = open_font(&path,&root) else { continue };
             if file.metadata().map(|m| m.len() > MAX_SOURCE || !m.is_file()).unwrap_or(true) { continue; }
+            let Ok(stamp) = identity(&file) else { continue };
             let Ok(offsets) = faces(&mut file) else { continue };
             for (face, offset) in offsets.iter().enumerate() {
                 if result.len() >= MAX_FILES { break; }
                 let Ok((_,dir)) = directory(&mut file,*offset) else { continue };
                 let name = face_name(&mut file,&dir).unwrap_or_else(|| format!("{} · face {}",path.file_name().unwrap_or_default().to_string_lossy(),face+1));
-                let index = if let Some(index) = catalog.iter().position(|e| e.0 == path && e.2 == *offset) { index } else {
+                let index = if let Some(index) = catalog.iter().position(|e| e.0 == path && e.2 == *offset && e.3 == stamp) { index } else {
                     if catalog.len() >= MAX_FILES { continue; }
-                    catalog.push((path.clone(),root.clone(),*offset)); catalog.len()-1
+                    catalog.push((path.clone(),root.clone(),*offset,stamp)); catalog.len()-1
                 };
                 result.push((format!("system-{index}"),name,reason(&dir)));
             }
@@ -173,10 +179,13 @@ pub async fn list_system_fonts(state: tauri::State<'_, Catalog>) -> Result<Vec<(
 #[tauri::command]
 pub async fn read_system_font(id: String, state: tauri::State<'_, Catalog>) -> Result<tauri::ipc::Response, String> {
     let index: usize = id.strip_prefix("system-").ok_or("Unknown installed font")?.parse().map_err(|_| "Unknown installed font")?;
-    let (path,root,offset) = state.inner().0.lock().map_err(|_| "Font catalog unavailable")?.get(index).cloned().ok_or("Unknown installed font")?;
+    let (path,root,offset,stamp) = state.inner().0.lock().map_err(|_| "Font catalog unavailable")?.get(index).cloned().ok_or("Unknown installed font")?;
     let mut file = open_font(&path,&root)?;
     if file.metadata().map_err(|e| e.to_string())?.len() > MAX_SOURCE { return Err("Font collection exceeds 128 MB".into()); }
-    Ok(tauri::ipc::Response::new(extract(&mut file,offset)?))
+    if identity(&file)? != stamp { return Err("Installed font changed; restart to refresh the font list".into()); }
+    let bytes = extract(&mut file,offset)?;
+    if identity(&file)? != stamp { return Err("Installed font changed during reading; try again".into()); }
+    Ok(tauri::ipc::Response::new(bytes))
 }
 #[cfg(test)]
 mod tests {
@@ -237,6 +246,32 @@ mod tests {
         assert!(extract(&mut f,u32::MAX).is_err());
         let mut dir = vec![0;16]; dir[..4].copy_from_slice(b"fvar");
         assert!(reason(&dir).unwrap().contains("Variable"));
+    }
+    #[test]
+    fn installed_japanese_collection_smoke_when_available() {
+        if !cfg!(windows) { return; }
+        for root in roots() {
+            let Ok(root) = root.canonicalize() else { continue };
+            for name in ["meiryo.ttc", "msgothic.ttc", "YuGothM.ttc", "YuGothR.ttc"] {
+                let Ok(mut file) = open_font(&root.join(name),&root) else { continue };
+                let offsets = faces(&mut file).unwrap();
+                let bytes = extract(&mut file,offsets[0]).unwrap();
+                let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/native-japanese-font-smoke.ttf");
+                std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+                std::fs::write(target,&bytes).unwrap();
+                println!("Installed Japanese TTC extracted for JS parser/layout smoke: {name}");
+                return;
+            }
+        }
+        println!("NOT RUN: no known Japanese TTC installed on this Windows runner");
+    }
+    #[test]
+    fn identity_detects_replacement() {
+        let root = tempfile::tempdir().unwrap(); let path = root.path().join("font.ttf");
+        std::fs::write(&path,b"before").unwrap();
+        let before = identity(&File::open(&path).unwrap()).unwrap();
+        std::fs::write(&path,b"after is different").unwrap();
+        assert_ne!(identity(&File::open(&path).unwrap()).unwrap(),before);
     }
     #[test]
     fn verified_handle_opens_only_regular_file_in_root() {

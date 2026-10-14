@@ -41,7 +41,9 @@ jobs:
         shell: pwsh
         run: |
           rustup default stable
-          cargo test --manifest-path src-tauri/Cargo.toml
+          cargo test --manifest-path src-tauri/Cargo.toml -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/native-font-smoke.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npx --yes @tauri-apps/cli@2 build
       - name: Preserve bounded development evidence
