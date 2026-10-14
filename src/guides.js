@@ -29,7 +29,10 @@ export function validateGuides(editor, validateId) {
     throw Error('Grid spacing must be between 1 and 10000');
   if (!Array.isArray(editor.guides) || editor.guides.length > 200)
     throw Error('Too many guides (maximum 200)');
+  if (editor.layoutGrid !== undefined) validateLayoutGrid(editor.layoutGrid);
   for (const guide of editor.guides) {
+    if (guide.origin !== undefined && guide.origin !== 'layout')
+      throw Error('Invalid guide origin');
     validateId(guide.id);
     if (
       !['x', 'y'].includes(guide.axis) ||
@@ -49,6 +52,7 @@ export function snapTranslation(
   scale = 1,
   bypass = false,
   excludedGuide = null,
+  layerBounds = [],
 ) {
   const settings = guideSettings(doc),
     matches = [],
@@ -61,6 +65,9 @@ export function snapTranslation(
       for (const guide of settings.guides)
         if (guide.axis === (axis ? 'y' : 'x') && guide.id !== excludedGuide)
           candidates.push({ position: guide.position, kind: 'guide' });
+    if (settings.snapGuides && settings.visible)
+      for (const bounds of layerBounds)
+        for (const position of bounds[axis]) candidates.push({ position, kind: 'guide-layer' });
     if (settings.snapArtboard)
       for (const position of [
         0,
@@ -92,4 +99,57 @@ export function snapTranslation(
     }
   }
   return { delta: result, matches };
+}
+
+export const layoutGridDefaults = () => ({
+  columns: 3,
+  rows: 3,
+  marginX: 40,
+  marginY: 40,
+  gutterX: 20,
+  gutterY: 20,
+});
+export function validateLayoutGrid(config) {
+  if (!config || typeof config !== 'object' || Array.isArray(config))
+    throw Error('Invalid layout grid');
+  for (const key of ['columns', 'rows'])
+    if (!Number.isInteger(config[key]) || config[key] < 1 || config[key] > 40)
+      throw Error('Columns and rows must be integers from 1 to 40');
+  for (const key of ['marginX', 'marginY', 'gutterX', 'gutterY'])
+    if (!Number.isFinite(config[key]) || config[key] < 0 || config[key] > 100000)
+      throw Error('Margins and gutters must be between 0 and 100000');
+}
+// A single generated set is replaced atomically; manual guides are never removed.
+export function layoutGridLines(doc, config) {
+  validateLayoutGrid(config);
+  const lines = [];
+  for (const [axis, size, count, margin, gutter] of [
+    ['x', doc.width, config.columns, config.marginX, config.gutterX],
+    ['y', doc.height, config.rows, config.marginY, config.gutterY],
+  ]) {
+    const cell = (size - 2 * margin - (count - 1) * gutter) / count;
+    if (!Number.isFinite(cell) || cell <= 0)
+      throw Error('Margins and gutters leave no space for cells');
+    const positions = new Set();
+    for (let i = 0; i < count; i++) {
+      positions.add(Number((margin + i * (cell + gutter)).toFixed(6)));
+      positions.add(Number((margin + i * (cell + gutter) + cell).toFixed(6)));
+    }
+    for (const position of positions) lines.push({ axis, position });
+  }
+  return lines;
+}
+export function setLayoutGrid(doc, config, makeId) {
+  const a = doc.editor || guideDefaults();
+  if (a.locked || a.guides.some((g) => g.origin === 'layout' && g.locked))
+    throw Error('Unlock layout guides before replacing or removing them');
+  const manual = a.guides.filter((g) => g.origin !== 'layout');
+  const lines = config ? layoutGridLines(doc, config) : [];
+  if (manual.length + lines.length > 200)
+    throw Error('Maximum 200 guides; remove some guides or reduce the layout');
+  const generated = lines.map((g) => ({ ...g, id: makeId(), locked: false, origin: 'layout' }));
+  doc.editor = a;
+  a.guides = [...manual, ...generated];
+  if (config) a.layoutGrid = { ...config };
+  else delete a.layoutGrid;
 }

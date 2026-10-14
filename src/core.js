@@ -1,5 +1,12 @@
 import { validateGuides } from './guides.js';
-export { guideDefaults, guideSettings, snapTranslation } from './guides.js';
+export {
+  guideDefaults,
+  guideSettings,
+  snapTranslation,
+  layoutGridDefaults,
+  layoutGridLines,
+  setLayoutGrid,
+} from './guides.js';
 import paper from 'paper';
 import { validateFontAssets, resolveFonts, MAX_PROJECT_BYTES, utf8ByteLength } from './fonts.js';
 import { layoutText } from './text-layout.js';
@@ -603,6 +610,7 @@ export function validate(doc) {
     if (
       typeof l.visible !== 'boolean' ||
       typeof l.locked !== 'boolean' ||
+      (l.guide !== undefined && typeof l.guide !== 'boolean') ||
       !/^#[0-9a-fA-F]{6}$/.test(l.fill)
     )
       throw Error('Invalid layer state');
@@ -692,7 +700,7 @@ export function exportSVG(doc, fonts = {}) {
   fonts = resolveFonts(doc, fonts);
   let paths = [];
   for (const l of doc.layers) {
-    if (!l.visible) continue;
+    if (!l.visible || l.guide) continue;
     let r = evaluate(l, fonts);
     if (r.error) throw Error(`${l.name}: ${r.error}`);
     paths.push(

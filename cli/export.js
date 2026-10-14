@@ -17,7 +17,7 @@ try {
   const svg = exportSVG(project, fonts);
   await fs.writeFile(output, svg, { flag: 'wx' });
   console.log(
-    `Exported ${project.layers.filter((x) => x.visible).length} visible compositions to ${output}`,
+    `Exported ${project.layers.filter((x) => x.visible && !x.guide).length} visible compositions to ${output}`,
   );
 } catch (e) {
   console.error(e.message);

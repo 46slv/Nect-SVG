@@ -714,3 +714,44 @@ summary input[type='checkbox'] {
 .guide-hit.locked {
   cursor: default;
 }
+
+.guide-layer-shape {
+  fill-opacity: 0.12;
+  stroke: #0694aa;
+  stroke-width: 1;
+  stroke-dasharray: 5 3;
+  vector-effect: non-scaling-stroke;
+}
+.layer.is-guide .name {
+  color: #007c90;
+}
+.layout-grid-panel {
+  border-block: 1px solid var(--line);
+  margin-top: 10px;
+  padding: 10px 0;
+}
+.layout-grid-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 8px 0;
+}
+.layout-grid-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.layout-grid-panel .guide-add {
+  flex-wrap: wrap;
+}
+.layout-preview {
+  stroke: #d07a19;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+.guide-list {
+  max-height: 180px;
+  overflow: auto;
+}

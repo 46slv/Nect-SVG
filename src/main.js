@@ -39,6 +39,9 @@ import {
   guideSettings,
   snapTranslation,
   pathBounds,
+  layoutGridDefaults,
+  layoutGridLines,
+  setLayoutGrid,
 } from './core.js';
 const app = document.querySelector('#app');
 let history = new History(newDocument()),
@@ -48,6 +51,8 @@ let history = new History(newDocument()),
   zoom = 1,
   selectedGuide = null,
   guidesOpen = false,
+  layoutDraft = null,
+  layoutPreview = false,
   snapMatches = [],
   pan = [0, 0],
   graphHeight = 42,
@@ -130,6 +135,8 @@ function change(fn, text, deferRender = false) {
   }
 }
 function resetTransient() {
+  layoutDraft = null;
+  layoutPreview = false;
   if (drag?.before) history.doc = drag.before;
   selectedGuide = null;
   snapMatches = [];
@@ -282,11 +289,8 @@ function render(resetView = false) {
     .join(
       '',
     )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar"><button data-action="zoom-out" aria-label="Zoom out">−</button><span>${Math.round(zoom * 100)}%</span><button data-action="zoom-in" aria-label="Zoom in">+</button><button data-action="fit">Fit</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to guides, artboard and grid; hold Alt to bypass">Snap</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span></div>${guidesPanel()}<div class="canvas-stage"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
-    .filter(([x, r]) => x.visible && r.path && !r.error)
-    .map(
-      ([x, r]) =>
-        `<path class="shape" data-layer="${x.id}" d="${esc(pathData(r.path))}" fill="${esc(x.fill)}" fill-rule="nonzero"/>`,
-    )
+    .filter(([x, r]) => layerShown(x) && r.path && !r.error)
+    .map(([x, r]) => layerShape(x, r.path))
     .join(
       '',
     )}${guidesOverlay()}${canvasOverlay(n, result)}</svg></div><div class="hint">${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : n ? `Editing ${esc(n.name)}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select a generator to edit its original parameters'}</div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head"><strong>Node graph</strong><span class="muted">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
@@ -302,7 +306,7 @@ function render(resetView = false) {
     .reverse()
     .map(
       (x) =>
-        `<div class="layer ${x.id === l.id ? 'selected' : ''}" data-layer="${x.id}"><button data-visible="${x.id}" title="Toggle visibility">${x.visible ? '◉' : '○'}</button><button class="name" data-select-layer="${x.id}">${esc(x.name)}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><button data-up-layer="${x.id}" title="Move layer up">↑</button></div>`,
+        `<div class="layer ${x.guide ? 'is-guide' : ''} ${x.id === l.id ? 'selected' : ''}" data-layer="${x.id}"><button data-visible="${x.id}" title="Toggle visibility">${x.visible ? '◉' : '○'}</button><button class="name" data-select-layer="${x.id}">${esc(x.name)}</button><button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><button data-up-layer="${x.id}" title="Move layer up">↑</button></div>`,
     )
     .join(
       '',
@@ -351,6 +355,52 @@ function editGuides(fn) {
   }
   render();
 }
+function layerShown(l) {
+  return l.visible && (!l.guide || guideSettings(history.doc).visible);
+}
+function layerShape(l, path) {
+  return `<path class="shape ${l.guide ? 'guide-layer-shape' : ''}" data-layer="${l.id}" d="${esc(pathData(path))}" fill="${esc(l.fill)}" fill-rule="nonzero"/>`;
+}
+function layoutConfig() {
+  return layoutDraft || guideSettings(history.doc).layoutGrid || layoutGridDefaults();
+}
+function layoutPanel() {
+  const a = guideSettings(history.doc),
+    config = layoutConfig();
+  let error = '',
+    lines = [];
+  try {
+    lines = layoutGridLines(history.doc, config);
+  } catch (e) {
+    error = e.message;
+  }
+  const locked = a.locked || a.guides.some((g) => g.origin === 'layout' && g.locked);
+  return `<div class="layout-grid-panel"><strong>Layout grid</strong><div class="layout-grid-fields">${[
+    ['columns', 'Columns'],
+    ['rows', 'Rows'],
+    ['marginX', 'Margin X'],
+    ['marginY', 'Margin Y'],
+    ['gutterX', 'Gutter X'],
+    ['gutterY', 'Gutter Y'],
+  ]
+    .map(
+      ([key, label]) =>
+        `<label>${label}<input type="number" data-layout-field="${key}" aria-label="Layout ${label}" min="${['columns', 'rows'].includes(key) ? 1 : 0}" max="${['columns', 'rows'].includes(key) ? 40 : 100000}" step="${['columns', 'rows'].includes(key) ? 1 : 'any'}" value="${Number.isFinite(config[key]) ? config[key] : ''}"></label>`,
+    )
+    .join(
+      '',
+    )}</div><label><input type="checkbox" data-layout-preview ${layoutPreview ? 'checked' : ''}>Preview layout</label><p class="layout-grid-summary ${error ? 'warning' : ''}">${esc(error || `${lines.length} guides · artboard-based · margins on both sides`)}</p><div class="guide-add"><button data-layout-apply ${error || locked ? 'disabled' : ''}>${a.layoutGrid ? 'Update layout' : 'Create layout'}</button><button data-layout-cancel>Cancel</button><button data-layout-remove ${!a.layoutGrid || locked ? 'disabled' : ''}>Remove layout</button></div><p>Updates replace only layout guides. Manual guides stay. Unlock layout guides before updating.</p></div>`;
+}
+function layoutOverlay() {
+  if (!layoutPreview || !guidesOpen) return '';
+  try {
+    return layoutGridLines(history.doc, layoutConfig())
+      .map((g) => guideLine(g.axis, g.position, 'class="layout-preview"'))
+      .join('');
+  } catch {
+    return '';
+  }
+}
 function guidesPanel() {
   if (!guidesOpen) return '';
   const a = guideSettings(history.doc);
@@ -368,7 +418,7 @@ function guidesPanel() {
     )
     .join(
       '',
-    )}</div><label>Grid spacing <input type="number" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label><div class="guide-add"><button data-add-guide="y" ${a.locked ? 'disabled' : ''}>+ Horizontal</button><button data-add-guide="x" ${a.locked ? 'disabled' : ''}>+ Vertical</button></div><div class="guide-list">${a.guides.map((g, i) => `<div class="guide-row ${selectedGuide === g.id ? 'selected' : ''}"><button data-select-guide="${g.id}" aria-label="Select guide ${i + 1}" aria-pressed="${selectedGuide === g.id}">${g.axis === 'x' ? 'V · X' : 'H · Y'}</button><input type="number" step="any" min="-100000" max="100000" data-guide-position="${g.id}" aria-label="Guide ${i + 1} position" value="${g.position}" ${a.locked || g.locked ? 'disabled' : ''}><button data-lock-guide="${g.id}" aria-label="${g.locked ? 'Unlock' : 'Lock'} guide ${i + 1}" aria-pressed="${g.locked}" ${a.locked ? 'disabled' : ''}>${g.locked ? '🔒' : '○'}</button><button data-delete-guide="${g.id}" aria-label="Delete guide ${i + 1}" ${a.locked || g.locked ? 'disabled' : ''}>×</button></div>`).join('')}</div><p>Drag a guide to move it. Hidden guides do not snap; locked guides still snap. Alt bypasses snapping.</p></section>`;
+    )}</div><label>Grid spacing <input type="number" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label>${layoutPanel()}<div class="guide-add"><button data-add-guide="y" ${a.locked ? 'disabled' : ''}>+ Horizontal</button><button data-add-guide="x" ${a.locked ? 'disabled' : ''}>+ Vertical</button></div><div class="guide-list">${a.guides.map((g, i) => `<div class="guide-row ${selectedGuide === g.id ? 'selected' : ''}"><button data-select-guide="${g.id}" aria-label="Select guide ${i + 1}" aria-pressed="${selectedGuide === g.id}">${g.origin === 'layout' ? '▦ ' : ''}${g.axis === 'x' ? 'V · X' : 'H · Y'}</button><input type="number" step="any" min="-100000" max="100000" data-guide-position="${g.id}" aria-label="Guide ${i + 1} position" value="${g.position}" ${a.locked || g.locked ? 'disabled' : ''}><button data-lock-guide="${g.id}" aria-label="${g.locked ? 'Unlock' : 'Lock'} guide ${i + 1}" aria-pressed="${g.locked}" ${a.locked ? 'disabled' : ''}>${g.locked ? '🔒' : '○'}</button><button data-delete-guide="${g.id}" aria-label="Delete guide ${i + 1}" ${a.locked || g.locked ? 'disabled' : ''}>×</button></div>`).join('')}</div><p>Drag a guide to move it. Hidden guides do not snap; locked guides still snap. Alt bypasses snapping.</p></section>`;
 }
 function gridOverlay() {
   const a = guideSettings(history.doc);
@@ -398,6 +448,7 @@ function guidesOverlay() {
           )
           .join('')
       : '') +
+    layoutOverlay() +
     snapMatches
       .map((m) =>
         guideLine(m.axis ? 'y' : 'x', m.position, `class="snap-match" data-snap-kind="${m.kind}"`),
@@ -417,12 +468,18 @@ function snapped(sources, delta, event, excludedGuide = null) {
     canvasScale(),
     event.altKey,
     excludedGuide,
+    history.doc.layers
+      .filter((l) => l.guide && layerShown(l) && l.id !== activeLayer)
+      .flatMap((l) => {
+        const r = evaluate(l, fonts);
+        return r.path && !r.error ? [pathBounds(r.path)] : [];
+      }),
   );
   snapMatches = result.matches;
   return result.delta;
 }
 function canvasOverlay(n, result) {
-  if (!n) return '';
+  if (!n || !layerShown(current())) return '';
   let path;
   try {
     path = result.run(n.id);
@@ -453,12 +510,10 @@ function updateCanvas() {
     svg.innerHTML =
       gridOverlay() +
       history.doc.layers
-        .filter((x) => x.visible)
+        .filter((x) => layerShown(x))
         .map((x) => {
           const value = x === l ? r : evaluate(x, fonts);
-          return value.path && !value.error
-            ? `<path class="shape" data-layer="${x.id}" d="${esc(pathData(value.path))}" fill="${esc(x.fill)}" fill-rule="nonzero"/>`
-            : '';
+          return value.path && !value.error ? layerShape(x, value.path) : '';
         })
         .join('') +
       guidesOverlay() +
@@ -559,6 +614,49 @@ app.addEventListener('click', async (e) => {
   if (!b) return;
   const d = b.dataset,
     n = selectedNode();
+  if (d.layoutCancel !== undefined) {
+    layoutDraft = null;
+    layoutPreview = false;
+    render();
+    return;
+  }
+  if (d.layoutApply !== undefined || d.layoutRemove !== undefined) {
+    try {
+      history.apply((doc) =>
+        setLayoutGrid(doc, d.layoutRemove !== undefined ? null : layoutConfig(), () =>
+          uid('guide'),
+        ),
+      );
+      layoutDraft = null;
+      layoutPreview = false;
+      selectedGuide = null;
+      snapMatches = [];
+      notify(
+        d.layoutRemove !== undefined
+          ? 'Layout guides removed; manual guides kept'
+          : 'Layout guides generated',
+      );
+    } catch (e) {
+      notify(e.message, true);
+    }
+    render();
+    return;
+  }
+  if (d.layerGuide) {
+    const l = history.doc.layers.find((x) => x.id === d.layerGuide);
+    if (l.locked) {
+      notify('Composition is locked', true);
+      return;
+    }
+    history.apply(() => {
+      l.guide = !l.guide;
+    });
+    notify(
+      l.guide ? 'Guide layer: visible in editor, excluded from SVG' : 'Layer restored to artwork',
+    );
+    render();
+    return;
+  }
   if (d.addGuide) {
     editGuides((a) => {
       if (a.locked) throw Error('Guides are locked');
@@ -678,6 +776,10 @@ app.addEventListener('click', async (e) => {
           break;
         case 'guides-panel':
           guidesOpen = !guidesOpen;
+          if (!guidesOpen) {
+            layoutDraft = null;
+            layoutPreview = false;
+          }
           render();
           break;
         case 'fit':
@@ -950,6 +1052,17 @@ app.addEventListener('change', async (e) => {
     } catch (err) {
       notify(`Open rejected; current document preserved: ${err.message}`, true);
     }
+    return;
+  }
+  if (d.layoutField || d.layoutPreview !== undefined) {
+    if (d.layoutField)
+      layoutDraft = {
+        ...layoutConfig(),
+        [d.layoutField]: el.value.trim() ? Number(el.value) : NaN,
+      };
+    else layoutPreview = el.checked;
+    if (pointerActive) scheduleRender();
+    else render();
     return;
   }
   if (d.guideSetting || d.guidePosition) {
@@ -1476,6 +1589,8 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
   }
   if (e.key === 'Escape') {
+    layoutDraft = null;
+    layoutPreview = false;
     if (drag?.before) history.doc = drag.before;
     drag = null;
     snapMatches = [];
