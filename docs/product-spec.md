@@ -203,7 +203,7 @@ Text の Windows font から、標準システム／ユーザー Fonts フォル
 
 新規 unit / synthetic DOM テストは線形・放射・負角度・1 コピー・上限・有限性・型・キャッシュ・JSON・Undo / Redo・ロック・文字 advance を対象とする。実 Chrome テストは両 UI、履歴、不正 count の保全、JSON / SVG / PNG 保存を `workflow-creation.*` に出力する。ローカル Chromium 起動は実行環境の socket 制限で停止したため、実ブラウザーと Windows パッケージの合格は、この変更を含む CI の実行結果が出てから記録する。
 
-グラフィックの次候補は Polygon / Star。Stroke の cap / join / dash と Join Geometry は第 14 節で実装。タイポグラフィの次候補は明確なフレーム幅と折り返し・禁則。これらは今回の実装済み機能と混同しない。Nect 統合、マクロ、クラウド、本流マージ、公開リリースは引き続き別判断。
+Polygon / Star は第 15 節で実装。Stroke の cap / join / dash と Join Geometry は第 14 節で実装。タイポグラフィの次候補は明確なフレーム幅と折り返し・禁則。これらは今回の実装済み機能と混同しない。Nect 統合、マクロ、クラウド、本流マージ、公開リリースは引き続き別判断。
 
 ## 14. Stroke の線表現と Join Geometry（追加制作要素）
 
@@ -231,3 +231,27 @@ Text の Windows font から、標準システム／ユーザー Fonts フォル
 ### 受入
 
 unit / synthetic DOM は SVG の継承・再読込、旧値、範囲、型、履歴、ロック、穴、逆向きの重なり、Transform / Remap / Repeater と Boolean の組合せを検査する。実 Chrome の `join-stroke.e2e.js` は重なりの alpha、穴、丸い線端、破線の空隙を PNG ピクセルで検査し、`workflow-join-stroke` の JSON / SVG / PNG / 編集画面を保存する。ソース実装と実 Chrome / NSIS の CI 合格は別に確認する。
+
+## 15. Polygon / Star generators
+
+Nect の product-direction の「Instantiate → parameterize」に挙げられた Polygon / Star を、既存の型付き Path ジェネレーターとして実装する。以下は Nect-SVG で明示した具体的な既定値と幾何規則。
+
+- Polygon: center=[350,250]、sides=6、radius=120、rotation=0。
+- Star: center=[350,250]、points=5、outerRadius=120、innerRadius=60、rotation=0。points は外側頂点の数で、輪郭の頂点数はその 2 倍。
+- Count は整数 3〜256。半径は有限の正値、最大 100000 px。Star は innerRadius ≤ outerRadius。範囲外・小数 count を丸めずエラーとし、直接入力は履歴トランザクションで元の値を保つ。Expression と接続の解決後も同じ検証を行う。
+- 画面座標（Y 下向き）で、最初の外側頂点は center の真上。rotation は度単位で時計回り。Polygon の頂点 i は角度 rotation−90+i×360/sides、Star は rotation−90+i×180/points に外・内半径を交互に適用。角度は計算前に 360° で剰余を取り、非常に大きな有限回転でも三角関数を安全に評価する。
+- 輪郭は閉じた直線辺、相対ハンドルはゼロ。radius=0 の退化形状や負の半径は作らない。inner=outer は 2×points 頂点の正多角形となる。
+- Add node と左ツールバーから追加し、center のキャンバス移動・スナップ・ロック・接続・式・Undo / Redo は既存操作に従う。center がロック／接続／式で駆動される場合はドラッグしない。
+- 頂点 ID はジェネレーター ID、種類、count、頂点番号に結び付ける。center / 半径 / rotation の変更では同じ頂点への Remap を維持する。count 変更では元の差分を保存して停止し、別頂点へ黙って適用しない。元の count に戻すと同じ定義の頂点 ID が復元する。下流 Boolean / Join / Repeater の既存の不安定トポロジー規則は変えない。
+- Boolean / Join Geometry / Geometry Repeater / Transform / Fill / Stroke への既存接続、JSON 保存再読込、SVG / 透過 PNG 書き出しに対応。新しい Transform 意味論、Position OUT、グラデーション、テキストフレームは含めない。
+- 検証: polygon-star unit は正確な座標、型、キャッシュ、制限、式／入力、Remap、履歴、JSON と演算合成。polygon-star browser は追加、パラメーター変更、不正値保全、ドラッグ／ロック、保存と SVG / PNG ピクセルを検証する。実ブラウザー／Windows ビルド合格は対応 CI 結果で確認する。
+
+## 16. 既存 Transform の Anchor と共有親
+
+- Transform ノードを追加で別実装せず、既存ノードへ anchor: Vector2（既定 [0,0]）を追加。式は p′ = anchor + offset + R(rotation) × scale × (p − anchor)。anchor は入力パスと同じ座標系の拡縮・回転中心。offset は最後に加算する移動量であり、anchor の出力位置への置き換えではない。
+- 旧 JSON は anchor=[0,0] を補い、従来の原点中心の結果を維持する。anchor は XY 入力、Vector2 接続、Expression、ロック、履歴、JSON に対応する。
+- 複数の形／Text → Join Geometry → Transform → Fill / Stroke → Output が共有親の基本構成。子の位置やタイポグラフィ設定を変えず、まとめた結果を動かす。Transform を重ねると上流から順に合成する。輪郭・頂点・独立 paint group ID と入力 fingerprint を維持する。
+- Transform を単独選択した場合、キャンバスドラッグは offset を変更してグループ全体を移動する。offset のロック／接続／式とレイヤーロックを尊重する。親と子を同時にドラッグして二重移動する操作は行わない。自動親ノード作成、クロスレイヤー親子関係、独立したシーンツリーは含めない。
+- Anchor の変更は拡縮／回転済みの結果に影響する。見た目を固定してアンカーだけを移動する補償モードではない。
+- examples/right-aligned-typography-group.json は同一右端アンカーで右揃えした見出しと副題を Join して共通 Transform に接続した編集可能な例。文字の advance による右揃えなので、字形の見た目の端を強制一致させるものではない。
+- 検証は正確な pivot 座標・ハンドル、ネスト順序、輪郭の穴、入力 ID、古い JSON、キャッシュ、式／接続、Undo / Redo、DOM の共有移動／ロック／子不変性。実 Chrome テストは上記例と JSON / SVG / PNG 保存を検査し、Windows CI の結果で合格を判断する。

@@ -56,6 +56,19 @@ export const definitions = {
   Circle: { center: p('Vector2', [350, 250]), radius: p('Scalar', 120) },
   Ellipse: { center: p('Vector2', [350, 250]), size: p('Vector2', [240, 160]) },
   Rectangle: { center: p('Vector2', [460, 250]), size: p('Vector2', [180, 220]) },
+  Polygon: {
+    center: p('Vector2', [350, 250]),
+    sides: p('Scalar', 6),
+    radius: p('Scalar', 120),
+    rotation: p('Scalar', 0),
+  },
+  Star: {
+    center: p('Vector2', [350, 250]),
+    points: p('Scalar', 5),
+    outerRadius: p('Scalar', 120),
+    innerRadius: p('Scalar', 60),
+    rotation: p('Scalar', 0),
+  },
   Curve: { closed: p('Boolean', true) },
   Boolean: { a: p('Path', null), b: p('Path', null) },
   'Join Geometry': { a: p('Path', null), b: p('Path', null) },
@@ -63,6 +76,7 @@ export const definitions = {
   'Path Remap': { path: p('Path', null), offset: p('Vector2', [0, 0]) },
   Transform: {
     path: p('Path', null),
+    anchor: p('Vector2', [0, 0]),
     offset: p('Vector2', [0, 0]),
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
@@ -102,6 +116,41 @@ export const definitions = {
   'Text to Path': { path: p('Path', null) },
   'Imported Path': {},
 };
+// Keep count validation shared by JSON/direct input and resolved expression/socket input.
+function radialSettings(type, read) {
+  const key = type === 'Polygon' ? 'sides' : 'points',
+    count = read(key);
+  if (!Number.isInteger(count) || count < 3 || count > 256)
+    throw Error(`${type} ${key} must be an integer from 3 to 256`);
+  const outer = read(type === 'Polygon' ? 'radius' : 'outerRadius'),
+    inner = type === 'Star' ? read('innerRadius') : outer;
+  if (![outer, inner].every((v) => Number.isFinite(v) && v > 0 && v <= 100000))
+    throw Error('Radii must be positive and at most 100000 px');
+  if (inner > outer) throw Error('Star innerRadius must not exceed outerRadius');
+  return { count, outer, inner };
+}
+function radialPath(n, read) {
+  const { count, outer, inner } = radialSettings(n.type, read),
+    center = read('center'),
+    rotation = read('rotation') % 360,
+    total = n.type === 'Star' ? count * 2 : count,
+    identity = `${n.id}:${n.type}:${count}`;
+  return {
+    contours: [
+      {
+        id: identity,
+        closed: true,
+        points: Array.from({ length: total }, (_, i) => {
+          const angle = ((rotation - 90 + (i * 360) / total) * Math.PI) / 180,
+            radius = n.type === 'Star' && i % 2 ? inner : outer,
+            position = [center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle)];
+          assertValue('Vector2', position);
+          return { id: `${identity}:${i}`, position, handleA: [0, 0], handleB: [0, 0] };
+        }),
+      },
+    ],
+  };
+}
 export function parseStrokeDash(value) {
   const raw = value.trim();
   if (!raw || raw === 'none') return [];
@@ -663,6 +712,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       } else if (n.type === 'Combine Vector') {
         result = [read('x'), read('y')];
         assertValue('Vector2', result);
+      } else if (n.type === 'Polygon' || n.type === 'Star') {
+        result = radialPath(n, read);
       } else if (n.type === 'Circle' || n.type === 'Ellipse' || n.type === 'Rectangle') {
         const center = read('center');
         let item;
@@ -877,8 +928,9 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           }
         } else if (n.type === 'Transform') {
           let obj = toPaper(result);
-          obj.scale(read('scale'), [0, 0]);
-          obj.rotate(read('rotation'), [0, 0]);
+          const anchor = n.params.anchor ? read('anchor') : [0, 0];
+          obj.scale(read('scale'), anchor);
+          obj.rotate(read('rotation'), anchor);
           obj.translate(read('offset'));
           let transformed = fromPaper(obj, n.id);
           transformed.contours.forEach((c, ci) => {
@@ -1089,6 +1141,8 @@ export function validate(doc) {
       if (n.type === 'Text')
         for (const key of ['letterSpacing', 'lineSpacing'])
           if (!Object.hasOwn(n.params, key)) n.params[key] = clone(definitions.Text[key]);
+      if (n.type === 'Transform' && !Object.hasOwn(n.params, 'anchor'))
+        n.params.anchor = clone(definitions.Transform.anchor);
       if (n.type === 'Stroke') {
         validateStrokeStyle(n);
         for (const key of ['miterLimit', 'dashOffset'])
@@ -1098,6 +1152,8 @@ export function validate(doc) {
         throw Error('Unexpected parameter');
       for (const [key, def] of Object.entries(definitions[n.type]))
         param(n.params[key], def.type, n.type === 'Fill' && key === 'color');
+      if (['Polygon', 'Star'].includes(n.type))
+        radialSettings(n.type, (key) => n.params[key].value);
       if (
         n.type === 'Geometry Repeater' &&
         (!Number.isInteger(n.params.count.value) ||

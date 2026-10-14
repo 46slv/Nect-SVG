@@ -276,7 +276,7 @@ function operationControls(n) {
   return `<div class="field"><label>Operation</label><select data-operation="${n.id}" aria-label="${esc(n.name)} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
+  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${radialControls(n)}${transformControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
     n,
   )
     .filter(([k]) => Object.hasOwn(n.params, k))
@@ -326,6 +326,8 @@ function render(resetView = false) {
     ['pen', '⌁', 'Pen / Curve'],
     ['Circle', '○', 'Add Circle'],
     ['Rectangle', '□', 'Add Rectangle'],
+    ['Polygon', '⬡', 'Add Polygon'],
+    ['Star', '☆', 'Add Star'],
     ['Text', 'T', 'Add Text'],
   ]
     .map(
@@ -358,7 +360,7 @@ function render(resetView = false) {
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${strokeControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
+      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${strokeControls(n)}${radialControls(n)}${transformControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
           n,
         )
           .filter(
@@ -516,6 +518,16 @@ function guidesOverlay() {
       )
       .join('')
   );
+}
+function transformControls(n) {
+  return n.type === 'Transform'
+    ? '<p class="font-note">Shared parent: connect child paths through Join Geometry, then this Transform, then Fill / Stroke. Anchor is the scale/rotation pivot in input coordinates; offset moves the result. Select this Transform to drag the whole group. Child parameters stay unchanged.</p>'
+    : '';
+}
+function radialControls(n) {
+  return ['Polygon', 'Star'].includes(n.type)
+    ? '<p class="font-note">Closed straight-edge path. Count: 3–256. Radii: >0 to 100000 px; inner ≤ outer. Rotation: clockwise degrees from the top vertex. Count changes suspend existing vertex edits.</p>'
+    : '';
 }
 function canvasScale() {
   const ctm = document.querySelector('.artboard').getScreenCTM();
@@ -1861,15 +1873,24 @@ app.addEventListener('pointerdown', (e) => {
   const generators = current().nodes.filter((n) => selection.has(n.id));
   if (
     generators.length &&
-    generators.every((n) =>
-      ['Circle', 'Ellipse', 'Rectangle', 'Text', 'Curve', 'Image'].includes(n.type),
-    )
+    ((generators.length === 1 && generators[0].type === 'Transform') ||
+      generators.every((n) =>
+        ['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Text', 'Curve', 'Image'].includes(
+          n.type,
+        ),
+      ))
   ) {
     const targets = generators.map((n) => {
       const keys =
         n.type === 'Curve'
           ? n.points.map((p) => `${p.id}.position`)
-          : [['Text', 'Image'].includes(n.type) ? 'position' : 'center'];
+          : [
+              n.type === 'Transform'
+                ? 'offset'
+                : ['Text', 'Image'].includes(n.type)
+                  ? 'position'
+                  : 'center',
+            ];
       return { nodeId: n.id, keys, original: keys.map((k) => clone(parameter(n, k).value)) };
     });
     if (
@@ -1895,7 +1916,7 @@ app.addEventListener('pointerdown', (e) => {
       return [low, (low + high) / 2, high];
     });
     drag = { type: 'shape', targets, anchors, start: pos, before: cloneDocument(history.doc) };
-  } else notify('Select only shape, Text, Image or Curve generators to move them');
+  } else notify('Select generators, or one Transform to move its whole group');
 });
 document.addEventListener('pointermove', (e) => {
   if (wiring) {
