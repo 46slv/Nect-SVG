@@ -931,23 +931,38 @@ input[data-scrub-step].scrubbing {
   margin: 5px 0;
 }
 
-.null-marker {
+.position-marker {
   cursor: move;
   color: #744dc4;
 }
-.null-marker circle {
+.position-marker circle,
+.position-marker polygon {
   fill: #fff;
   fill-opacity: 0.85;
   stroke: currentColor;
   stroke-width: 1.5;
 }
-.null-marker path {
+.position-marker path {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
   pointer-events: none;
 }
-.null-marker.readonly {
+.position-marker.readonly {
   cursor: not-allowed;
   color: #697683;
+}
+
+.vector-marker {
+  color: #267b83;
+}
+.position-marker text {
+  font:
+    11px system-ui,
+    sans-serif;
+  fill: currentColor;
+  stroke: #fff;
+  stroke-width: 3;
+  paint-order: stroke;
+  pointer-events: none;
 }

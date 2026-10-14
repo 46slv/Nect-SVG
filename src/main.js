@@ -323,7 +323,7 @@ function operationControls(n) {
   return `<div class="field"><label>Operation</label><select data-operation="${n.id}" aria-label="${esc(n.name)} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${nullControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
+  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
     n,
   )
     .filter(([k]) => Object.hasOwn(n.params, k))
@@ -412,7 +412,7 @@ function render(resetView = false) {
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${nullControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
+      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
           n,
         )
           .filter(
@@ -582,10 +582,20 @@ function transformControls(n) {
     ? '<p class="font-note">Shared parent: connect child paths through Join Geometry, then this Transform, then Fill / Stroke. Anchor is the scale/rotation pivot in input coordinates; offset moves the result. Select this Transform to drag the whole group. Child parameters stay unchanged.</p>'
     : '';
 }
-function nullControls(n) {
+function positionControllerControls(n) {
+  if (n.type === 'Vector')
+    return `<div class="field"><label>Canvas position handle <input type="checkbox" data-vector-position-handle="${n.id}" aria-label="Canvas position handle" ${n.canvasPositionHandle === true ? 'checked' : ''} ${current().locked ? 'disabled' : ''}></label></div><p class="font-note">Optional: interpret Value XY as an artwork position for canvas editing. Off by default for direction, size or offset vectors. When on, select this node and drag its diamond; Alt bypasses snapping. The handle changes Value directly, before downstream Transform, and never exports. Output stays Vector2. Connected, expression-driven or locked Value is read-only on canvas.</p>`;
   return n.type === 'Null'
     ? '<p class="font-note">Position-only controller. Select this node and drag its crosshair; Alt bypasses snapping. Only the selected Null is shown, and the marker never exports. Connect Position OUT to Text, shape Position, or Vector Math. Coordinates are before downstream Transform. Connected, expression-driven or locked Position is read-only on canvas.</p>'
     : '';
+}
+// Only dedicated Nulls and explicitly opted-in Vectors are canvas positions.
+// Both edit the same parameter shown in numeric fields; no separate point state.
+function positionController(n) {
+  if (n?.type === 'Null') return { key: 'position', kind: 'null', label: 'Position' };
+  if (n?.type === 'Vector' && n.canvasPositionHandle === true)
+    return { key: 'value', kind: 'vector', label: 'Value as canvas position' };
+  return null;
 }
 function radialControls(n) {
   return ['Polygon', 'Star'].includes(n.type)
@@ -811,10 +821,12 @@ function canvasOverlay(n, result) {
   } catch {
     return '';
   }
-  if (n.type === 'Null') {
-    const q = n.params.position,
+  const controller = positionController(n);
+  if (controller) {
+    const { key, kind, label } = controller,
+      q = n.params[key],
       readonly = current().locked || q.locked || q.source || q.expression;
-    return `<g class="null-marker ${readonly ? 'readonly' : ''}" data-null-handle="${n.id}" transform="translate(${path[0]} ${path[1]})" aria-label="${esc(n.name)} Position handle${readonly ? ' (read-only)' : ''}"><title>${esc(n.name)} · Position${readonly ? ' · Locked or driven by an input' : ' · Drag to move; Alt bypasses snap'}</title><g class="null-marker-size"><circle r="11"/><path d="M-8 0H8 M0-8V8"/></g></g>`;
+    return `<g class="position-marker ${kind}-marker ${readonly ? 'readonly' : ''}" data-position-handle="${n.id}" data-${kind}-handle="${n.id}" transform="translate(${path[0]} ${path[1]})" aria-label="${esc(n.name)} ${label} handle${readonly ? ' (read-only)' : ''}"><title>${esc(n.name)} · ${label}${readonly ? ' · Locked or driven by an input' : ' · Drag to move; Alt bypasses snap'}</title><g class="position-marker-size ${kind}-marker-size">${kind === 'vector' ? '<polygon points="0,-12 12,0 0,12 -12,0"/><text x="16" y="-12">Vector XY</text>' : '<circle r="11"/>'}<path d="M-8 0H8 M0-8V8"/></g></g>`;
   }
   if (path?.kind === 'image')
     return `<rect class="guide" x="${path.position[0]}" y="${path.position[1]}" width="${path.size[0]}" height="${path.size[1]}" stroke-dasharray="5 4"/>`;
@@ -851,13 +863,13 @@ function updateCanvas() {
       guidesOverlay() +
       canvasOverlay(selectedNode(), r);
     renderEvaluation = r;
-    sizeNullHandle();
+    sizePositionHandle();
     positionCharacterFloating();
   });
 }
-function sizeNullHandle() {
+function sizePositionHandle() {
   document
-    .querySelector('.null-marker-size')
+    .querySelector('.position-marker-size')
     ?.setAttribute('transform', `scale(${1 / canvasScale()})`);
 }
 function fitCanvas() {
@@ -872,7 +884,7 @@ function fitCanvas() {
   svg.style.width = history.doc.width * scale + 'px';
   svg.style.height = history.doc.height * scale + 'px';
   svg.style.transform = `translate(${pan[0]}px,${pan[1]}px)`;
-  sizeNullHandle();
+  sizePositionHandle();
   positionCharacterFloating();
 }
 function drawWires() {
@@ -1796,7 +1808,11 @@ app.addEventListener('change', async (e) => {
   }
   change(
     () => {
-      if (d.operation) setOperation(current(), d.operation, el.value);
+      if (d.vectorPositionHandle) {
+        const n = current().nodes.find((n) => n.id === d.vectorPositionHandle);
+        if (n?.type !== 'Vector') throw Error('Canvas position handle needs a Vector');
+        n.canvasPositionHandle = el.checked;
+      } else if (d.operation) setOperation(current(), d.operation, el.value);
       else if (d.strokeCap || d.strokeJoin || d.strokeDash) {
         const n = current().nodes.find(
           (n) => n.id === (d.strokeCap || d.strokeJoin || d.strokeDash),
@@ -2372,22 +2388,24 @@ app.addEventListener('pointerdown', (e) => {
     if (nn.points.length === 1) revealNode(nn.id);
     return;
   }
-  if (n?.type === 'Null') {
+  const controller = positionController(n);
+  if (controller) {
     // A dedicated point target never turns a click elsewhere into a controller move.
-    if (e.target.closest('[data-null-handle]')?.dataset.nullHandle !== n.id) return;
-    const q = n.params.position;
+    if (e.target.closest('[data-position-handle]')?.dataset.positionHandle !== n.id) return;
+    const q = n.params[controller.key];
     if (q.locked || q.source || q.expression) {
-      notify('Position is locked or driven by an input', true);
+      notify(`${controller.label} is locked or driven by an input`, true);
       return;
     }
     stage.focus({ preventScroll: true });
     n = selectedNode();
     drag = {
-      type: 'null-position',
+      type: 'position-controller',
+      key: controller.key,
       nodeId: n.id,
       start: canvasPoint(e),
       startClient: [e.clientX, e.clientY],
-      original: [...n.params.position.value],
+      original: [...n.params[controller.key].value],
       before: cloneDocument(history.doc),
       pointerId: e.pointerId,
       capture: stage,
@@ -2536,11 +2554,12 @@ document.addEventListener('pointermove', (e) => {
     return;
   }
   if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
-  if (drag.type === 'null-position') {
+  if (drag.type === 'position-controller') {
     const n = selectedNode(),
-      q = n?.params.position;
+      q = n?.params[drag.key];
     if (
       n?.id !== drag.nodeId ||
+      positionController(n)?.key !== drag.key ||
       current().locked ||
       !layerShown(current()) ||
       !q ||
@@ -2832,7 +2851,7 @@ document.addEventListener('keydown', (e) => {
     cancelInteraction();
     return;
   }
-  if (['character', 'null-position'].includes(drag?.type) && e.key === 'Escape') {
+  if (['character', 'position-controller'].includes(drag?.type) && e.key === 'Escape') {
     e.preventDefault();
     cancelInteraction();
     return;

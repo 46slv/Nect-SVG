@@ -286,4 +286,14 @@ Text は既存の Path 出力を保ち、Vector2 の Position 出力を追加す
 
 型・優先順位・キャッシュ・Transform 空間・循環・JSON・履歴・既存 Path と、DOM のメニュー／配線／取消／スナップ所有権／削除／複製をテストする。実 Chrome の同操作と JSON/SVG/PNG 出力は `tests/text-position-output.e2e.js` に用意し、Windows CI の対応コミットで別途実行する。ローカル環境の Chromium socket 制限は解消していないため、この実装時点で Chrome／NSIS 合格とはしない。
 
-[Position 再利用の実験候補](position-reuse-candidates.md) に4案を維持する。Text Position OUT に続き、[Nullの位置専用コントローラー](null-position.md)も試作した。Nullは選択時のみ十字ハンドルを表示し、既存スナップでPositionを編集して単一Vector2 OUTを出す。マーカーはSVG/PNGへ出力せず、接続・数式・ロック中の値はキャンバスから変更しない。ハンドル付き Vector・Reference は未実装。クロスレイヤー参照、ポスト Transform 点、キャンバスリサイズは今回含めない。試用後に採否・併存・統合を判断する。
+[Position 再利用の実験候補](position-reuse-candidates.md) に4案を維持する。Text Position OUT に続き、[Nullの位置専用コントローラー](null-position.md)も試作した。Nullは選択時のみ十字ハンドルを表示し、既存スナップでPositionを編集して単一Vector2 OUTを出す。マーカーはSVG/PNGへ出力せず、接続・数式・ロック中の値はキャンバスから変更しない。続いて[明示ONのVectorキャンバスハンドル](vector-position.md)を試作した。Vectorの型・評価・Value XYを維持し、任意の位置用途だけにハンドルを表示する。Reference は未実装。クロスレイヤー参照、ポスト Transform 点、キャンバスリサイズは今回含めない。試用後に採否・併存・統合を判断する。
+
+## 18. Vector の明示的なキャンバス位置ハンドル
+
+既存 Vector に保存可能な `canvasPositionHandle: Boolean` を追加する。既定・省略時は false。カードと Inspector の **Canvas position handle** を明示 ON にした場合だけ、選択時に **Vector XY** と示した菱形を表示する。方向・サイズ・オフセット用の Vector を自動で位置と解釈しない。
+
+- Value XY と Vector2 出力は従来のまま。表示設定の変更で評価結果・配線・数学演算は変わらない。型違いの表示設定と Vector 以外への設定は読込時に拒否する。
+- Null と座標変換・6画面pxスナップ・Alt・drag・取消・履歴を共用する。編集元は自身の params.value のみで、下流 Transform 前の座標。空白クリックでは動かず、接続・数式・ロック時は評価値の読み取り専用マーカーになる。
+- 1 gesture = 1 Undo。クリックの微小揺れ・元座標へ戻る操作は精度と履歴を保ち、Escape / pointercancel / lost capture / blur は全変更を戻す。Space / middle pan は優先し、数値の未確定入力は独立して確定する。
+- 表示設定は保存・再読込・複製・Undo/Redoで保持する。SVG/PNGにはマーカーを含めない。`examples/vector-position-reuse.json` と Null 版は同じレイアウトを使い、専用 Position と汎用 Vector を比較できる。
+- unit/DOM と実 Chrome 用テストを追加し全体suiteへ含める。ソース／ローカル検証と、対応コミットの実 Chrome・Windows packageの合格は別に確認する。詳しい操作と受入範囲は [Vector canvas position handle](vector-position.md)。

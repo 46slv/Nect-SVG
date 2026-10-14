@@ -224,6 +224,7 @@ export function node(type, x = 40, y = 40) {
       : {}),
     rawPath: '',
     ...(type === 'Image' ? { asset: '' } : {}),
+    ...(type === 'Vector' ? { canvasPositionHandle: false } : {}),
   };
 }
 export function layer(name = 'Composition 1') {
@@ -1249,6 +1250,11 @@ export function validate(doc) {
         throw Error('Invalid node collapse state');
       text(n.text);
       text(n.font);
+      if (
+        n.canvasPositionHandle !== undefined &&
+        (n.type !== 'Vector' || typeof n.canvasPositionHandle !== 'boolean')
+      )
+        throw Error('Invalid Vector canvas position handle setting');
       if (
         n.positionReference !== undefined &&
         (typeof n.positionReference !== 'string' ||

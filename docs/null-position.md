@@ -7,7 +7,7 @@ Add **Null** from **+ Add node**, or open [the editable sample](../examples/null
 - Null has one Vector2 input, **Position**, and one default Vector2 output labeled **Position**. It creates no Path, paint, SVG element, or PNG mark. The crosshair belongs exclusively to the editor overlay.
 - The output is the evaluated Position, with the normal priority: connected source, then expression, then direct XY fallback. It can drive Text Position, shape Position/center, another Null or existing Vector Math / Separate Vector / Combine Vector inputs.
 - Coordinates are source artwork coordinates before downstream Transform, independent of zoom and pan. A transformed follower can therefore be displayed elsewhere; the Null never guesses a post-Transform position or silently edits an upstream controller.
-- Use Vector Math to add an offset, or Separate/Combine to share one axis. There is no implicit parent, rotation, scale, grouping, Reference node or Vector handle in this experiment.
+- Use Vector Math to add an offset, or Separate/Combine to share one axis. There is no implicit parent, rotation, scale, grouping or Reference node in this experiment. The separate [opt-in Vector handle](vector-position.md) uses the same point interaction and snap implementation while retaining the existing Vector Value contract.
 
 ## Editing and safety
 
