@@ -22,3 +22,12 @@ export async function saveFile(contents, name, kind) {
 export async function openFile() {
   return desktop ? invoke('open_document') : null;
 }
+
+export async function listSystemFonts() {
+  return desktop ? invoke('list_system_fonts') : [];
+}
+export async function readSystemFont(id) {
+  if (!desktop) throw Error('Installed fonts require the Windows desktop app');
+  const bytes = await invoke('read_system_font', { id });
+  return bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes).buffer;
+}

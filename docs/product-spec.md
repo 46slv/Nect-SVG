@@ -105,7 +105,7 @@ Layout grid は列数・行数（各 1〜40）、左右上下のマージン、�
 
 縦書きは右から左へ列を送り、対応フォントの縦用字形・メトリクスを利用する。複雑なシェーピングや自動フォントフォールバックを保証しない。欠落グリフのあるテキストは編集・JSON 保存できるが、エラーのある可視作品の SVG 出力は拒否する。
 
-TTC / OTC、WOFF / WOFF2、可変フォント、CFF2、カラー／ビットマップフォントは対象外。fsType の restricted、preview/print-only、bitmap-only は拒否する。技術的に読み込めても、埋め込み・共有の権利を保証するわけではない。利用者はライセンスを確認する。
+手動ファイル指定では TTC / OTC は対象外（Windows 自動一覧の静的 face 読込は第 12 節）。WOFF / WOFF2、可変フォント、CFF2、カラー／ビットマップフォントは対象外。fsType の restricted、preview/print-only、bitmap-only は拒否する。技術的に読み込めても、埋め込み・共有の権利を保証するわけではない。利用者はライセンスを確認する。
 
 上限は 1 フォント 20 MB、8 フォント、合計 32 MB。読み込み取消、不正ファイル、ロック、非同期読み込み中の別編集では現状を保つ。詳細は [typography.md](typography.md)。
 
@@ -172,3 +172,7 @@ TTC / OTC、WOFF / WOFF2、可変フォント、CFF2、カラー／ビットマ�
 - [tests/math.test.js](https://github.com/46slv/Nect-SVG/blob/17b8bd6/tests/math.test.js) / [tests/math.e2e.js](https://github.com/46slv/Nect-SVG/blob/17b8bd6/tests/math.e2e.js): 数値・XY の回帰条件と実ブラウザー検証
 
 分野別資料には導入時点の schemaVersion 1 表記が残る箇所がある。現在の新規保存形式は schemaVersion 2 であり、本文第 3.3 節と現在の core が優先する。過去 CI の合格は後続変更の合格を意味しない。
+
+## 12. Windows インストール済みフォント（2026-10-14 追加）
+
+Text の Windows font から、標準システム／ユーザー Fonts フォルダー内のフォントを自動列挙して選ぶ。選んだ face だけを読み込み、静的 TTC/OTC は単独 SFNT に再構成して JSON に埋め込む。可変・カラー形式は理由付きで無効表示。ライセンス判定・日本語／縦書き・サイズ制限・失敗時の文書保全・Undo は既存の TTF/OTF 読込と共通。標準外配置の登録フォントは自動列挙対象外。ブラウザー版はファイル指定を継続する。詳細と検証境界は typography.md と windows-acceptance.md を参照。

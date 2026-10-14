@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use std::io::{Read, Write};
+mod system_fonts;
+use system_fonts::{Catalog, list_system_fonts, read_system_font};
 #[tauri::command]
 fn open_document() -> Result<Option<String>, String> {
     let Some(path) = rfd::FileDialog::new().add_filter("Nect project", &["json"]).pick_file() else { return Ok(None) };
@@ -38,6 +40,6 @@ fn save_png(bytes: Vec<u8>, suggested_name: String) -> Result<bool, String> {
     Ok(true)
 }
 fn main() {
-    tauri::Builder::default().invoke_handler(tauri::generate_handler![open_document, save_document, save_png])
+    tauri::Builder::default().manage(Catalog::default()).invoke_handler(tauri::generate_handler![open_document, save_document, save_png, list_system_fonts, read_system_font])
         .run(tauri::generate_context!()).expect("Could not start Nect SVG");
 }

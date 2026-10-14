@@ -33,3 +33,7 @@ For each step record PASS / FAIL / NOT RUN, exact commit/run, observable result,
 - Cancelled dev-dependency patch update must receive authorization before retry; see [dependency-security.md](dependency-security.md).
 - Further SVG fidelity, advanced text shaping, large-document performance and cloud CPU/isolation limits are outside this first usable acceptance. Their absence must remain explicit.
 - Protected-main merge, signing, release publication, deployment and security/account changes need their own authority. This checklist does not authorize them.
+
+### Installed-font native acceptance
+
+In the packaged Windows app, verify automatic system and per-user face lists, choose a static Latin font and both faces of an installed Japanese TTC (for example Meiryo), then edit Japanese vertical text. Confirm selected face names, punctuation, undo/redo, save/reopen with newly typed characters and identical SVG output. Verify unsupported variable/color faces are disabled; restricted embedding is rejected without changing the document. Confirm cancellation/manual picker, removed font file, concurrent document edits and locked layers remain safe. Test a standard per-user installation after restart. This actual WebView2/installed-Japanese-font acceptance is NOT RUN by synthetic DOM tests or NSIS packaging alone.

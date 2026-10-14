@@ -41,6 +41,8 @@ jobs:
         shell: pwsh
         run: |
           rustup default stable
+          cargo test --manifest-path src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npx --yes @tauri-apps/cli@2 build
       - name: Preserve bounded development evidence
         if: always()

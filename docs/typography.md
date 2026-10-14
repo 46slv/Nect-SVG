@@ -24,7 +24,7 @@ Nect's reference is the Windows DirectWrite path implementation at [src/text.cpp
 
 No font discovery service, upload or external request is used. The file chooser reads local bytes; only the user's explicit JSON save includes them in a local file/download. User-selected fonts are never automatically added to this repository. Check a font's license before embedding or sharing a project: OS/2 flags are only a technical check and do not guarantee permission under its full license.
 
-Accepted containers: static `.ttf` TrueType outlines and `.otf` CFF/TrueType outlines. TTC/OTC collections, WOFF/WOFF2, variable fonts/CFF2 and color/bitmap fonts are rejected explicitly. Restricted, preview/print-only and bitmap-only embedding flags are rejected. File/table/TrueType glyph location bounds are checked before use; the active Text is evaluated with a candidate font before import commits. Parser isolation for hostile untrusted fonts remains future hardening, not a multi-tenant service claim.
+Manual file picker / project assets accept static `.ttf` TrueType outlines and `.otf` CFF/TrueType outlines. The manual picker rejects TTC/OTC collections; the Windows installed-font route below extracts one static face first. WOFF/WOFF2, variable fonts/CFF2 and color/bitmap fonts are rejected explicitly. Restricted, preview/print-only and bitmap-only embedding flags are rejected. File/table/TrueType glyph location bounds are checked before use; the active Text is evaluated with a candidate font before import commits. Parser isolation for hostile untrusted fonts remains future hardening, not a multi-tenant service claim.
 
 - One font: at most 20,000,000 bytes
 - A project: at most 8 imported fonts, 32,000,000 combined raw font bytes
@@ -47,3 +47,11 @@ Changing text, selected font, direction, size or spacing invalidates Text and do
 ## Test fonts
 
 `tests/fixtures/fonts/` contains small **test-only** renamed derivatives of Noto Sans CJK JP 2.004, both standalone CFF OTF and real quadratic TrueType TTF, with OFL 1.1, provenance, hashes and a reproducible fontTools script. They contain only a limited regression character set and are not an end-user Japanese font. Their licensing does not establish permission for any user's fonts.
+
+## Windows installed fonts
+
+The Windows desktop app discovers the conventional system `%WINDIR%\\Fonts` and per-user `%LOCALAPPDATA%\\Microsoft\\Windows\\Fonts` directories automatically. In a Text inspector, choose **Windows font** to load one face without finding a file. Internal full names identify styles. Discovery reads bounded metadata only; the selected face alone is embedded, undoable, and portable in saved JSON. Restart to discover newly installed fonts. Registered fonts stored elsewhere are not enumerated; use the manual TTF/OTF picker. The browser keeps its manual picker.
+
+Static TTF/OTF and individual static TTC/OTC collection faces are supported by this native route. It reconstructs a standalone SFNT, retains original OS/2 embedding flags and vertical/layout tables, recomputes offsets/checksums, and drops the now-invalid DSIG. Variable/CFF2 and color/bitmap faces are shown disabled with a reason. Existing parser/license checks still reject restricted embedding, malformed outlines or missing characters before any document mutation. Installation does not grant redistribution rights: check the actual font license before sharing a project.
+
+Bounds: 4,096 directory entries per root, 4,096 displayed faces, 256 faces per collection, 256 tables per face, 64 KiB name metadata, 128 MB source container and 20 MB extracted face. Existing 8-font / 32 MB combined assets / 50 MB project limits still apply. Native IPC accepts only catalog-issued opaque IDs and rechecks the canonical allowed directory; it does not expose arbitrary path reading or broaden app permissions. Invalid or unreadable files are skipped. Windows native acceptance remains distinct from CI packaging and synthetic UI tests.

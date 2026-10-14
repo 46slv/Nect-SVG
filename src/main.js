@@ -4,7 +4,7 @@ import { captureFocus, restoreFocus } from './focus.js';
 import './style.css';
 import { findFreeNodePosition } from './layout.js';
 import { importSVG } from './svg-import.js';
-import { desktop, saveFile, openFile } from './storage.js';
+import { desktop, saveFile, openFile, listSystemFonts, readSystemFont } from './storage.js';
 import {
   parseFont,
   makeFontAsset,
@@ -72,6 +72,8 @@ let history = new History(newDocument()),
   bundledFont = null,
   fontRequest = null,
   fontRequestId = 0,
+  systemFonts = [],
+  systemFontStatus = desktop ? 'Reading Windows fonts…' : '',
   wiring = null,
   drag = null,
   penId = null;
@@ -260,7 +262,7 @@ function textControls(n) {
     )
     .join(
       '',
-    )}</select></div><button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p><div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><p class="font-note">letterSpacing: extra px per glyph. lineSpacing: × text size. Enter starts a new line or column. Vertical position is the first column center/top.</p></div>`;
+    )}</select></div>${desktop ? `<div class="field"><label>Windows font</label><select data-system-font="${n.id}" aria-label="Installed Windows font"><option value="">Select installed font…</option>${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</select></div><p class="font-note">${esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p><div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><p class="font-note">letterSpacing: extra px per glyph. lineSpacing: × text size. Enter starts a new line or column. Vertical position is the first column center/top.</p></div>`;
 }
 function operationControls(n) {
   const options = operationOptions[n.type];
@@ -1109,6 +1111,61 @@ app.addEventListener('click', async (e) => {
       'Vertex edits cleared',
     );
 });
+function commitFont(bytes, name, request) {
+  if (fontRequest?.id !== request.id) return;
+  if (serialize(history.doc) !== request.before || activeLayer !== request.layer)
+    throw Error('Document changed while reading; load the font again');
+  const prepared = makeFontAsset(bytes, name, history.doc.fontAssets);
+  // Preflight lazy outlines and glyph coverage before touching the active document.
+  const candidate = cloneDocument(history.doc);
+  candidate.fontAssets = { ...candidate.fontAssets, [prepared.id]: prepared.asset };
+  const candidateLayer = candidate.layers.find((l) => l.id === request.layer);
+  const candidateText = candidateLayer.nodes.find(
+    (n) => n.id === request.node && n.type === 'Text',
+  );
+  if (!candidateText) throw Error('Text node no longer exists');
+  candidateText.font = prepared.id;
+  const preflight = evaluate(
+    { ...candidateLayer, output: candidateText.id },
+    resolveFonts(candidate, bundledFont ? { default: bundledFont } : {}),
+  );
+  if (preflight.error) throw Error(preflight.error);
+  change(() => {
+    const target = current().nodes.find((n) => n.id === request.node && n.type === 'Text');
+    if (!target) throw Error('Text node no longer exists');
+    history.doc.fontAssets ||= {};
+    history.doc.fontAssets[prepared.id] = prepared.asset;
+    target.font = prepared.id;
+    serialize(history.doc); // Enforce the whole-document bound before committing.
+  }, `Loaded ${prepared.asset.name} · saved JSON will include this font`);
+}
+async function loadInstalledFont(id, nodeId) {
+  if (!id) return;
+  if (current().locked) {
+    notify('Composition is locked', true);
+    return;
+  }
+  const entry = systemFonts.find(([key]) => key === id);
+  if (!entry || entry[2]) {
+    notify('Installed font unavailable', true);
+    return;
+  }
+  const request = (fontRequest = {
+    id: ++fontRequestId,
+    layer: current().id,
+    node: nodeId,
+    before: serialize(history.doc),
+  });
+  try {
+    const bytes = await readSystemFont(id);
+    commitFont(bytes, entry[1], request);
+  } catch (err) {
+    if (fontRequest?.id === request.id)
+      notify(`Font rejected; current document preserved: ${err.message || err}`, true);
+  } finally {
+    if (fontRequest?.id === request.id) fontRequest = null;
+  }
+}
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
@@ -1178,6 +1235,10 @@ app.addEventListener('change', async (e) => {
     }
     return;
   }
+  if (el.dataset.systemFont) {
+    await loadInstalledFont(el.value, el.dataset.systemFont);
+    return;
+  }
   if (el.id === 'font-file') {
     const file = el.files[0],
       request = fontRequest;
@@ -1186,32 +1247,7 @@ app.addEventListener('change', async (e) => {
       if (file.size > MAX_FONT_BYTES) throw Error('Font exceeds 20 MB');
       if (!/\.(ttf|otf)$/i.test(file.name)) throw Error('Choose a static .ttf or .otf font');
       const bytes = await file.arrayBuffer();
-      if (fontRequest?.id !== request.id) return;
-      if (serialize(history.doc) !== request.before || activeLayer !== request.layer)
-        throw Error('Document changed while reading; load the font again');
-      const prepared = makeFontAsset(bytes, file.name, history.doc.fontAssets);
-      // Preflight lazy outlines and glyph coverage before touching the active document.
-      const candidate = cloneDocument(history.doc);
-      candidate.fontAssets = { ...candidate.fontAssets, [prepared.id]: prepared.asset };
-      const candidateLayer = candidate.layers.find((l) => l.id === request.layer);
-      const candidateText = candidateLayer.nodes.find(
-        (n) => n.id === request.node && n.type === 'Text',
-      );
-      if (!candidateText) throw Error('Text node no longer exists');
-      candidateText.font = prepared.id;
-      const preflight = evaluate(
-        { ...candidateLayer, output: candidateText.id },
-        resolveFonts(candidate, bundledFont ? { default: bundledFont } : {}),
-      );
-      if (preflight.error) throw Error(preflight.error);
-      change(() => {
-        const target = current().nodes.find((n) => n.id === request.node && n.type === 'Text');
-        if (!target) throw Error('Text node no longer exists');
-        history.doc.fontAssets ||= {};
-        history.doc.fontAssets[prepared.id] = prepared.asset;
-        target.font = prepared.id;
-        serialize(history.doc); // Enforce the whole-document bound before committing.
-      }, `Loaded ${prepared.asset.name} · saved JSON will include this font`);
+      commitFont(bytes, file.name, request);
     } catch (err) {
       notify(`Font rejected; current document preserved: ${err.message}`, true);
     }
@@ -2073,6 +2109,19 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 render();
+if (desktop)
+  listSystemFonts()
+    .then((items) => {
+      systemFonts = items;
+      systemFontStatus = items.length
+        ? `${items.length} faces from Windows system/user Fonts folders. Selected face is embedded in JSON; variable/color fonts are unavailable.`
+        : 'No Windows fonts found. Use Load TTF / OTF.';
+      render();
+    })
+    .catch(() => {
+      systemFontStatus = 'Windows font discovery unavailable. Use Load TTF / OTF.';
+      render();
+    });
 fetch('/fonts/DejaVuSans.ttf')
   .then((r) => {
     if (!r.ok) throw Error('Bundled font unavailable');
