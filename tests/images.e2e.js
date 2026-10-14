@@ -12,8 +12,14 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('dialog', (d) => d.accept());
 const value = async (name, text) => {
   const el = page.locator('.inspector-body').getByRole('spinbutton', { name, exact: true });
+  const previous = await el.elementHandle();
+  const changed = (await el.inputValue()) !== String(text);
   await el.fill(String(text));
   await el.press('Tab');
+  // Numeric edits schedule a full deferred render. Do not select files on an
+  // input that is about to be detached before its change event can bubble.
+  if (changed) await page.waitForFunction((input) => !input.isConnected, previous);
+  await previous.dispose();
 };
 const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document));
 const download = async (action, path) => {
