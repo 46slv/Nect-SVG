@@ -746,9 +746,16 @@ export function exportScene(doc, fonts = {}) {
     });
 }
 export function exportSVG(doc, fonts = {}) {
-  const elements = exportScene(doc, fonts).map(({ layer, value }) =>
-    renderElement(value, layer, doc.imageAssets),
-  );
+  const scene = exportScene(doc, fonts);
+  let bytes = 512;
+  const elements = [];
+  for (const { layer, value } of scene) {
+    const element = renderElement(value, layer, doc.imageAssets);
+    bytes += utf8ByteLength(element);
+    if (bytes > MAX_PROJECT_BYTES)
+      throw Error('SVG export exceeds 50 MB; reduce embedded image size or repetitions');
+    elements.push(element);
+  }
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">${elements.join('')}</svg>`;
 }
 export class History {

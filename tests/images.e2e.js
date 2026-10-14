@@ -92,6 +92,11 @@ try {
   await page.locator('#image-file').setInputFiles(imageFile);
   await page.waitForFunction(() => window.nect.document.layers.length === 2);
   await page.waitForSelector('image.shape');
+  const imageId = await page.evaluate(() => window.nect.document.layers[1].id);
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await snapshot(), before);
+  await page.locator('[data-action="redo"]').click();
+  await page.waitForSelector('image.shape');
   await value('Image position X', 160);
   await value('Image position Y', 50);
   await value('Image size X', 120);
@@ -121,6 +126,14 @@ try {
   );
   await page.locator('[data-action="redo"]').click();
   await page.locator('[data-action="undo"]').click();
+  await page.locator(`[data-layer-lock="${imageId}"]`).click();
+  const locked = await snapshot();
+  await page.mouse.move(...start);
+  await page.mouse.down();
+  await page.mouse.move(start[0] + 15, start[1] + 15, { steps: 3 });
+  await page.mouse.up();
+  assert.equal(await snapshot(), locked);
+  await page.locator(`[data-layer-lock="${imageId}"]`).click();
   const beforePen = await snapshot();
   await page.getByRole('button', { name: 'Pen / Curve', exact: true }).click();
   await page.mouse.click(...start);
@@ -150,7 +163,6 @@ try {
     [0, 0, 0, 0],
   ]);
   // Guides, image guide layers and hidden layers never enter either export.
-  const imageId = await page.evaluate(() => window.nect.document.layers[1].id);
   await page.locator(`[data-layer-guide="${imageId}"]`).click();
   const guidePNG = await download('export-png', 'test-results/workflow-guide-excluded.png');
   assert.deepEqual((await pixels(guidePNG, [[340, 120]])).colors, [[0, 0, 0, 0]]);
@@ -170,6 +182,25 @@ try {
   );
   assert.equal(await page.evaluate(() => window.nect.export()), svg.toString());
   const restored = await snapshot();
+  const corrupt = JSON.parse(saved.toString());
+  const asset = Object.values(corrupt.imageAssets)[0];
+  const corruptBytes = Buffer.from(asset.data, 'base64');
+  for (let at = 8; at + 12 <= corruptBytes.length; at += corruptBytes.readUInt32BE(at) + 12) {
+    if (corruptBytes.toString('ascii', at + 4, at + 8) === 'IDAT') {
+      corruptBytes[at + 8] = 0;
+      break;
+    }
+  }
+  asset.data = corruptBytes.toString('base64');
+  await page.locator('#open-file').setInputFiles({
+    name: 'corrupt.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(corrupt)),
+  });
+  await page.waitForFunction(() =>
+    document.querySelector('.status').textContent.includes('could not be decoded'),
+  );
+  assert.equal(await snapshot(), restored);
   // Explicit unsupported SVG raster roundtrip, with the editable project preserved.
   await page
     .locator('#import-svg-file')

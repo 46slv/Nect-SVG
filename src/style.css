@@ -772,3 +772,6 @@ header > .muted {
   white-space: nowrap;
   min-width: 0;
 }
+image.guide-layer-shape {
+  opacity: 0.25;
+}

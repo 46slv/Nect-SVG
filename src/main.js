@@ -334,7 +334,7 @@ function render(resetView = false) {
           .map(([k, q]) => field(n, k, q))
           .join('')}`
       : '<p>Select a node.</p>'
-  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label>Fill</label><input type="color" data-fill value="${esc(l.fill)}" aria-label="Layer fill"></div><div class="field"><label>Artboard W</label><input type="number" data-dimension="width" value="${doc.width}" aria-label="Artboard width"></div><div class="field"><label>Artboard H</label><input type="number" data-dimension="height" value="${doc.height}" aria-label="Artboard height"></div>${results
+  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label>Fill</label><input type="color" data-fill value="${esc(l.fill)}" aria-label="Layer fill" ${outputType(l.nodes.find((x) => x.id === l.output)) === 'Image' ? 'disabled title="Image pixels retain their original colors"' : ''}></div><div class="field"><label>Artboard W</label><input type="number" data-dimension="width" value="${doc.width}" aria-label="Artboard width"></div><div class="field"><label>Artboard H</label><input type="number" data-dimension="height" value="${doc.height}" aria-label="Artboard height"></div>${results
     .filter(([, r]) => r.error || r.warnings.length)
     .map(
       ([x, r]) => `<p class="warning">${esc(x.name)}: ${esc(r.error || r.warnings.join(' '))}</p>`,
