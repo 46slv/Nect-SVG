@@ -76,9 +76,15 @@ export function layoutText(
     lineSpacing = 1.2,
     alignment = 'start',
     kerning = true,
+    referenceBounds = 'advance',
+    crossAlignment = 'origin',
   },
 ) {
   if (!['start', 'center', 'end'].includes(alignment)) throw Error('Invalid text alignment');
+  if (!['visible', 'advance'].includes(referenceBounds))
+    throw Error('Invalid text reference bounds');
+  if (!['origin', 'start', 'center', 'end'].includes(crossAlignment))
+    throw Error('Invalid cross-axis reference');
   if (typeof kerning !== 'boolean') throw Error('Invalid kerning setting');
   if (!Number.isFinite(size) || size <= 0 || size > 100000)
     throw Error('Text size must be between 0 and 100000');
@@ -126,8 +132,17 @@ export function layoutText(
     function align(advance) {
       if (!Number.isFinite(advance)) throw Error('Invalid text advance');
       advances.push(advance);
-      const shift = -advance * factor;
       const axis = writingMode === 'horizontal-tb' ? 'x' : 'y';
+      let shift = -advance * factor;
+      if (referenceBounds === 'visible' && path.commands.length > commandStart) {
+        const linePath = new opentype.Path();
+        linePath.commands = path.commands.slice(commandStart);
+        const box = linePath.getBoundingBox();
+        const min = box[axis + '1'],
+          max = box[axis + '2'];
+        if (Number.isFinite(min) && Number.isFinite(max))
+          shift = position[axis === 'x' ? 0 : 1] - (min + (max - min) * factor);
+      }
       for (let i = commandStart; i < path.commands.length; i++)
         for (const suffix of ['', '1', '2'])
           if (axis + suffix in path.commands[i]) path.commands[i][axis + suffix] += shift;
@@ -203,6 +218,20 @@ export function layoutText(
       y += advance + letterSpacing;
     }
     align(y - position[1] - (glyphs.length > glyphStart ? letterSpacing : 0));
+  }
+  if (crossAlignment !== 'origin' && path.commands.length) {
+    const axis = writingMode === 'horizontal-tb' ? 'y' : 'x';
+    const box = path.getBoundingBox();
+    const min = box[axis + '1'],
+      max = box[axis + '2'];
+    const crossFactor = { start: 0, center: 0.5, end: 1 }[crossAlignment];
+    const shift = position[axis === 'x' ? 0 : 1] - (min + (max - min) * crossFactor);
+    if (Number.isFinite(shift)) {
+      for (const command of path.commands)
+        for (const suffix of ['', '1', '2'])
+          if (axis + suffix in command) command[axis + suffix] += shift;
+      for (const glyph of glyphs) glyph[axis] += shift;
+    }
   }
   if (path.commands.length > 500000) throw Error('Text outline is too complex');
   for (const cmd of path.commands)

@@ -253,5 +253,11 @@ Nect の product-direction の「Instantiate → parameterize」に挙げられ�
 - 複数の形／Text → Join Geometry → Transform → Fill / Stroke → Output が共有親の基本構成。子の位置やタイポグラフィ設定を変えず、まとめた結果を動かす。Transform を重ねると上流から順に合成する。輪郭・頂点・独立 paint group ID と入力 fingerprint を維持する。
 - Transform を単独選択した場合、キャンバスドラッグは offset を変更してグループ全体を移動する。offset のロック／接続／式とレイヤーロックを尊重する。親と子を同時にドラッグして二重移動する操作は行わない。自動親ノード作成、クロスレイヤー親子関係、独立したシーンツリーは含めない。
 - Anchor の変更は拡縮／回転済みの結果に影響する。見た目を固定してアンカーだけを移動する補償モードではない。
-- examples/right-aligned-typography-group.json は同一右端アンカーで右揃えした見出しと副題を Join して共通 Transform に接続した編集可能な例。文字の advance による右揃えなので、字形の見た目の端を強制一致させるものではない。
+- examples/right-aligned-typography-group.json は同一右端アンカーで右揃えした見出しと副題を Join して共通 Transform に接続した編集可能な例。現在の例は visible Position reference により字形の見た目の右端を一致させる。旧ファイルの advance 基準は保持する。
 - 検証は正確な pivot 座標・ハンドル、ネスト順序、輪郭の穴、入力 ID、古い JSON、キャッシュ、式／接続、Undo / Redo、DOM の共有移動／ロック／子不変性。実 Chrome テストは上記例と JSON / SVG / PNG 保存を検査し、Windows CI の結果で合格を判断する。
+
+### Per-object Position reference
+
+Objects with Position support choosing the point represented by that coordinate. Text reuses alignment plus visible/advance bounds and a cross-axis reference (see typography). Circle, Ellipse, Rectangle, Polygon, Star, and Image expose `positionReference`: `origin`, or `{left|center|right}-{top|middle|bottom}`. Shape bounds exclude stroke; Image uses its full rectangle including transparent pixels. Changing reference moves geometry while retaining Position; changing dimensions keeps the chosen reference fixed. The serialized shape parameter remains `center` for existing sockets, expressions and saved files, while its displayed label is Position.
+
+Omitted references preserve legacy construction origin exactly, including asymmetric polygons/stars and top-left images. An explicit bounds center can differ from a radial shape's construction center. Curve, Imported Path and compound operators do not receive artificial Position controls. Transform Anchor is unchanged, and Position output sockets are outside this change. References participate in cache invalidation, validation, JSON, Undo/Redo, driven inputs, canvas dragging and snapping.

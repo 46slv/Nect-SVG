@@ -52,7 +52,9 @@
           "writingMode": "horizontal-tb",
           "alignment": "end",
           "kerning": true,
-          "rawPath": ""
+          "rawPath": "",
+          "referenceBounds": "visible",
+          "crossAlignment": "origin"
         },
         {
           "id": "node-9f1f9bf3-9428-459b-8d57-27d3e4493f95",
@@ -95,7 +97,9 @@
           "writingMode": "horizontal-tb",
           "alignment": "end",
           "kerning": true,
-          "rawPath": ""
+          "rawPath": "",
+          "referenceBounds": "visible",
+          "crossAlignment": "origin"
         },
         {
           "id": "node-46cb1c07-6686-42ff-82cf-2e9b21bb9abe",

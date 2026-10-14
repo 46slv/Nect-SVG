@@ -58,6 +58,14 @@ Bounds: 4,096 directory entries per root, 4,096 displayed faces, 256 faces per c
 
 ## Inline anchors and explicit kerning
 
-Text `alignment` is `start` (legacy default), `center`, or `end`. This is a point/baseline anchor for each explicit line or column, not a constrained paragraph frame. It measures the actual emitted run once, including whitespace advances and between-glyph tracking but excluding trailing tracking. Horizontal placement shifts X; vertical placement shifts Y while retaining right-to-left column spacing. Negative tracking uses the signed advance, including zero/negative spans. Empty lines have advance zero. No wrapping, justification, kinsoku or automatic fallback is added.
+Text `alignment` is `start` (legacy default), `center`, or `end`. This is a point/baseline anchor for each explicit line or column, not a constrained paragraph frame. In legacy advance mode it measures the actual emitted run once, including whitespace advances and between-glyph tracking but excluding trailing tracking. Horizontal placement shifts X; vertical placement shifts Y while retaining right-to-left column spacing. Negative tracking uses the signed advance, including zero/negative spans. Empty lines have advance zero. No wrapping, justification, kinsoku or automatic fallback is added.
 
 `kerning` defaults to true, preserving the existing horizontal OpenType renderer behavior. The new checkbox can disable it; vertical layout is unchanged. Both choices participate in evaluation caching, editable JSON and Undo / Redo, and SVG/PNG still use the same outline geometry. See product-spec section 13 for provenance and acceptance boundaries.
+
+## Object Position references
+
+Text uses its existing `alignment` (`start`, `center`, `end`) as the inline Position reference: Left/Center/Right for horizontal text, Top/Center/Bottom for vertical text. New Text nodes set `referenceBounds: "visible"`: the actual shaped Bézier ink bounds are measured independently for each nonempty line/column, so different text and font sizes share exactly the same visible right edge when their X Positions match. Whitespace-only lines fall back to finite advance placement. `referenceBounds: "advance"` preserves the previous advance-width behavior, including whitespace and signed tracking. Missing `referenceBounds` means `advance`, so saved legacy projects do not move.
+
+`crossAlignment` is `origin` (first horizontal baseline / first vertical column center), `start`, `center`, or `end`. Non-origin values align the whole block's visible cross-axis bounds: Top/Center/Bottom horizontally, Left/Center/Right vertically. Missing values mean `origin`. Cross-axis bounds exclude empty lines. This setting is independent of inline visible/advance measurement.
+
+Changing a reference keeps the numeric Position unchanged and repositions the geometry. Editing text, font, or size keeps the chosen reference fixed. There is one inline reference control, reusing alignment, rather than a second conflicting text anchor. No Position output socket, wrapping or paragraph frame is introduced. Transform's Anchor remains the separate transform pivot.

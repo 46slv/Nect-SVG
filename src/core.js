@@ -208,7 +208,15 @@ export function node(type, x = 40, y = 40) {
     edits: [],
     text: 'Nect',
     font: 'default',
-    ...(type === 'Text' ? { writingMode: 'horizontal-tb', alignment: 'start', kerning: true } : {}),
+    ...(type === 'Text'
+      ? {
+          writingMode: 'horizontal-tb',
+          alignment: 'start',
+          kerning: true,
+          referenceBounds: 'visible',
+          crossAlignment: 'origin',
+        }
+      : {}),
     rawPath: '',
     ...(type === 'Image' ? { asset: '' } : {}),
   };
@@ -658,6 +666,9 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         n.font,
         n.writingMode,
         n.alignment,
+        n.referenceBounds,
+        n.crossAlignment,
+        n.positionReference,
         n.kerning,
         n.strokeCap,
         n.strokeJoin,
@@ -766,6 +777,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           size: read('size'),
           writingMode: n.writingMode,
           alignment: n.alignment,
+          referenceBounds: n.referenceBounds,
+          crossAlignment: n.crossAlignment,
           kerning: n.kerning,
           letterSpacing: n.params.letterSpacing ? read('letterSpacing') : 0,
           lineSpacing: n.params.lineSpacing ? read('lineSpacing') : 1.2,
@@ -944,6 +957,29 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           obj.remove();
         }
       }
+      if (
+        ['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Image'].includes(n.type) &&
+        n.positionReference &&
+        n.positionReference !== 'origin'
+      ) {
+        const [horizontal, vertical] = n.positionReference.split('-');
+        const indices = { left: 0, center: 1, right: 2, top: 0, middle: 1, bottom: 2 };
+        if (
+          !['left', 'center', 'right'].includes(horizontal) ||
+          !['top', 'middle', 'bottom'].includes(vertical)
+        )
+          throw Error('Invalid object Position reference');
+        const bounds = pathBounds(result),
+          position = read(n.type === 'Image' ? 'position' : 'center');
+        const delta = position.map(
+          (v, axis) => v - bounds[axis][indices[axis ? vertical : horizontal]],
+        );
+        if (n.type === 'Image') result.position = result.position.map((v, axis) => v + delta[axis]);
+        else
+          for (const contour of result.contours)
+            for (const point of contour.points)
+              point.position = point.position.map((v, axis) => v + delta[axis]);
+      }
       active.delete(id);
       values.set(id, result);
       const version = ++revision;
@@ -1111,7 +1147,21 @@ export function validate(doc) {
         throw Error('Invalid node collapse state');
       text(n.text);
       text(n.font);
+      if (
+        n.positionReference !== undefined &&
+        (typeof n.positionReference !== 'string' ||
+          !['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Image'].includes(n.type) ||
+          !/^(origin|(left|center|right)-(top|middle|bottom))$/.test(n.positionReference))
+      )
+        throw Error('Invalid object Position reference');
       if (n.type === 'Text') {
+        if (n.referenceBounds !== undefined && !['visible', 'advance'].includes(n.referenceBounds))
+          throw Error('Invalid text reference bounds');
+        if (
+          n.crossAlignment !== undefined &&
+          !['origin', 'start', 'center', 'end'].includes(n.crossAlignment)
+        )
+          throw Error('Invalid cross-axis reference');
         if (n.alignment !== undefined && !['start', 'center', 'end'].includes(n.alignment))
           throw Error('Invalid text alignment');
         if (n.kerning !== undefined && typeof n.kerning !== 'boolean')
