@@ -1579,6 +1579,8 @@ function cancelInteraction() {
   if (old?.capture?.hasPointerCapture?.(old.pointerId))
     old.capture.releasePointerCapture(old.pointerId);
   if (before) history.doc = before;
+  // Do not let focus restoration retain the cancelled scrub preview as a typed draft.
+  if (old?.type === 'numeric' && old.started) old.capture.value = String(old.original);
   pointerActive = false;
   snapMatches = [];
   wiring = null;

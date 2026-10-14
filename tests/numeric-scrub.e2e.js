@@ -110,6 +110,11 @@ try {
       }, cancel);
     await page.mouse.up();
     assert.deepEqual(await value(id, 'center'), original);
+    assert.equal(
+      await input(id, 'center').inputValue(),
+      String(original[0]),
+      `${cancel} restores visible input`,
+    );
     await empty();
   }
   const p = await start(input(id, 'center'));
