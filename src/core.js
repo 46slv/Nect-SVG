@@ -223,7 +223,7 @@ export function node(type, x = 40, y = 40) {
 }
 export function layer(name = 'Composition 1') {
   let a = node('Circle', 40, 50),
-    b = node('Rectangle', 40, 280),
+    b = node('Rectangle', 40, 460),
     op = node('Boolean', 330, 50),
     remap = node('Path Remap', 620, 50),
     paint = node('Fill', 920, 50),

@@ -223,6 +223,14 @@ try {
   const widthBefore = (await circleNode.boundingBox()).width;
   await circleNode.locator('.node-resize').scrollIntoViewIfNeeded();
   const resize = await circleNode.locator('.node-resize').boundingBox();
+  assert.equal(
+    await page.evaluate(
+      ({ x, y }) => document.elementFromPoint(x + 8, y + 8)?.classList.contains('node-resize'),
+      resize,
+    ),
+    true,
+    'Resize handle must be unobstructed by neighboring cards',
+  );
   await page.mouse.move(resize.x + 8, resize.y + 8);
   await page.mouse.down();
   await page.mouse.move(resize.x + 48, resize.y + 8, { steps: 4 });
