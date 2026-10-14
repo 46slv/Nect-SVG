@@ -151,6 +151,11 @@ try {
   await page.locator('dialog [data-confirm]').click();
   await inspect(vectorIds.vm);
   await vmOp().selectOption('dot');
+  // This rejected type change rolls the select back in the deferred render too.
+  await page.waitForFunction(
+    (id) => document.querySelector(`.inspector-body [data-operation="${id}"]`)?.value === 'scale',
+    vectorIds.vm,
+  );
   assert.equal(await vmOp().inputValue(), 'scale');
   assert.deepEqual(await vmValue(), [60, 80]);
   const vectorJson = await download('save', 'test-results/workflow-vector-math.json');
