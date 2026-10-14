@@ -34,8 +34,14 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
       `from '${new URL(`../src/${name}.js`, import.meta.url)}'`,
     );
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-  const settle = () => new Promise((r) => setTimeout(r, 30));
-  await settle();
+  const until = async (predicate) => {
+    const deadline = Date.now() + 5000;
+    while (!predicate()) {
+      assert.ok(Date.now() < deadline, 'Timed out waiting for font operation');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  };
+  await until(() => !!win.nect);
   assert.equal(calls, 0);
   const doc = newDocument(),
     text = node('Text'),
@@ -47,6 +53,7 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
   win.nect.load(serialize(doc));
   const snapshot = () => JSON.stringify(win.nect.document);
   const select = (id = 'system-0') => {
+    document.querySelector('.message').textContent = '';
     const el = document.querySelector('.inspector-body [data-system-font]');
     el.value = id;
     el.dispatchEvent(new win.Event('change', { bubbles: true }));
@@ -57,14 +64,14 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
   );
   const before = snapshot();
   select();
-  await settle();
+  await until(() => /Loaded /.test(document.querySelector('.message').textContent));
   assert.equal(calls, 1);
   assert.equal(win.nect.evaluate().error, null);
   assert.equal(Object.keys(win.nect.document.fontAssets).length, 1);
   const saved = snapshot(),
     svg = win.nect.export();
   select();
-  await settle();
+  await until(() => /Loaded /.test(document.querySelector('.message').textContent));
   assert.equal(snapshot(), saved);
   document.querySelector('[data-action="undo"]').click();
   assert.equal(snapshot(), before);
@@ -83,19 +90,19 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
   textarea.dispatchEvent(new win.Event('change', { bubbles: true }));
   const changed = snapshot();
   finish(await buffer('./fixtures/fonts/NectJPFixture-Regular.otf'));
-  await settle();
+  await until(() => /Document changed/.test(document.querySelector('.message').textContent));
   assert.equal(snapshot(), changed);
   assert.match(document.querySelector('.message').textContent, /Document changed/);
   globalThis.readInstalledTestFont = async () => {
     throw Error('Font file was removed');
   };
   select();
-  await settle();
+  await until(() => /Font file was removed/.test(document.querySelector('.message').textContent));
   assert.equal(snapshot(), changed);
   assert.match(document.querySelector('.message').textContent, /Font file was removed/);
   globalThis.readInstalledTestFont = async () => new ArrayBuffer(12);
   select();
-  await settle();
+  await until(() => /Font rejected/.test(document.querySelector('.message').textContent));
   assert.equal(snapshot(), changed);
   assert.match(document.querySelector('.message').textContent, /Font rejected/);
   win.happyDOM.abort();
