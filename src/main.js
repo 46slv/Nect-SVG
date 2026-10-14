@@ -35,6 +35,10 @@ import {
   deserialize,
   exportSVG,
   History,
+  guideDefaults,
+  guideSettings,
+  snapTranslation,
+  pathBounds,
 } from './core.js';
 const app = document.querySelector('#app');
 let history = new History(newDocument()),
@@ -42,7 +46,9 @@ let history = new History(newDocument()),
   selected = history.doc.layers[0].nodes[0].id,
   tool = 'select',
   zoom = 1,
-  snapEnabled = false,
+  selectedGuide = null,
+  guidesOpen = false,
+  snapMatches = [],
   pan = [0, 0],
   graphHeight = 42,
   message = 'Ready • edit a generator or connect a node',
@@ -124,6 +130,9 @@ function change(fn, text, deferRender = false) {
   }
 }
 function resetTransient() {
+  if (drag?.before) history.doc = drag.before;
+  selectedGuide = null;
+  snapMatches = [];
   remapBatches.clear();
   drag = null;
   wiring = null;
@@ -251,6 +260,7 @@ function render(resetView = false) {
   let scroll = document.querySelector('.graph-scroll'),
     oldScroll = scroll && !resetView ? [scroll.scrollLeft, scroll.scrollTop] : [0, 0];
   const doc = history.doc,
+    aids = guideSettings(doc),
     l = current();
   activeLayer = l.id;
   const n = selectedNode();
@@ -271,7 +281,7 @@ function render(resetView = false) {
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar"><button data-action="zoom-out" aria-label="Zoom out">−</button><span>${Math.round(zoom * 100)}%</span><button data-action="zoom-in" aria-label="Zoom in">+</button><button data-action="fit">Fit</button><button data-action="snap" class="${snapEnabled ? 'active' : ''}" aria-pressed="${snapEnabled}" title="Snap canvas positions to 8-unit grid; hold Alt to bypass">Snap 8</button><span>${doc.width} × ${doc.height}</span></div><div class="canvas-stage"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar"><button data-action="zoom-out" aria-label="Zoom out">−</button><span>${Math.round(zoom * 100)}%</span><button data-action="zoom-in" aria-label="Zoom in">+</button><button data-action="fit">Fit</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to guides, artboard and grid; hold Alt to bypass">Snap</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span></div>${guidesPanel()}<div class="canvas-stage"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => x.visible && r.path && !r.error)
     .map(
       ([x, r]) =>
@@ -279,7 +289,7 @@ function render(resetView = false) {
     )
     .join(
       '',
-    )}${canvasOverlay(n, result)}</svg></div><div class="hint">${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : n ? `Editing ${esc(n.name)}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select a generator to edit its original parameters'}</div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head"><strong>Node graph</strong><span class="muted">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
+    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg></div><div class="hint">${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : n ? `Editing ${esc(n.name)}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select a generator to edit its original parameters'}</div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head"><strong>Node graph</strong><span class="muted">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
     definitions,
   )
     .filter((x) => x !== 'Output')
@@ -328,6 +338,89 @@ function render(resetView = false) {
     drawWires();
   });
 }
+function editGuides(fn) {
+  try {
+    history.apply((doc) => {
+      doc.editor ||= guideDefaults();
+      fn(doc.editor);
+    });
+    snapMatches = [];
+    notify('Editing aids updated');
+  } catch (err) {
+    notify(err.message, true);
+  }
+  render();
+}
+function guidesPanel() {
+  if (!guidesOpen) return '';
+  const a = guideSettings(history.doc);
+  return `<section class="guides-panel" aria-label="Guides and snapping"><div class="guide-toggles">${[
+    ['visible', 'Show guides'],
+    ['locked', 'Lock all guides'],
+    ['gridVisible', 'Show grid'],
+    ['snapGuides', 'Snap guides'],
+    ['snapArtboard', 'Snap artboard'],
+    ['snapGrid', 'Snap grid'],
+  ]
+    .map(
+      ([key, label]) =>
+        `<label><input type="checkbox" data-guide-setting="${key}" ${a[key] ? 'checked' : ''}>${label}</label>`,
+    )
+    .join(
+      '',
+    )}</div><label>Grid spacing <input type="number" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label><div class="guide-add"><button data-add-guide="y" ${a.locked ? 'disabled' : ''}>+ Horizontal</button><button data-add-guide="x" ${a.locked ? 'disabled' : ''}>+ Vertical</button></div><div class="guide-list">${a.guides.map((g, i) => `<div class="guide-row ${selectedGuide === g.id ? 'selected' : ''}"><button data-select-guide="${g.id}" aria-label="Select guide ${i + 1}" aria-pressed="${selectedGuide === g.id}">${g.axis === 'x' ? 'V · X' : 'H · Y'}</button><input type="number" step="any" min="-100000" max="100000" data-guide-position="${g.id}" aria-label="Guide ${i + 1} position" value="${g.position}" ${a.locked || g.locked ? 'disabled' : ''}><button data-lock-guide="${g.id}" aria-label="${g.locked ? 'Unlock' : 'Lock'} guide ${i + 1}" aria-pressed="${g.locked}" ${a.locked ? 'disabled' : ''}>${g.locked ? '🔒' : '○'}</button><button data-delete-guide="${g.id}" aria-label="Delete guide ${i + 1}" ${a.locked || g.locked ? 'disabled' : ''}>×</button></div>`).join('')}</div><p>Drag a guide to move it. Hidden guides do not snap; locked guides still snap. Alt bypasses snapping.</p></section>`;
+}
+function gridOverlay() {
+  const a = guideSettings(history.doc);
+  if (!a.gridVisible) return '';
+  return `<defs><pattern id="editing-grid" width="${a.gridSize}" height="${a.gridSize}" patternUnits="userSpaceOnUse"><path d="M ${a.gridSize} 0 H 0 V ${a.gridSize}" class="editing-grid-line"/></pattern></defs><rect width="${history.doc.width}" height="${history.doc.height}" fill="url(#editing-grid)" pointer-events="none"/>`;
+}
+function guideLine(axis, position, attributes) {
+  return `<line ${axis === 'x' ? `x1="${position}" x2="${position}" y1="0" y2="${history.doc.height}"` : `y1="${position}" y2="${position}" x1="0" x2="${history.doc.width}"`} ${attributes}/>`;
+}
+function guidesOverlay() {
+  const a = guideSettings(history.doc);
+  return (
+    (a.visible
+      ? a.guides
+          .map(
+            (g) =>
+              guideLine(
+                g.axis,
+                g.position,
+                `class="editing-guide ${selectedGuide === g.id ? 'selected' : ''} ${a.locked || g.locked ? 'locked' : ''}" data-guide="${g.id}" data-axis="${g.axis}"`,
+              ) +
+              guideLine(
+                g.axis,
+                g.position,
+                `class="guide-hit ${a.locked || g.locked ? 'locked' : ''}" data-guide="${g.id}" data-axis="${g.axis}"`,
+              ),
+          )
+          .join('')
+      : '') +
+    snapMatches
+      .map((m) =>
+        guideLine(m.axis ? 'y' : 'x', m.position, `class="snap-match" data-snap-kind="${m.kind}"`),
+      )
+      .join('')
+  );
+}
+function canvasScale() {
+  const ctm = document.querySelector('.artboard').getScreenCTM();
+  return Math.hypot(ctm?.a ?? 1, ctm?.b ?? 0) || 1;
+}
+function snapped(sources, delta, event, excludedGuide = null) {
+  const result = snapTranslation(
+    history.doc,
+    sources,
+    delta,
+    canvasScale(),
+    event.altKey,
+    excludedGuide,
+  );
+  snapMatches = result.matches;
+  return result.delta;
+}
 function canvasOverlay(n, result) {
   if (!n) return '';
   let path;
@@ -358,6 +451,7 @@ function updateCanvas() {
     const l = current(),
       r = evaluate(l, fonts);
     svg.innerHTML =
+      gridOverlay() +
       history.doc.layers
         .filter((x) => x.visible)
         .map((x) => {
@@ -366,7 +460,9 @@ function updateCanvas() {
             ? `<path class="shape" data-layer="${x.id}" d="${esc(pathData(value.path))}" fill="${esc(x.fill)}" fill-rule="nonzero"/>`
             : '';
         })
-        .join('') + canvasOverlay(selectedNode(), r);
+        .join('') +
+      guidesOverlay() +
+      canvasOverlay(selectedNode(), r);
   });
 }
 function fitCanvas() {
@@ -463,6 +559,38 @@ app.addEventListener('click', async (e) => {
   if (!b) return;
   const d = b.dataset,
     n = selectedNode();
+  if (d.addGuide) {
+    editGuides((a) => {
+      if (a.locked) throw Error('Guides are locked');
+      if (a.guides.length >= 200) throw Error('Maximum 200 guides');
+      const g = {
+        id: uid('guide'),
+        axis: d.addGuide,
+        position: history.doc[d.addGuide === 'x' ? 'width' : 'height'] / 2,
+        locked: false,
+      };
+      a.guides.push(g);
+      selectedGuide = g.id;
+    });
+    return;
+  }
+  if (d.selectGuide) {
+    selectedGuide = d.selectGuide;
+    render();
+    return;
+  }
+  if (d.lockGuide || d.deleteGuide) {
+    editGuides((a) => {
+      const g = a.guides.find((g) => g.id === (d.lockGuide || d.deleteGuide));
+      if (a.locked || (d.deleteGuide && g.locked)) throw Error('Guide is locked');
+      if (d.lockGuide) g.locked = !g.locked;
+      else {
+        a.guides = a.guides.filter((x) => x !== g);
+        if (selectedGuide === g.id) selectedGuide = null;
+      }
+    });
+    return;
+  }
   if (d.action) {
     try {
       switch (d.action) {
@@ -546,7 +674,10 @@ app.addEventListener('click', async (e) => {
           render();
           break;
         case 'snap':
-          snapEnabled = !snapEnabled;
+          editGuides((aids) => (aids.snap = !aids.snap));
+          break;
+        case 'guides-panel':
+          guidesOpen = !guidesOpen;
           render();
           break;
         case 'fit':
@@ -821,6 +952,26 @@ app.addEventListener('change', async (e) => {
     }
     return;
   }
+  if (d.guideSetting || d.guidePosition) {
+    editGuides((a) => {
+      if (d.guideSetting) {
+        if (d.guideSetting === 'gridSize') {
+          const value = Number(el.value);
+          if (!el.value.trim() || !Number.isFinite(value) || value < 1 || value > 10000)
+            throw Error('Grid spacing must be between 1 and 10000');
+          a.gridSize = value;
+        } else a[d.guideSetting] = el.checked;
+      } else {
+        const g = a.guides.find((g) => g.id === d.guidePosition),
+          value = Number(el.value);
+        if (a.locked || g.locked) throw Error('Guide is locked');
+        if (!el.value.trim() || !Number.isFinite(value) || Math.abs(value) > 100000)
+          throw Error('Guide position must be between -100000 and 100000');
+        g.position = value;
+      }
+    });
+    return;
+  }
   if (el.id === 'add-node') {
     if (el.value) addNode(el.value);
     return;
@@ -895,7 +1046,7 @@ function canvasPoint(event) {
   let svg = document.querySelector('.artboard'),
     pt = new DOMPoint(event.clientX, event.clientY);
   let r = pt.matrixTransform(svg.getScreenCTM().inverse());
-  return [r.x, r.y].map((v) => (snapEnabled && !event.altKey ? Math.round(v / 8) * 8 : v));
+  return [r.x, r.y];
 }
 let space = false;
 app.addEventListener('pointerdown', (e) => {
@@ -926,6 +1077,7 @@ app.addEventListener('pointerdown', (e) => {
   }
   let head = e.target.closest('.node-head');
   if (head && !e.target.closest('button')) {
+    selectedGuide = null;
     let id = head.closest('.node').dataset.id;
     if (e.shiftKey) {
       if (selection.has(id)) selection.delete(id);
@@ -973,6 +1125,29 @@ app.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     return;
   }
+  const guideId = e.target.dataset.guide;
+  if (guideId) {
+    selectedGuide = guideId;
+    const a = guideSettings(history.doc),
+      g = a.guides.find((g) => g.id === guideId);
+    if (a.locked || g.locked) {
+      notify('Guide is locked');
+      render();
+      return;
+    }
+    drag = {
+      type: 'guide',
+      id: guideId,
+      axis: g.axis === 'x' ? 0 : 1,
+      original: g.position,
+      start: canvasPoint(e),
+      before: cloneDocument(history.doc),
+    };
+    e.preventDefault();
+    updateCanvas();
+    return;
+  }
+  selectedGuide = null;
   if (current().locked) {
     notify('Composition is locked', true);
     return;
@@ -980,6 +1155,7 @@ app.addEventListener('pointerdown', (e) => {
   let pos = canvasPoint(e),
     n = selectedNode();
   if (tool === 'pen') {
+    pos = snapped([[pos[0]], [pos[1]]], [0, 0], e).map((v, i) => v + pos[i]);
     if (
       penId &&
       e.target.dataset.point === current().nodes.find((x) => x.id === penId)?.points[0]?.id
@@ -1047,6 +1223,13 @@ app.addEventListener('pointerdown', (e) => {
       key,
       start: pos,
       original: clone(edit.params[key].value),
+      anchor: (() => {
+        const p = evaluate(current(), fonts)
+          .run(n.id)
+          .contours.flatMap((c) => c.points)
+          .find((p) => p.id === pointId);
+        return key === 'position' ? p.position : p.position.map((v, i) => v + p[key][i]);
+      })(),
       before,
     };
     const contour = input.contours.find((c) => c.points.some((p) => p.id === pointId));
@@ -1073,6 +1256,13 @@ app.addEventListener('pointerdown', (e) => {
       key,
       start: pos,
       original: clone(q.value),
+      anchor: (() => {
+        const p = evaluate(current(), fonts)
+          .run(n.id)
+          .contours.flatMap((c) => c.points)
+          .find((p) => p.id === pt.id);
+        return key === 'position' ? p.position : p.position.map((v, i) => v + p[key][i]);
+      })(),
       before: cloneDocument(history.doc),
     };
     return;
@@ -1109,7 +1299,13 @@ app.addEventListener('pointerdown', (e) => {
       notify('A selected position is locked or driven by an input', true);
       return;
     }
-    drag = { type: 'shape', targets, start: pos, before: cloneDocument(history.doc) };
+    const bounds = generators.map((g) => pathBounds(evaluate(current(), fonts).run(g.id)));
+    const anchors = [0, 1].map((axis) => {
+      const low = Math.min(...bounds.map((b) => b[axis][0])),
+        high = Math.max(...bounds.map((b) => b[axis][2]));
+      return [low, (low + high) / 2, high];
+    });
+    drag = { type: 'shape', targets, anchors, start: pos, before: cloneDocument(history.doc) };
   } else notify('Select only Circle, Rectangle, Text or Curve generators to move them');
 });
 document.addEventListener('pointermove', (e) => {
@@ -1158,6 +1354,19 @@ document.addEventListener('pointermove', (e) => {
   let pos = canvasPoint(e),
     delta = pos.map((v, i) => v - drag.start[i]),
     n = current().nodes.find((x) => x.id === drag.nodeId);
+  if (drag.type === 'guide') {
+    const sources = [[], []];
+    sources[drag.axis] = [drag.original];
+    delta = snapped(sources, delta, e, drag.id);
+    history.doc.editor.guides.find((g) => g.id === drag.id).position = Math.max(
+      -100000,
+      Math.min(100000, drag.original + delta[drag.axis]),
+    );
+    updateCanvas();
+    return;
+  }
+  const anchor = drag.anchor || drag.start;
+  delta = snapped(drag.anchors || [[anchor[0]], [anchor[1]]], delta, e);
   if (drag.type === 'remap') {
     n.edits.find((e) => e.pointId === drag.pointId).params[drag.key].value = drag.original.map(
       (v, i) => v + delta[i],
@@ -1194,6 +1403,7 @@ document.addEventListener('pointercancel', () => {
   if (!drag && !wiring) return;
   if (drag?.before) history.doc = drag.before;
   drag = null;
+  snapMatches = [];
   wiring = null;
   render();
 });
@@ -1227,6 +1437,7 @@ document.addEventListener('pointerup', (e) => {
       n.width = Math.max(220, Math.min(550, el.offsetWidth));
     }
     drag = null;
+    snapMatches = [];
     if (d.before && !sameDocument(d.before, history.doc)) {
       history.record(d.before);
       notify('Updated');
@@ -1267,6 +1478,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (drag?.before) history.doc = drag.before;
     drag = null;
+    snapMatches = [];
+    selectedGuide = null;
     wiring = null;
     tool = 'select';
     penId = null;
@@ -1277,6 +1490,16 @@ document.addEventListener('keydown', (e) => {
     resetTransient();
     e.shiftKey ? history.redo() : history.undo();
     render();
+  }
+  if (e.key === 'Delete' && selectedGuide) {
+    editGuides((a) => {
+      const guide = a.guides.find((g) => g.id === selectedGuide);
+      if (!guide) return;
+      if (a.locked || guide.locked) throw Error('Guide is locked');
+      a.guides = a.guides.filter((g) => g.id !== selectedGuide);
+      selectedGuide = null;
+    });
+    return;
   }
   if (e.key === 'Delete' && selectedNode()?.type !== 'Output')
     document.querySelector(`[data-delete="${selected}"]`)?.click();

@@ -1,3 +1,5 @@
+import { validateGuides } from './guides.js';
+export { guideDefaults, guideSettings, snapTranslation } from './guides.js';
 import paper from 'paper';
 import { validateFontAssets, resolveFonts, MAX_PROJECT_BYTES, utf8ByteLength } from './fonts.js';
 import { layoutText } from './text-layout.js';
@@ -306,6 +308,15 @@ export function pathData(path) {
   obj.remove();
   return result;
 }
+export function pathBounds(path) {
+  const obj = toPaper(path);
+  const { left, right, top, bottom } = obj.bounds;
+  obj.remove();
+  return [
+    [left, (left + right) / 2, right],
+    [top, (top + bottom) / 2, bottom],
+  ];
+}
 export function pathArea(path) {
   const obj = toPaper(path);
   obj.reorient(true, true);
@@ -580,6 +591,7 @@ export function validate(doc) {
   if (!doc || doc.schemaVersion !== 1) throw Error('Unsupported project version');
   text(doc.name);
   validateFontAssets(doc.fontAssets);
+  validateGuides(doc.editor, id);
   if (!Array.isArray(doc.layers) || doc.layers.length < 1 || doc.layers.length > 100)
     throw Error('Invalid layers');
   for (const key of ['width', 'height'])

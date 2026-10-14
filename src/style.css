@@ -620,3 +620,97 @@ summary input[type='checkbox'] {
   color: var(--muted);
   margin: 6px 0;
 }
+
+.guides-panel {
+  position: absolute;
+  top: 49px;
+  left: 12px;
+  z-index: 3;
+  width: 280px;
+  max-height: calc(100% - 60px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: 0 3px 14px #26374725;
+  padding: 10px;
+  font-size: 12px;
+}
+.guide-toggles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.guide-toggles label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.guides-panel input[type='number'] {
+  width: 92px;
+  min-width: 0;
+}
+.guide-add {
+  display: flex;
+  gap: 5px;
+  margin: 8px 0;
+}
+.guide-row {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0;
+  align-items: center;
+}
+.guide-row.selected {
+  background: #dcefff;
+}
+.guides-panel p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.editing-guide,
+.snap-match,
+.editing-grid-line {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.editing-guide {
+  stroke: #14a4b8;
+  stroke-width: 1;
+  stroke-dasharray: 5 3;
+}
+.editing-guide.selected {
+  stroke: #006d91;
+  stroke-width: 2;
+}
+.editing-guide.locked {
+  stroke: #8398a2;
+}
+.guide-hit {
+  stroke: transparent;
+  stroke-width: 10;
+  vector-effect: non-scaling-stroke;
+  pointer-events: stroke;
+}
+.guide-hit[data-axis='x'] {
+  cursor: ew-resize;
+}
+.guide-hit[data-axis='y'] {
+  cursor: ns-resize;
+}
+.snap-match {
+  stroke: #d03cb2;
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
+}
+.editing-grid-line {
+  stroke: #78909c;
+  stroke-opacity: 0.25;
+  stroke-width: 0.5;
+}
+.guide-hit.locked {
+  cursor: default;
+}

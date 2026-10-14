@@ -17,7 +17,7 @@ Graph minimap, node insertion onto a wire, Lazy Connect and Blender gesture comp
 ## Follow-on interaction pass
 
 - Shift-click node headers for multi-selection; dragging moves selected graph cards together. Canvas drag moves selected generator parameters atomically, refusing the entire operation if a selected position is driven or locked. It never inversely solves downstream nodes.
-- Snap 8 enables canvas grid snapping; Alt temporarily bypasses it.
+- Snap enables alignment to visible guides, artboard edges/centers, and an 8-unit grid by default; Alt temporarily bypasses it. Use Guides to configure each target and grid spacing.
 - Each value field has a keyboard-accessible Connect menu as an alternative to dragging.
 - V/P/C/R/T select tools; Ctrl+S saves, Ctrl+O opens; focused form controls retain their normal typing. Splitter arrows resize the graph. These are app bindings, not claimed Blender compatibility.
 - Canvas pointer updates are coalesced into one requested frame and redraw only canvas paths/overlays, not the whole graph. No idle animation loop or expensive blur is used.
@@ -53,3 +53,13 @@ Expansion restores parameter editing and the session's per-point disclosure stat
 ## Text fonts and direction
 
 Text nodes and their Inspector expose multiline content, a shared project-font dropdown, Load TTF / OTF, and Horizontal/Vertical direction. Letter spacing and line/column spacing are typed parameters. Font load preflights a candidate and commits one undo step; cancellation, errors, locks and stale reads preserve the document. The license/embedding notice appears next to the picker. See [typography](typography.md) for origins, supported glyph behavior, persistence, limits and headless parity.
+
+## Guides and alignment
+
+Open **Guides** in the canvas toolbar to add horizontal (Y) or vertical (X) guides at the artboard center. Edit their numeric positions, drag a visible guide, select/delete it, or lock it individually. Delete removes the selected guide when focus is outside a text/number input. Escape or a cancelled pointer gesture restores the pre-drag document. Each completed drag is one Undo step.
+
+Show guides and Lock all guides are independent. Hidden guides do not attract snapping. Locked guides remain snap targets but cannot be moved or deleted. Guide editing is independent of composition locks. Grid display is independent of grid snapping; spacing is configurable from 1 to 10000 document units. A maximum of 200 guides is supported, with positions between -100000 and 100000 units.
+
+Snapping uses a six-screen-pixel threshold at every zoom. Visible guides and artboard edges/centers take priority over the background grid. The selected generators' combined bounds provide left/center/right and top/center/bottom anchors; movement applies one rigid translation, preserving their spacing and source parameters. Curve points and handle endpoints also snap. Pink lines identify the active targets while dragging. Connected, expression-driven and locked source parameters retain their existing protections. Graph nodes and wires do not snap to canvas guides.
+
+Guides, visibility/lock settings, grid settings and snap toggles are saved in project JSON and participate in Undo/Redo. Older schema-v1 documents without editing-aid settings remain valid and start with snapping disabled and an 8-unit grid. Editing aids never appear in exported artwork SVG.
