@@ -66,3 +66,7 @@ Geometry: [Paper.js PathItem](https://paperjs.org/reference/pathitem/). Text out
 Export transparent SVG or PNG (0.5×–4×) from the same artboard scene. Import local PNG/JPEG into an Image composition, move/resize it, and save embedded assets in editable JSON. Image sockets remain separate from Path operations. See [export, limits and roundtrip boundaries](docs/image-export.md).
 
 Artwork alignment: enable **Guides → Snap artwork** to align to other visible shape, text and image layers. Try [the editable snapping example](examples/artwork-bounds-snapping.json); see [bounds, priority and compatibility](docs/artwork-bounds-snapping.md).
+
+### Same-layer Vector2 Reference
+
+Add **Reference** to reuse a Text Position, Null or other Vector2 output without a long source wire. The picker shows stable source identity and output, with **Jump to source**, cycle protection and explicit missing-target diagnostics. Try [the editable comparison sample](examples/vector-reference-reuse.json); [scope, persistence and tests](docs/vector-reference.md) describe the current prototype.

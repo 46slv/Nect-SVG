@@ -1004,3 +1004,10 @@ input[data-scrub-step].scrubbing {
   paint-order: stroke;
   pointer-events: none;
 }
+
+.reference-error {
+  color: #e59885;
+}
+.reference-source {
+  overflow-wrap: anywhere;
+}

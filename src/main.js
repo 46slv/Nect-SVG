@@ -32,6 +32,10 @@ import {
   parameter,
   outputType,
   outputPorts,
+  vectorReferenceTargets,
+  referenceTarget,
+  setReference,
+  duplicateNodes,
   socketCompatible,
   evaluate,
   enableRemapPoint,
@@ -320,6 +324,36 @@ function positionReferenceControls(n) {
     for (const x of ['left', 'center', 'right']) options.push([`${x}-${y}`, `${y} / ${x}`]);
   return `<div class="field"><label>Position reference</label><select data-position-reference="${n.id}" aria-label="Object Position reference">${options.map(([value, label]) => `<option value="${value}" ${(n.positionReference || 'origin') === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><p class="font-note">Bounds exclude stroke. Position stays fixed when the reference or size changes.${n.type === 'Image' ? ' Image bounds include transparent pixels.' : ''}</p>`;
 }
+function referenceControls(n, result, compact = false) {
+  if (n.type !== 'Reference') return '';
+  const targets = vectorReferenceTargets(current(), n.id),
+    value = n.reference ? JSON.stringify([n.reference.nodeId, n.reference.portId]) : '',
+    target = targets.find(
+      (t) => t.nodeId === n.reference?.nodeId && t.portId === n.reference?.portId,
+    );
+  let diagnostic = '',
+    displayed = '';
+  try {
+    referenceTarget(current(), n);
+    displayed = result
+      .run(n.id)
+      .map((v) => Number(v.toFixed(3)))
+      .join(', ');
+  } catch (e) {
+    diagnostic = e.message;
+  }
+  const label = target
+    ? `${target.name} · ${target.label}`
+    : n.reference
+      ? `${n.reference.nodeId} · ${n.reference.portId}`
+      : 'No target selected';
+  const status = `<p class="font-note reference-source ${diagnostic ? 'reference-error' : ''}" data-reference-status="${n.id}" title="${esc(n.reference ? n.reference.nodeId + ' / ' + n.reference.portId : '')}">← ${esc(label)}<br>${diagnostic ? esc(diagnostic) : `<output data-reference-value="${n.id}">[${esc(displayed)}] · Vector2</output>`}</p>`;
+  const jump = target
+    ? `<button class="mini" data-reference-jump="${n.id}" title="Select and reveal the source node">Jump to source</button>`
+    : '';
+  if (compact) return status + jump;
+  return `<div class="field"><label>Vector2 source · same layer</label><select data-reference-target="${n.id}" aria-label="Reference source and output" ${current().locked ? 'disabled' : ''}><option value="" ${!n.reference ? 'selected' : ''}>Choose Vector2 output…</option>${n.reference && !target ? `<option value="${esc(value)}" selected disabled>Missing: ${esc(label)}</option>` : ''}${targets.map((t) => `<option value="${esc(JSON.stringify([t.nodeId, t.portId]))}" ${t === target ? 'selected' : ''}>${esc(t.name + ' · ' + t.label + ' · ' + t.nodeId)}</option>`).join('')}</select></div>${status}${jump}<p class="font-note">Read-only value reference by stable node and output IDs. Rename keeps the link; deleting the source leaves an explicit missing target. Text Position is before downstream Transform. Vector values keep their source meaning; no world-coordinate conversion.</p>`;
+}
 function strokeControls(n) {
   if (n.type !== 'Stroke') return '';
   return `<div class="field"><label>Line cap</label><select data-stroke-cap="${n.id}" aria-label="Stroke line cap">${['butt', 'round', 'square'].map((v) => `<option value="${v}" ${(n.strokeCap || 'butt') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Line join</label><select data-stroke-join="${n.id}" aria-label="Stroke line join">${['miter', 'round', 'bevel'].map((v) => `<option value="${v}" ${(n.strokeJoin || 'miter') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Dash / gap (px)</label><input data-stroke-dash="${n.id}" aria-label="Stroke dash pattern" value="${esc((n.strokeDash || []).join(' '))}" placeholder="Solid, or e.g. 12 6"></div><p class="font-note">Odd patterns repeat twice. Empty/none or all zero is solid. Miter limit is a ratio; dashOffset is px.</p>`;
@@ -330,7 +364,7 @@ function operationControls(n) {
   return `<div class="field"><label>Operation</label><select data-operation="${n.id}" aria-label="${esc(n.name)} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
+  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
     n,
   )
     .filter(([k]) => Object.hasOwn(n.params, k))
@@ -341,7 +375,7 @@ function expandedNodeBody(n, result) {
 }
 function nodeHTML(n, result) {
   const body = n.collapsed
-    ? `<div class="node-body compact-body">${compactFields(n)}</div><div hidden><button data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button data-delete="${n.id}">Delete</button>` : ''}</div>`
+    ? `<div class="node-body compact-body">${compactFields(n)}${referenceControls(n, result, true)}</div><div hidden><button data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button data-delete="${n.id}">Delete</button>` : ''}</div>`
     : expandedNodeBody(n, result);
   return `<section class="node ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
@@ -420,7 +454,7 @@ function render(resetView = false) {
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
+      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
           n,
         )
           .filter(
@@ -1429,16 +1463,30 @@ app.addEventListener('click', async (e) => {
           }
       if (selected === d.delete) selected = null;
     }, 'Node deleted');
+  if (d.referenceJump) {
+    const ref = current().nodes.find((n) => n.id === d.referenceJump);
+    try {
+      selected = referenceTarget(current(), ref).id;
+      selection = new Set([selected]);
+      render();
+      revealNode(selected);
+    } catch (e) {
+      notify(e.message, true);
+    }
+    return;
+  }
   if (d.duplicate)
     change(() => {
-      let copy = clone(current().nodes.find((x) => x.id === d.duplicate));
-      copy.id = uid('node');
-      copy.position = freePosition(copy.type);
-      copy.name += ' copy';
-      for (const pt of copy.points) pt.id = uid('point');
-      current().nodes.push(copy);
-      selected = copy.id;
-    }, 'Node duplicated');
+      const ids = selection.has(d.duplicate) && selection.size > 1 ? [...selection] : [d.duplicate],
+        position =
+          ids.length === 1
+            ? freePosition(current().nodes.find((n) => n.id === d.duplicate).type)
+            : null,
+        copies = duplicateNodes(current(), ids);
+      if (position) copies[0].position = position;
+      selected = copies[0].id;
+      selection = new Set(copies.map((n) => n.id));
+    }, 'Nodes duplicated');
   if (d.addPoint)
     change(
       () =>
@@ -1843,7 +1891,14 @@ app.addEventListener('change', async (e) => {
   }
   change(
     () => {
-      if (d.vectorPositionHandle) {
+      if (d.referenceTarget) {
+        const target = el.value ? JSON.parse(el.value) : null;
+        setReference(
+          current(),
+          d.referenceTarget,
+          target ? { nodeId: target[0], portId: target[1] } : null,
+        );
+      } else if (d.vectorPositionHandle) {
         const n = current().nodes.find((n) => n.id === d.vectorPositionHandle);
         if (n?.type !== 'Vector') throw Error('Canvas position handle needs a Vector');
         n.canvasPositionHandle = el.checked;

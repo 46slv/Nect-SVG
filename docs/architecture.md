@@ -120,3 +120,7 @@ Schema 2 remains unchanged: old Text Path connections work without migration; ol
 ## Selected Transform handle state
 
 `evaluate(layer).transformState(id)` reads the selected Transform input, Anchor, Offset, Scale and Rotation through the same evaluated-parameter resolver used by geometry. It is runtime-only, including on cache hits. `transform-handles.js` shares the character affine helper for source-stage controls and keeps scalar/angle drag mathematics independent of DOM. The editor writes existing Scale/Rotation fields only; there is no schema migration, generalized downstream inverse or persisted control geometry.
+
+## Same-layer Vector2 Reference
+
+Reference stores a nullable explicit `{nodeId, portId}` descriptor, with `output` mapping to the existing unnamed default socket and `position` mapping to Text Position. `nodeDependencies` unifies parameter wires and this typed dependency for cycle checks; evaluation resolves only active parameter dependencies plus Reference, validates the target before reuse, and keys cached values on target identity and upstream output revision. Missing targets are retained as diagnosed dangling IDs, never numeric fallbacks. Document-wide layer ownership rejects cross-layer references even when the source occurs later in the file. `setOperation` protects referenced Vector2 outputs from Scalar changes. See [Reference persistence, duplication and validation](vector-reference.md).

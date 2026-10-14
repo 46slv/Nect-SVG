@@ -85,3 +85,7 @@ Select one existing Transform to show its fixed Anchor + Offset pivot, uniform S
 ## Artwork bounds snapping
 
 Guides → **Snap artwork** optionally aligns canvas moves to other visible layers’ final geometry edges and centers. It is off by default; locked references remain targets, while hidden/error/empty outputs and the whole editing layer are excluded. Bounds do not include stroke width. The same six-screen-pixel threshold, Alt bypass, single-gesture Undo and pan priority apply. See [the contract and example](artwork-bounds-snapping.md).
+
+## Vector2 Reference
+
+Add **Reference**, choose a same-layer Vector2 source/output in its card or Inspector, then wire the Reference output normally. Names are labels; IDs keep the link through renames. Target/value/error labels remain visible in collapsed cards. **Jump to source** selects and reveals the source, including in locked layers. Deleted targets remain explicitly missing until Undo or retargeting; no zero or cached fallback is shown as valid. Shift-select source and Reference graph headers, then **Duplicate** to remap their internal link as one Undo step. Edited Path Remap + source group copies are refused to preserve point bindings. [Usage, scope and sample](vector-reference.md).

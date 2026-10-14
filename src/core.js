@@ -104,6 +104,7 @@ export const definitions = {
   Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
   Vector: { value: p('Vector2', [300, 250]) },
   Null: { position: p('Vector2', [300, 250]) },
+  Reference: {},
   Expression: { value: p('Scalar', 100) },
   Fill: { path: p('PaintedPath', null), color: p('Color', { hex: '#36434e', alpha: 1 }) },
   Stroke: {
@@ -227,6 +228,7 @@ export function node(type, x = 40, y = 40) {
     rawPath: '',
     ...(type === 'Image' ? { asset: '' } : {}),
     ...(type === 'Vector' ? { canvasPositionHandle: false } : {}),
+    ...(type === 'Reference' ? { reference: null } : {}),
   };
 }
 export function layer(name = 'Composition 1') {
@@ -284,11 +286,134 @@ export function outputType(n, port) {
   if (n.type === 'Image' || n.type === 'Image Output') return 'Image';
   return ['Value', 'Expression', 'Math'].includes(n.type)
     ? 'Scalar'
-    : ['Vector', 'Combine Vector', 'Null'].includes(n.type)
+    : ['Vector', 'Combine Vector', 'Null', 'Reference'].includes(n.type)
       ? 'Vector2'
       : n.type === 'Toggle'
         ? 'Boolean'
         : 'Path';
+}
+// Reference uses an explicit public-port ID. Existing default sockets remain unchanged.
+const referencePort = (target) => (target.portId === 'output' ? undefined : target.portId);
+export function vectorReferenceTargets(layer, referenceId) {
+  return layer.nodes
+    .filter((n) => n.id !== referenceId)
+    .flatMap((n) =>
+      outputPorts(n)
+        .filter((port) => port.type === 'Vector2')
+        .map((port) => ({
+          nodeId: n.id,
+          portId: port.id ?? 'output',
+          name: n.name,
+          label: port.label || 'Vector2',
+        })),
+    );
+}
+function referenceDependency(n) {
+  return n.type === 'Reference' && n.reference
+    ? { source: n.reference.nodeId, sourcePort: referencePort(n.reference) }
+    : null;
+}
+export function nodeDependencies(n, activeOnly = false) {
+  const deps = (activeOnly ? activeParameters(n) : parameters(n))
+    .filter(([, q]) => q.source)
+    .map(([, q]) => q);
+  const reference = referenceDependency(n);
+  if (reference) deps.push(reference);
+  return deps;
+}
+export function referenceTarget(layer, n) {
+  if (n?.type !== 'Reference') throw Error('Select a Reference node');
+  if (!n.reference) throw Error('Reference target is not selected');
+  const target = layer.nodes.find((x) => x.id === n.reference.nodeId);
+  if (!target) throw Error(`Reference target is missing: ${n.reference.nodeId}`);
+  if (outputType(target, referencePort(n.reference)) !== 'Vector2')
+    throw Error('Reference target must be a public Vector2 output');
+  return target;
+}
+function assertAcyclic(layer) {
+  const byId = new Map(layer.nodes.map((n) => [n.id, n])),
+    seen = new Set(),
+    active = new Set();
+  function visit(id) {
+    if (active.has(id)) throw Error('Connection would create a cycle');
+    if (seen.has(id)) return;
+    if (active.size >= 256) throw Error('Graph depth exceeds 256 nodes');
+    const n = byId.get(id);
+    // Deleted Reference targets remain explicitly dangling and can be saved/undone.
+    if (!n) return;
+    active.add(id);
+    for (const dep of nodeDependencies(n)) {
+      if (!byId.has(dep.source) && n.type !== 'Reference') throw Error('Missing source node');
+      visit(dep.source);
+    }
+    active.delete(id);
+    seen.add(id);
+  }
+  for (const n of layer.nodes) visit(n.id);
+}
+export function setReference(layer, nodeId, target) {
+  const n = layer.nodes.find((n) => n.id === nodeId);
+  if (n?.type !== 'Reference') throw Error('Select a Reference node');
+  const old = n.reference;
+  n.reference = target === null ? null : { ...target };
+  try {
+    validateReference(n);
+    if (target !== null) referenceTarget(layer, n);
+    assertAcyclic(layer);
+  } catch (e) {
+    n.reference = old;
+    throw e;
+  }
+}
+const nodeIdPattern = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
+function validateReference(n) {
+  if (n.type !== 'Reference') {
+    if (n.reference !== undefined) throw Error('Reference target requires a Reference node');
+    return;
+  }
+  const r = n.reference;
+  if (r === null) return;
+  if (
+    !r ||
+    typeof r !== 'object' ||
+    Array.isArray(r) ||
+    Object.keys(r).length !== 2 ||
+    typeof r.nodeId !== 'string' ||
+    !nodeIdPattern.test(r.nodeId) ||
+    !['output', 'position'].includes(r.portId)
+  )
+    throw Error('Invalid Reference target');
+}
+// Duplicate a selected group as one operation. Internal node dependencies are
+// remapped; dependencies outside the group, including dangling IDs, stay intact.
+export function duplicateNodes(layer, ids) {
+  const wanted = new Set(ids),
+    originals = layer.nodes.filter((n) => wanted.has(n.id));
+  if (originals.length !== wanted.size || !originals.length)
+    throw Error('Missing nodes to duplicate');
+  if (layer.nodes.length + originals.length > 2000) throw Error('Too many nodes');
+  if (
+    originals.some(
+      (n) => n.type === 'Path Remap' && n.edits.length && wanted.has(n.params.path.source),
+    )
+  )
+    throw Error(
+      'Cannot duplicate an edited Path Remap with its source; duplicate it individually to retain point bindings',
+    );
+  const remap = new Map(originals.map((n) => [n.id, uid('node')]));
+  const copies = originals.map((original) => {
+    const copy = clone(original);
+    copy.id = remap.get(original.id);
+    copy.name += ' copy';
+    copy.position = copy.position.map((v) => v + 30);
+    for (const pt of copy.points) pt.id = uid('point');
+    for (const [, q] of parameters(copy)) if (remap.has(q.source)) q.source = remap.get(q.source);
+    if (copy.reference && remap.has(copy.reference.nodeId))
+      copy.reference.nodeId = remap.get(copy.reference.nodeId);
+    return copy;
+  });
+  layer.nodes.push(...copies);
+  return copies;
 }
 export function socketCompatible(sourceType, targetType) {
   return sourceType === targetType || (sourceType === 'Path' && targetType === 'PaintedPath');
@@ -353,6 +478,13 @@ export function setOperation(layer, nodeId, operation) {
         !socketCompatible(outputType({ ...n, operation }, q.sourcePort), q.type)
       )
         throw Error('Operation would break a connected socket');
+  for (const target of layer.nodes)
+    if (
+      target.type === 'Reference' &&
+      target.reference?.nodeId === nodeId &&
+      outputType({ ...n, operation }, referencePort(target.reference)) !== 'Vector2'
+    )
+      throw Error('Operation would break a Reference Vector2 output');
   n.operation = operation;
 }
 function mathValue(operation, read) {
@@ -692,7 +824,10 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     active.add(id);
     try {
       const inputs = positionOutput ? [['position', n.params.position]] : activeParameters(n);
-      const deps = inputs.filter(([, q]) => q.source).map(([, q]) => q);
+      const deps = positionOutput
+        ? inputs.filter(([, q]) => q.source).map(([, q]) => q)
+        : nodeDependencies(n, true);
+      if (n.type === 'Reference') referenceTarget(layer, n);
       for (const dep of deps) run(dep.source, dep.sourcePort);
       const dependencyVersions = deps.map((q) => [
         q.source,
@@ -705,6 +840,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           ? [inputs, dependencyVersions]
           : [
               n.type,
+              n.reference,
               inputs,
               n.type === 'Fill' ? layer.fill : null,
               n.points,
@@ -745,7 +881,10 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       computed++;
       const read = (key) => readParameter(n, key);
       let result;
-      if (positionOutput || n.type === 'Null') result = read('position');
+      if (n.type === 'Reference') {
+        result = clone(run(n.reference.nodeId, referencePort(n.reference)));
+        assertValue('Vector2', result);
+      } else if (positionOutput || n.type === 'Null') result = read('position');
       else if (['Value', 'Vector', 'Expression', 'Toggle', 'Color'].includes(n.type))
         result = read('value');
       else if (n.type === 'Vector Math') {
@@ -1137,19 +1276,8 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
   q.source = sourceId;
   if (sourcePort !== undefined) q.sourcePort = sourcePort;
   else delete q.sourcePort;
-  const seen = new Set(),
-    active = new Set();
-  function visit(id) {
-    if (active.has(id)) throw Error('Connection would create a cycle');
-    if (seen.has(id)) return;
-    active.add(id);
-    for (const [, p] of parameters(layer.nodes.find((n) => n.id === id)))
-      if (p.source) visit(p.source);
-    active.delete(id);
-    seen.add(id);
-  }
   try {
-    for (const n of layer.nodes) visit(n.id);
+    assertAcyclic(layer);
   } catch (e) {
     if (old) q.source = old;
     else delete q.source;
@@ -1207,7 +1335,7 @@ export function migratePaint(doc) {
   return doc;
 }
 export function validate(doc) {
-  const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/;
+  const idPattern = nodeIdPattern;
   const ids = new Set();
   function id(value) {
     if (typeof value !== 'string' || !idPattern.test(value) || ids.has(value))
@@ -1257,6 +1385,7 @@ export function validate(doc) {
     if (!Array.isArray(l.nodes) || l.nodes.length > 2000) throw Error('Invalid composition');
     for (const n of l.nodes) {
       id(n.id);
+      validateReference(n);
       text(n.name);
       vec(n.position);
       if (n.width !== undefined && (!Number.isFinite(n.width) || n.width < 220 || n.width > 550))
@@ -1372,6 +1501,19 @@ export function validate(doc) {
     for (const n of l.nodes)
       for (const [key, q] of parameters(n))
         if (q.source) connect(l, q.source, n.id, key, true, q.sourcePort);
+  }
+  // Cross-layer references are forbidden, while genuinely deleted IDs remain
+  // loadable as diagnosed dangling targets rather than silently losing the link.
+  const owners = new Map(doc.layers.flatMap((l) => l.nodes.map((n) => [n.id, l.id])));
+  for (const l of doc.layers) {
+    for (const n of l.nodes)
+      if (n.type === 'Reference' && n.reference) {
+        const owner = owners.get(n.reference.nodeId);
+        if (owner !== undefined && owner !== l.id)
+          throw Error('Reference target must be in the same layer');
+        if (owner !== undefined) referenceTarget(l, n);
+      }
+    assertAcyclic(l);
   }
   return doc;
 }
