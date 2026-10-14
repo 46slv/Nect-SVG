@@ -8,7 +8,9 @@ export {
   layoutGridLines,
   setLayoutGrid,
 } from './guides.js';
-import paper from 'paper';
+// The full build initializes PaperScript with new Function, which native CSP blocks.
+// Geometry needs only the core build; keep script-src free of unsafe-eval.
+import paper from 'paper/dist/paper-core.js';
 import { validateFontAssets, resolveFonts, MAX_PROJECT_BYTES, utf8ByteLength } from './fonts.js';
 import { layoutText } from './text-layout.js';
 const scope = new paper.PaperScope();

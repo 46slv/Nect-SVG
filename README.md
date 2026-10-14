@@ -49,7 +49,7 @@ See [architecture and public API](docs/architecture.md), [interaction contract](
 
 ## Verification
 
-`npm test` runs geometry, type/graph, persistence, safety and synthetic DOM integration tests. `npm run test:e2e` runs real Chromium flows against a running dev server; set `CHROMIUM_PATH` for your system executable. Synthetic DOM tests are not screenshot or real browser rendering proof.
+`npm test` runs geometry, type/graph, persistence, safety and synthetic DOM integration tests. `npm run test:csp` builds the production bundle and checks startup in Chromium with the unchanged native Tauri CSP, including a control that confirms JavaScript evaluation remains blocked. `npm run test:e2e` runs that production CSP check followed by real Chromium flows against a running dev server; set `CHROMIUM_PATH` for your system executable. Synthetic DOM tests are not screenshot or real browser rendering proof.
 
 Geometry: [Paper.js PathItem](https://paperjs.org/reference/pathitem/). Text outlines: bundled DejaVu Sans, license in `public/fonts/`. Windows setup: [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), [Windows installer](https://v2.tauri.app/distribute/windows-installer/).
 
