@@ -9,11 +9,12 @@ import {
 /** Browser adapter: core export scene remains DOM-free and renderer-independent. */
 export async function loadImage(url) {
   const image = new Image();
-  await new Promise((resolve, reject) => {
-    image.onload = resolve;
-    image.onerror = () => reject(Error('Image could not be decoded'));
-    image.src = url;
-  });
+  image.src = url;
+  try {
+    await image.decode();
+  } catch {
+    throw Error('Image could not be decoded');
+  }
   checkImageSize(image.naturalWidth, image.naturalHeight);
   return image;
 }

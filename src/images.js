@@ -16,6 +16,15 @@ export function checkImageSize(width, height) {
     throw Error('Image must be at most 8192 px per side and 16 megapixels');
   return { width, height };
 }
+const crcTable = Uint32Array.from({ length: 256 }, (_, n) => {
+  for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
+  return n >>> 0;
+});
+function crc32(bytes, start, end) {
+  let crc = 0xffffffff;
+  for (let i = start; i < end; i++) crc = crcTable[(crc ^ bytes[i]) & 255] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
 export function pngSize(bytes) {
   const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   if (
@@ -33,6 +42,8 @@ export function pngSize(bytes) {
     const length = v.getUint32(at),
       tag = String.fromCharCode(...b.subarray(at + 4, at + 8));
     if (at + 12 + length > b.length) throw Error('Truncated PNG');
+    if (crc32(b, at + 4, at + 8 + length) !== v.getUint32(at + 8 + length))
+      throw Error('PNG checksum mismatch; image is corrupt');
     if (at === 8) {
       if (tag !== 'IHDR' || length !== 13) throw Error('Invalid PNG header');
       size = checkImageSize(v.getUint32(at + 8), v.getUint32(at + 12));

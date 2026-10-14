@@ -199,7 +199,7 @@ try {
     buffer: Buffer.from(JSON.stringify(corrupt)),
   });
   await page.waitForFunction(() =>
-    document.querySelector('.status').textContent.includes('could not be decoded'),
+    document.querySelector('.status').textContent.includes('Open rejected'),
   );
   assert.equal(await snapshot(), restored);
   // Explicit unsupported SVG raster roundtrip, with the editable project preserved.
@@ -279,6 +279,10 @@ try {
   console.log(
     'PASS SVG file roundtrip, PNG pixels/alpha/dimensions, PNG/JPEG import, image move/history, embedded JSON, guide/hidden exclusion, cancellation/stale/error preservation',
   );
+} catch (error) {
+  console.error('Image workflow status:', await page.locator('.status').innerText());
+  await page.screenshot({ path: 'test-results/workflow-failure.png', fullPage: true });
+  throw error;
 } finally {
   await browser.close();
 }

@@ -12,7 +12,7 @@ Editable JSON remains the source of truth. SVG and PNG are evaluated artwork exp
 
 Import image adds a new composition with an Image generator and Image Output. PNG and ordinary baseline/progressive JPEG are supported. WebP, GIF, APNG and SVG image input are deliberately not included in this first bounded adapter. SVG still has its separate conservative vector import.
 
-Local images are header-checked, decoded, and normalized into PNG. This keeps browser-decoded orientation/alpha while dropping metadata and file references. Limits are 12 MB per input/embedded PNG, 8192 pixels per side, 16 megapixels per image, 24 MB of embedded PNG bytes and 32 megapixels across assets. JSON remains bounded to 50 MB including fonts and images. High-entropy JPEGs can be rejected if their normalized PNG exceeds the limit.
+Local images are header/checksum-checked, decoded, and normalized into PNG. This keeps browser-decoded orientation/alpha while dropping metadata and file references. Limits are 12 MB per input/embedded PNG, 8192 pixels per side, 16 megapixels per image, 24 MB of embedded PNG bytes and 32 megapixels across assets. JSON remains bounded to 50 MB including fonts and images. High-entropy JPEGs can be rejected if their normalized PNG exceeds the limit.
 
 Image position is top-left; size is width/height. Initial placement is centered and fitted down to the artboard without upscaling. Select the Image node to move it on canvas, or edit its position/size fields. Size is independently editable, so changing aspect ratio intentionally stretches the image. Layer visibility, guide status, locking, order, Undo/Redo and JSON reload are preserved. Fill color belongs to vector paths and does not tint an image.
 

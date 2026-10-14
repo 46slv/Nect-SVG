@@ -30,7 +30,7 @@ import {
 import { importSVG } from '../src/svg-import.js';
 import { pngDimensions } from '../src/raster.js';
 const data =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==';
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
 function imageDoc() {
   const doc = document(),
     n = node('Image'),
@@ -101,6 +101,9 @@ test('Image assets enforce format, dimensions, aggregate bytes and local-only da
     Object.assign(candidate.imageAssets['image-test'], patch);
     assert.throws(() => validate(candidate));
   }
+  const corrupt = decodeImage(data);
+  corrupt[41] ^= 1;
+  assert.throws(() => pngSize(corrupt), /checksum/);
   assert.deepEqual(pngSize(decodeImage(data)), { width: 1, height: 1 });
   assert.equal(sourceImageSize(decodeImage(data).buffer).mime, 'image/png');
   assert.throws(() => sourceImageSize(new TextEncoder().encode('<svg/>').buffer), /PNG or JPEG/);
