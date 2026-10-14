@@ -69,6 +69,8 @@ import {
   resetCharacterTransforms,
   resetCharacterAdjustments,
   reconcileCharacterEdit,
+  objectResizeHandles,
+  resizedObjectValue,
   transformHandleGeometry,
   scaleFromHandle,
   rotationHandleAngle,
@@ -457,7 +459,7 @@ function render(resetView = false) {
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
+      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
           n,
         )
           .filter(
@@ -868,6 +870,26 @@ function selectOverlappingCharacters(hits, additive) {
   dialog.showModal();
 }
 
+function objectResizeContext(n, result) {
+  if (!n || selection.size !== 1 || !selection.has(n.id)) return [];
+  try {
+    return objectResizeHandles(n.type, result.objectResizeState(n.id), canvasScale());
+  } catch {
+    return [];
+  }
+}
+function objectResizeOverlay(n, result) {
+  const handles = objectResizeContext(n, result);
+  if (!handles.length) return '';
+  return `<g class="object-resize-overlay" aria-label="Selected ${esc(n.type)} output before downstream nodes">${handles
+    .map((h, index) => {
+      const q = n.params[h.key],
+        readonly = current().locked || q.locked || q.source || q.expression;
+      return `<g class="object-resize-control ${readonly ? 'readonly' : ''}" data-object-resize="${index}" data-object-node="${n.id}" style="cursor:${readonly ? 'not-allowed' : h.axis ? 'ns-resize' : 'ew-resize'}" transform="translate(${h.point.join(' ')})"><title>${esc(h.label)} · selected ${esc(n.type)} output before downstream nodes${readonly ? ' · Locked or driven by an input' : ' · Drag to resize; position stays fixed'}</title><g transform="scale(${1 / canvasScale()})"><rect x="-6" y="-6" width="12" height="12"/><text x="12" y="4">${esc(h.label)} · selected ${esc(n.type)}</text></g></g>`;
+    })
+    .join('')}</g>`;
+}
+
 function transformContext(n, result) {
   if (n?.type !== 'Transform' || selection.size !== 1 || !selection.has(n.id)) return null;
   const state = result.transformState(n.id);
@@ -928,6 +950,7 @@ function canvasOverlay(n, result) {
       out += `<circle class="vertex" data-point="${pt.id}" cx="${pt.position[0]}" cy="${pt.position[1]}" r="5"/>`;
     }
   if (n.type === 'Transform') out += transformOverlay(n, result);
+  out += objectResizeOverlay(n, result);
   return out;
 }
 let canvasFrame = null;
@@ -974,7 +997,7 @@ function fitCanvas() {
   svg.style.transform = `translate(${pan[0]}px,${pan[1]}px)`;
   sizePositionHandle();
   positionCharacterFloating();
-  if (selectedNode()?.type === 'Transform') updateCanvas();
+  if (selectedNode()) updateCanvas();
 }
 function drawWires() {
   let graph = document.querySelector('.graph'),
@@ -2553,6 +2576,35 @@ app.addEventListener('pointerdown', (e) => {
     if (nn.points.length === 1) revealNode(nn.id);
     return;
   }
+  const resizeHandle = e.target.closest('[data-object-resize]');
+  if (resizeHandle) {
+    e.preventDefault();
+    stage.focus({ preventScroll: true });
+    n = selectedNode();
+    if (resizeHandle.dataset.objectNode !== n?.id) return;
+    const handles = objectResizeContext(n, evaluate(current(), fonts, history.doc.imageAssets)),
+      handle = handles[Number(resizeHandle.dataset.objectResize)],
+      q = n.params[handle?.key];
+    if (!handle || !q || q.locked || q.source || q.expression) {
+      notify('Dimension is locked or driven by an input', true);
+      return;
+    }
+    drag = {
+      type: 'object-resize',
+      nodeId: n.id,
+      handle,
+      key: handle.key,
+      original: structuredClone(q.value),
+      start: canvasPoint(e),
+      startClient: [e.clientX, e.clientY],
+      before: cloneDocument(history.doc),
+      pointerId: e.pointerId,
+      capture: stage,
+      started: false,
+    };
+    stage.setPointerCapture?.(e.pointerId);
+    return;
+  }
   const transformHandle = e.target.closest('[data-transform-handle]');
   if (transformHandle && n?.type === 'Transform') {
     e.preventDefault();
@@ -2762,7 +2814,7 @@ document.addEventListener('pointermove', (e) => {
     return;
   }
   if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
-  if (drag.type === 'transform') {
+  if (['transform', 'object-resize'].includes(drag.type)) {
     const n = selectedNode(),
       q = n?.params[drag.key];
     if (
@@ -2785,7 +2837,13 @@ document.addEventListener('pointermove', (e) => {
       return;
     const pos = canvasPoint(e);
     let next;
-    if (drag.key === 'scale')
+    if (drag.type === 'object-resize')
+      next = resizedObjectValue(
+        drag.original,
+        drag.handle,
+        pos.map((v, i) => v - drag.start[i]),
+      );
+    else if (drag.key === 'scale')
       next = scaleFromHandle(
         drag.original,
         drag.geometry,
@@ -2798,7 +2856,7 @@ document.addEventListener('pointermove', (e) => {
       drag.angle = angle;
       next = rotationFromHandle(drag.original, drag.angleDelta, e.shiftKey);
     }
-    if (!Number.isFinite(next)) return;
+    if (!(Array.isArray(next) ? next.every(Number.isFinite) : Number.isFinite(next))) return;
     q.value = next;
     drag.started = true;
     updateCanvas();
@@ -3102,14 +3160,14 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (
-    ['character', 'position-controller', 'transform'].includes(drag?.type) &&
+    ['character', 'position-controller', 'transform', 'object-resize'].includes(drag?.type) &&
     e.key === 'Escape'
   ) {
     e.preventDefault();
     cancelInteraction();
     return;
   }
-  if (drag?.type === 'transform') {
+  if (['transform', 'object-resize'].includes(drag?.type)) {
     // A pending direct manipulation owns its document snapshot. Do not let
     // Delete, history or tool shortcuts interleave a second document action.
     e.preventDefault();

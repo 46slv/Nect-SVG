@@ -1018,3 +1018,25 @@ input[data-scrub-step].scrubbing {
 .reference-source {
   overflow-wrap: anywhere;
 }
+
+.object-resize-control {
+  color: #975528;
+  fill: white;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  cursor: ew-resize;
+}
+.object-resize-control.readonly {
+  color: #697683;
+  cursor: not-allowed;
+}
+.object-resize-control text {
+  font:
+    11px system-ui,
+    sans-serif;
+  fill: currentColor;
+  stroke: white;
+  stroke-width: 3;
+  paint-order: stroke;
+  pointer-events: none;
+}

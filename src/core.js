@@ -1,3 +1,4 @@
+export { objectResizeHandles, resizedObjectValue } from './object-resize.js';
 import { validateImageAssets, imageURL } from './images.js';
 import { validateGuides } from './guides.js';
 export {
@@ -1244,6 +1245,22 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     warnings,
     values,
     run,
+    objectResizeState(id) {
+      const n = byId.get(id);
+      if (!['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n?.type))
+        throw Error('Select a supported generator');
+      run(id);
+      return {
+        ...Object.fromEntries(Object.keys(n.params).map((key) => [key, readParameter(n, key)])),
+        positionReference: n.positionReference || 'origin',
+        ...(n.type === 'Star'
+          ? {
+              fallbackInnerRadius: n.params.innerRadius.value,
+              fallbackOuterRadius: n.params.outerRadius.value,
+            }
+          : {}),
+      };
+    },
     transformState(id) {
       const n = byId.get(id);
       if (n?.type !== 'Transform') throw Error('Select a Transform');
