@@ -471,6 +471,83 @@ try {
   const practiceDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export SVG', exact: true }).click();
   assert.equal((await practiceDownload).suggestedFilename(), 'nect-artwork.svg');
+
+  // Compact nodes keep their edges and persisted layout; hidden inputs reappear during wiring.
+  await page.evaluate((text) => window.nect.load(text), initialDocument);
+  const compactNodes = await page.evaluate(() => window.nect.document.layers[0].nodes);
+  const compactSVG = await page.evaluate(() => window.nect.export());
+  const compactBoolean = compactNodes.find((n) => n.type === 'Boolean');
+  const compactCircle = compactNodes.find((n) => n.type === 'Circle');
+  const compactRectangle = compactNodes.find((n) => n.type === 'Rectangle');
+  for (const n of compactNodes) await page.locator(`[data-collapse="${n.id}"]`).click();
+  assert.equal(await page.locator('.node.collapsed').count(), compactNodes.length);
+  assert.equal(await page.evaluate(() => window.nect.export()), compactSVG);
+  for (const n of compactNodes) {
+    const actual = await page.evaluate(
+      (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id),
+      n.id,
+    );
+    assert.equal(actual.width, n.width);
+    assert.deepEqual(actual.position, n.position);
+  }
+  assert.equal(await page.locator('.node.selected').getAttribute('data-id'), compactCircle.id);
+  const compactToggle = page.locator(`[data-collapse="${compactCircle.id}"]`);
+  await compactToggle.focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await compactToggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(await compactToggle.evaluate((el) => el === document.activeElement), true);
+  await page.keyboard.press('Enter');
+  assert.equal(await compactToggle.getAttribute('aria-expanded'), 'false');
+  const compactInput = page.locator(`.node[data-id="${compactBoolean.id}"] .input`);
+  const compactBoxes = await compactInput.evaluateAll((els) =>
+    els.map((el) => {
+      const r = el.getBoundingClientRect();
+      return { y: r.y, height: r.height };
+    }),
+  );
+  assert.equal(compactBoxes.length, 2);
+  assert.ok(compactBoxes[1].y - compactBoxes[0].y >= 24);
+  assert.ok(
+    (await page.locator(`.node[data-id="${compactBoolean.id}"]`).boundingBox()).height < 100,
+  );
+  await assertBorderSockets();
+  await page.screenshot({ path: 'test-results/editor-nodes-collapsed.png', fullPage: true });
+  await page.locator(`[data-source="${compactCircle.id}"]`).dispatchEvent('pointerdown');
+  const compactB = page.locator(`.graph [data-node="${compactBoolean.id}"][data-key="b"]`);
+  await compactB.dispatchEvent('pointerup');
+  assert.equal(
+    await page.evaluate(
+      (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).params.b.source,
+      compactBoolean.id,
+    ),
+    compactCircle.id,
+  );
+  await compactB.locator('.input').dispatchEvent('contextmenu');
+  assert.equal(await compactB.locator('.available-input').isVisible(), false);
+  const beforeCancelledWire = await page.evaluate(() => JSON.stringify(window.nect.document));
+  await page.locator(`[data-source="${compactRectangle.id}"]`).dispatchEvent('pointerdown');
+  assert.equal(await compactB.locator('.available-input').isVisible(), true);
+  await assertBorderSockets();
+  await page.screenshot({ path: 'test-results/editor-collapsed-wiring.png', fullPage: true });
+  await page.evaluate(() => document.dispatchEvent(new PointerEvent('pointercancel')));
+  assert.equal(await compactB.locator('.available-input').isVisible(), false);
+  assert.equal(
+    await page.evaluate(() => JSON.stringify(window.nect.document)),
+    beforeCancelledWire,
+  );
+  await page.locator(`[data-source="${compactRectangle.id}"]`).dispatchEvent('pointerdown');
+  await compactB.locator('.available-input').dispatchEvent('pointerup');
+  await assertBorderSockets();
+  assert.equal(await page.evaluate(() => window.nect.export()), compactSVG);
+  const compactSaved = await page.evaluate(() => JSON.stringify(window.nect.document));
+  await page.evaluate((text) => window.nect.load(text), compactSaved);
+  assert.equal(await page.locator('.node.collapsed').count(), compactNodes.length);
+  await page.locator(`[data-collapse="${compactBoolean.id}"]`).click();
+  await page.locator(`[data-operation="${compactBoolean.id}"]`).selectOption('union');
+  await page.waitForTimeout(50);
+  assert.notEqual(await page.evaluate(() => window.nect.export()), compactSVG);
+  await assertBorderSockets();
+  await page.screenshot({ path: 'test-results/editor-node-expanded.png', fullPage: true });
   assert.deepEqual(errors, []);
   console.log(
     'PASS: render, parameter propagation, undo/redo, dynamic socket connection/disconnection, pen handles/close, Curve → Boolean → Remap → Output, save/reload, rejected load preservation, SVG download. No page errors.',

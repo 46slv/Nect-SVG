@@ -30,6 +30,8 @@ Layer: `{id, name, visible, locked, fill, nodes, output}`. Layer order is paint 
 
 Node: `{id, type, name, position, params, points, operation, edits, text, font}`. `position` is graph UI position, not artwork position.
 
+Optional `width` and `collapsed` fields hold node-card presentation state. `collapsed` must be Boolean when present and defaults to expanded for older files. Both are excluded from geometry cache signatures and survive JSON roundtrips.
+
 Parameter: `{type, value, expression, locked, source?}`. Types: Scalar, Vector2, Boolean, Path. Resolution order is source connection, expression, direct fallback. Connected fields cannot directly edit fallback through the UI. Disconnection restores the previous expression/value. Vector expressions use `xExpression; yExpression`. Path fallback is null; paths must come from graph edges.
 
 Point: `{id, position:Parameter, handleA:Parameter, handleB:Parameter, handleType}`. Handles are relative vectors. `corner`, `smooth`, `symmetric` affect interactive handle movement. Curve points are owned and edited by the Curve generator, without requiring Remap.

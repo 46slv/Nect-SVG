@@ -44,6 +44,7 @@ export function node(type, x = 40, y = 40) {
     name: type,
     position: [x, y],
     width: 264,
+    collapsed: false,
     params: clone(definitions[type]),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation: 'subtract',
@@ -555,6 +556,8 @@ export function validate(doc) {
       vec(n.position);
       if (n.width !== undefined && (!Number.isFinite(n.width) || n.width < 220 || n.width > 550))
         throw Error('Invalid node width');
+      if (n.collapsed !== undefined && typeof n.collapsed !== 'boolean')
+        throw Error('Invalid node collapse state');
       text(n.text);
       text(n.font);
       if (n.rawPath !== undefined) text(n.rawPath);

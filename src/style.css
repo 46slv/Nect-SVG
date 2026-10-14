@@ -254,6 +254,16 @@ header {
   flex: 1;
   font-size: 12px;
 }
+.node-collapse {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  font-size: 14px;
+  line-height: 1;
+}
 .type-tag {
   font-size: 10px;
   color: var(--muted);
@@ -289,7 +299,8 @@ header {
 .node .field-controls {
   position: relative;
 }
-.node .socket.input {
+.node .socket.input,
+.node .socket.available-input {
   left: calc(-1 * (var(--body-inset) + 1px));
   top: 50%;
   transform: translate(-50%, -50%);
@@ -306,6 +317,25 @@ header {
 }
 .node-body {
   padding: var(--body-inset);
+}
+.node.collapsed .compact-body {
+  padding: 0 var(--body-inset);
+}
+.node.collapsed .compact-field {
+  display: block;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+}
+.node.collapsed .compact-field:not(.connected):not(.compatible) {
+  display: none;
+}
+.node.collapsed .compact-field.compatible {
+  background: #edf4f8;
+}
+.node.collapsed .compact-field .socket {
+  left: calc(-1 * (var(--body-inset) + 1px));
+  top: 50%;
 }
 .field {
   display: flex;

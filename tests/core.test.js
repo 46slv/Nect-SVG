@@ -230,6 +230,18 @@ test('cached geometry cannot be mutated by a consumer', () => {
   r.path.contours[0].points[0].position[0] = 99999;
   assert.equal(evaluate(l).path.contours[0].points[0].position[0], expected);
 });
+test('node collapse state roundtrips without invalidating geometry or legacy documents', () => {
+  const [doc, l] = scene();
+  const before = pathData(evaluate(l).path);
+  l.nodes[2].collapsed = true;
+  assert.equal(evaluate(l).stats.computed, 0);
+  assert.equal(pathData(evaluate(l).path), before);
+  assert.equal(deserialize(serialize(doc)).layers[0].nodes[2].collapsed, true);
+  delete l.nodes[2].collapsed;
+  assert.equal(deserialize(serialize(doc)).layers[0].nodes[2].collapsed, undefined);
+  l.nodes[2].collapsed = 'yes';
+  assert.throws(() => deserialize(serialize(doc)), /collapse state/);
+});
 test('excessive graph depth and expression input fail cleanly', () => {
   let [, l] = scene(),
     source = l.nodes[0];

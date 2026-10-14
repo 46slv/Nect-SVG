@@ -43,3 +43,9 @@ Remap point checkboxes select an explicit subset for a shared Δ Position. “Mo
 Pointer cancellation restores the document snapshot from before the active drag, clears pending wiring and redraws without adding or consuming undo/redo entries. A later pointer move or release cannot resume the cancelled gesture. Ordinary pointer release still commits one undo entry.
 
 Graph input socket centers sit on the left card border at their value row; output sockets sit on the right header border. Disconnected inputs remain hidden, and Inspector sockets retain their inline placement. Expanded hit targets follow the socket elements, and wires use their measured centers. Cards allow their ports to overflow visibly; the graph keeps a margin around zero-position cards. A dedicated bottom-right drag handle retains horizontal resizing, while the outer graph viewport retains scrolling for tall Curve and Remap cards.
+
+## Collapsed nodes
+
+The title's triangle collapses or expands a node without changing its name, width, position, selection or geometry. Collapsed cards keep their output and connected input ports, with 24 px between input centers. During output dragging, compatible disconnected inputs appear temporarily so a collapsed node can be connected or rewired directly. Cancellation hides those temporary targets again. Port tooltips identify their parameter keys and types; right-click and input dragging still disconnect.
+
+Expansion restores parameter editing and the session's per-point disclosure state. The optional Boolean `collapsed` field is saved in schemaVersion 1 JSON; older files without it open expanded. It is editor state excluded from the evaluation cache key. Collapse/expand is one undoable change and obeys the composition lock.

@@ -184,14 +184,31 @@ function remapFields(n, result) {
     `<div class="batch-edit"><p>${batch.selected.size} points selected · Δ position</p><div class="field-controls">${batch.delta.map((v, axis) => `<input type="number" step="any" data-batch-axis="${axis}" data-node="${n.id}" aria-label="Batch delta ${axis ? 'Y' : 'X'}" value="${v}">`).join('')}</div><button class="mini" data-apply-batch="${n.id}">Move selected points</button><button class="mini" data-clear-batch="${n.id}">Deselect points</button></div><button class="mini" data-clear-edits="${n.id}">Clear vertex edits</button>`
   );
 }
-function nodeHTML(n, result) {
-  return `<section class="node ${selection.has(n.id) ? 'selected' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px"><div class="node-head"><strong>${esc(n.name)}</strong><span class="type-tag">${outputType(n)}</span><button class="socket output" data-source="${n.id}" aria-label="${esc(n.name)} output" title="Drag output to a compatible field"></button></div><div class="node-body">${n.type === 'Boolean' ? `<div class="field"><label>Operation</label><select data-operation="${n.id}">${['union', 'subtract', 'intersect', 'difference'].map((op) => `<option ${n.operation === op ? 'selected' : ''}>${op}</option>`).join('')}</select></div>` : ''}${n.type === 'Text' ? `<div class="field"><label>Text</label><input class="string" data-text="${n.id}" value="${esc(n.text)}" aria-label="Text content"></div>` : ''}${Object.entries(
+function nodeHeader(n) {
+  return `<div class="node-head"><button class="node-collapse" data-collapse="${n.id}" aria-expanded="${!n.collapsed}" aria-label="Toggle ${esc(n.name)} node details" title="${n.collapsed ? 'Expand' : 'Collapse'} node">${n.collapsed ? '▸' : '▾'}</button><strong>${esc(n.name)}</strong><span class="type-tag">${outputType(n)}</span><button class="socket output" data-source="${n.id}" aria-label="${esc(n.name)} output" title="Drag output to a compatible field"></button></div>`;
+}
+function compactFields(n) {
+  return parameters(n)
+    .map(
+      ([key, q]) =>
+        `<div class="field compact-field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><button class="socket ${q.source ? 'input' : 'available-input'}" ${q.source ? '' : 'data-connect-menu'} aria-label="${esc(n.name + ' ' + key)} input" title="${esc(key)} · ${q.type}${q.source ? ' · connected; drag or right-click to disconnect' : ' · connect input'}"></button></div>`,
+    )
+    .join('');
+}
+function expandedNodeBody(n, result) {
+  return `<div class="node-body">${n.type === 'Boolean' ? `<div class="field"><label>Operation</label><select data-operation="${n.id}">${['union', 'subtract', 'intersect', 'difference'].map((op) => `<option ${n.operation === op ? 'selected' : ''}>${op}</option>`).join('')}</select></div>` : ''}${n.type === 'Text' ? `<div class="field"><label>Text</label><input class="string" data-text="${n.id}" value="${esc(n.text)}" aria-label="Text content"></div>` : ''}${Object.entries(
     n.params,
   )
     .map(([k, q]) => field(n, k, q))
     .join(
       '',
-    )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${outputType(n) === 'Path' && n.type !== 'Output' ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${n.type !== 'Output' ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div><div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
+    )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${outputType(n) === 'Path' && n.type !== 'Output' ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${n.type !== 'Output' ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div>`;
+}
+function nodeHTML(n, result) {
+  const body = n.collapsed
+    ? `<div class="node-body compact-body">${compactFields(n)}</div><div hidden><button data-duplicate="${n.id}">Duplicate</button>${n.type !== 'Output' ? `<button data-delete="${n.id}">Delete</button>` : ''}</div>`
+    : expandedNodeBody(n, result);
+  return `<section class="node ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
 function render(resetView = false) {
   needsRender = false;
@@ -612,6 +629,11 @@ app.addEventListener('click', async (e) => {
   }
   if (d.preview)
     change(() => connect(current(), d.preview, current().output, 'path'), 'Output connected');
+  if (d.collapse)
+    change(() => {
+      const nn = current().nodes.find((n) => n.id === d.collapse);
+      nn.collapsed = !nn.collapsed;
+    }, 'Node display updated');
   if (d.delete)
     change(() => {
       current().nodes = current().nodes.filter((x) => x.id !== d.delete);
@@ -800,6 +822,8 @@ app.addEventListener('pointerdown', (e) => {
       .forEach((f) =>
         f.classList.toggle('compatible', f.dataset.type === type && f.dataset.node !== id),
       );
+    updateGraphBounds();
+    drawWires();
     e.preventDefault();
     return;
   }
@@ -1092,6 +1116,8 @@ document.addEventListener('pointerup', (e) => {
     let w = wiring;
     wiring = null;
     document.querySelectorAll('.compatible').forEach((x) => x.classList.remove('compatible'));
+    updateGraphBounds();
+    drawWires();
     let f = e.target.closest('.graph .field');
     if (w.disconnect) {
       if (!f)

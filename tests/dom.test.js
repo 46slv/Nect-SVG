@@ -247,5 +247,56 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   );
   assert.equal(JSON.stringify(win.nect.document), serialized);
   assert.equal(document.querySelector('[data-action="undo"]').disabled, true);
+
+  // Collapsing is persisted editor state; compact inputs keep their original graph keys.
+  const bool = win.nect.document.layers[0].nodes.find((n) => n.type === 'Boolean');
+  const boolPosition = [...bool.position];
+  const beforeCollapse = win.nect.export();
+  const selectedBefore = document.querySelector('.node.selected').dataset.id;
+  document.querySelector(`[data-collapse="${bool.id}"]`).click();
+  assert.equal(win.nect.document.layers[0].nodes.find((n) => n.id === bool.id).collapsed, true);
+  assert.equal(
+    document.querySelector(`.node[data-id="${bool.id}"]`).classList.contains('collapsed'),
+    true,
+  );
+  assert.equal(document.querySelectorAll(`.node[data-id="${bool.id}"] .input`).length, 2);
+  assert.equal(document.querySelector(`.node[data-id="${bool.id}"] select`), null);
+  assert.equal(document.querySelector('.node.selected').dataset.id, selectedBefore);
+  assert.equal(win.nect.export(), beforeCollapse);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(win.nect.document.layers[0].nodes.find((n) => n.id === bool.id).collapsed, false);
+  document.querySelector('[data-action="redo"]').click();
+  pointer(document.querySelector(`[data-source="${circle.id}"]`), 'pointerdown');
+  pointer(document.querySelector(`.graph [data-node="${bool.id}"][data-key="b"]`), 'pointerup');
+  assert.equal(
+    win.nect.document.layers[0].nodes.find((n) => n.id === bool.id).params.b.source,
+    circle.id,
+  );
+  const collapsedSaved = JSON.stringify(win.nect.document);
+  win.nect.load(collapsedSaved);
+  assert.equal(
+    document.querySelector(`[data-collapse="${bool.id}"]`).getAttribute('aria-expanded'),
+    'false',
+  );
+  document.querySelector(`.graph [data-node="${bool.id}"][data-key="b"] .input`).dispatchEvent(
+    new win.MouseEvent('contextmenu', { bubbles: true }),
+  );
+  assert.equal(
+    document.querySelector(`.graph [data-node="${bool.id}"][data-key="b"] .input`),
+    null,
+  );
+  const rectangleId = win.nect.document.layers[0].nodes.find((n) => n.type === 'Rectangle').id;
+  pointer(document.querySelector(`[data-source="${rectangleId}"]`), 'pointerdown');
+  const available = document.querySelector(`.graph [data-node="${bool.id}"][data-key="b"]`);
+  assert.equal(available.classList.contains('compatible'), true);
+  pointer(available, 'pointerup');
+  assert.equal(document.querySelectorAll(`.node[data-id="${bool.id}"] .input`).length, 2);
+  document.querySelector(`[data-collapse="${bool.id}"]`).click();
+  assert.ok(document.querySelector(`.node[data-id="${bool.id}"] [data-operation]`));
+  assert.deepEqual(
+    win.nect.document.layers[0].nodes.find((n) => n.id === bool.id).position,
+    boolPosition,
+  );
+  assert.equal(win.nect.document.layers[0].nodes.find((n) => n.id === bool.id).width, bool.width);
   await win.happyDOM.close();
 });
