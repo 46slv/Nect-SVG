@@ -66,6 +66,9 @@ export const definitions = {
     rotation: p('Scalar', 0),
   },
   Value: { value: p('Scalar', 100) },
+  Math: { a: p('Scalar', 0), b: p('Scalar', 0), min: p('Scalar', 0), max: p('Scalar', 1) },
+  'Separate Vector': { vector: p('Vector2', [0, 0]) },
+  'Combine Vector': { x: p('Scalar', 0), y: p('Scalar', 0) },
   Toggle: { value: p('Boolean', true) },
   Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
   Vector: { value: p('Vector2', [300, 250]) },
@@ -106,7 +109,7 @@ export function node(type, x = 40, y = 40) {
     collapsed: false,
     params: clone(definitions[type]),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
-    operation: 'subtract',
+    operation: type === 'Math' ? 'add' : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -146,13 +149,23 @@ export function document() {
     layers: [layer()],
   };
 }
-export function outputType(n) {
+export function outputPorts(n) {
+  return n.type === 'Separate Vector'
+    ? [
+        { id: 'x', label: 'X', type: 'Scalar' },
+        { id: 'y', label: 'Y', type: 'Scalar' },
+      ]
+    : [{ id: undefined, label: '', type: outputType(n) }];
+}
+export function outputType(n, port) {
+  if (n.type === 'Separate Vector') return ['x', 'y'].includes(port) ? 'Scalar' : undefined;
+  if (port !== undefined) return undefined;
   if (['Fill', 'Stroke', 'Output'].includes(n.type)) return 'PaintedPath';
   if (n.type === 'Color') return 'Color';
   if (n.type === 'Image' || n.type === 'Image Output') return 'Image';
-  return n.type === 'Value' || n.type === 'Expression'
+  return ['Value', 'Expression', 'Math'].includes(n.type)
     ? 'Scalar'
-    : n.type === 'Vector'
+    : ['Vector', 'Combine Vector'].includes(n.type)
       ? 'Vector2'
       : n.type === 'Toggle'
         ? 'Boolean'
@@ -171,6 +184,49 @@ export function parameters(n) {
       for (const [key, value] of Object.entries(edit.params))
         entries.push([`remap.${edit.pointId}.${key}`, value]);
   return entries;
+}
+export const operationOptions = {
+  Boolean: ['union', 'subtract', 'intersect', 'difference'],
+  Math: ['add', 'subtract', 'multiply', 'divide', 'min', 'max', 'abs', 'clamp'],
+};
+export function activeParameters(n) {
+  const entries = parameters(n);
+  if (n.type !== 'Math') return entries;
+  const keys =
+    n.operation === 'abs' ? ['a'] : n.operation === 'clamp' ? ['a', 'min', 'max'] : ['a', 'b'];
+  return entries.filter(([key]) => keys.includes(key));
+}
+export function setOperation(layer, nodeId, operation) {
+  const n = layer.nodes.find((n) => n.id === nodeId);
+  if (!n || !operationOptions[n.type]?.includes(operation)) throw Error('Invalid operation');
+  for (const target of layer.nodes)
+    for (const [, q] of parameters(target))
+      if (
+        q.source === nodeId &&
+        !socketCompatible(outputType({ ...n, operation }, q.sourcePort), q.type)
+      )
+        throw Error('Operation would break a connected socket');
+  n.operation = operation;
+}
+function mathValue(operation, read) {
+  if (!operationOptions.Math.includes(operation)) throw Error('Invalid Math operation');
+  const a = read('a');
+  if (operation === 'abs') return Math.abs(a);
+  if (operation === 'clamp') {
+    const min = read('min'),
+      max = read('max');
+    if (min > max) throw Error('Clamp minimum exceeds maximum');
+    return Math.min(max, Math.max(min, a));
+  }
+  const b = read('b');
+  return {
+    add: () => a + b,
+    subtract: () => a - b,
+    multiply: () => a * b,
+    divide: () => (b === 0 ? 0 : a / b),
+    min: () => Math.min(a, b),
+    max: () => Math.max(a, b),
+  }[operation]();
 }
 export function enableRemapPoint(n, input, pointId) {
   if (
@@ -391,209 +447,225 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   let computed = 0,
     reused = 0;
   const byId = new Map(layer.nodes.map((n) => [n.id, n]));
-  function run(id) {
+  function run(id, port) {
+    const n = byId.get(id);
+    if (!n || !outputType(n, port)) throw Error('Missing output socket');
+    const value = runNode(id);
+    return n.type === 'Separate Vector' ? value[port === 'x' ? 0 : 1] : value;
+  }
+  function runNode(id) {
     if (values.has(id)) return values.get(id);
     if (active.has(id)) throw Error('Cycle detected');
     if (active.size >= 256) throw Error('Graph depth exceeds 256 nodes');
     let n = byId.get(id);
     if (!n) throw Error('Missing source node');
     active.add(id);
-    const deps = parameters(n)
-      .filter(([, q]) => q.source)
-      .map(([, q]) => q.source);
-    for (const dep of deps) run(dep);
-    const cacheKey = JSON.stringify([
-      n.type,
-      n.params,
-      n.type === 'Fill' ? layer.fill : null,
-      n.points,
-      n.operation,
-      n.edits,
-      n.text,
-      n.font,
-      n.writingMode,
-      n.rawPath,
-      n.asset,
-      n.asset && imageAssets[n.asset]
-        ? [imageAssets[n.asset].width, imageAssets[n.asset].height]
-        : null,
-      deps.map((dep) => [dep, versions.get(dep)]),
-    ]);
-    const existing = cache.get(id);
-    if (existing && existing.key === cacheKey && existing.font === fonts[n.font]) {
-      reused++;
-      const result = clone(existing.value);
-      values.set(id, result);
-      versions.set(id, existing.version);
-      active.delete(id);
-      warnings.push(...existing.warnings);
-      return result;
-    }
-    const warningStart = warnings.length;
-    computed++;
-    function read(key) {
-      let q = parameter(n, key);
-      if (!q) throw Error(`Missing parameter ${key}`);
-      if (q.type === 'Color' && q.expression) throw Error('Color expressions are not supported');
-      let value = q.source
-        ? run(q.source)
-        : q.expression
-          ? q.type === 'Vector2'
-            ? q.expression.split(';').map(expression)
-            : expression(q.expression)
-          : n.type === 'Fill' && key === 'color' && q.value === null
-            ? { hex: layer.fill, alpha: 1 }
-            : clone(q.value);
-      if (q.source && !socketCompatible(outputType(byId.get(q.source)), q.type))
-        throw Error('Incompatible socket types');
-      assertValue(q.type, value);
-      return value;
-    }
-    let result;
-    if (['Value', 'Vector', 'Expression', 'Toggle', 'Color'].includes(n.type))
-      result = read('value');
-    else if (n.type === 'Circle' || n.type === 'Ellipse' || n.type === 'Rectangle') {
-      const center = read('center');
-      let item;
-      if (n.type === 'Circle')
-        item = new scope.Path.Circle({
-          center,
-          radius: Math.max(0, read('radius')),
-          insert: false,
-        });
-      else {
-        let size = read('size').map(Math.abs),
-          rectangle = new scope.Rectangle(
-            center[0] - size[0] / 2,
-            center[1] - size[1] / 2,
-            ...size,
-          );
-        item =
-          n.type === 'Ellipse'
-            ? new scope.Path.Ellipse({ rectangle, insert: false })
-            : new scope.Path.Rectangle({ rectangle, insert: false });
+    try {
+      const inputs = activeParameters(n);
+      const deps = inputs.filter(([, q]) => q.source).map(([, q]) => q.source);
+      for (const dep of deps) runNode(dep);
+      const cacheKey = JSON.stringify([
+        n.type,
+        inputs,
+        n.type === 'Fill' ? layer.fill : null,
+        n.points,
+        n.operation,
+        n.edits,
+        n.text,
+        n.font,
+        n.writingMode,
+        n.rawPath,
+        n.asset,
+        n.asset && imageAssets[n.asset]
+          ? [imageAssets[n.asset].width, imageAssets[n.asset].height]
+          : null,
+        deps.map((dep) => [dep, versions.get(dep)]),
+      ]);
+      const existing = cache.get(id);
+      if (existing && existing.key === cacheKey && existing.font === fonts[n.font]) {
+        reused++;
+        const result = clone(existing.value);
+        values.set(id, result);
+        versions.set(id, existing.version);
+        active.delete(id);
+        warnings.push(...existing.warnings);
+        return result;
       }
-      result = fromPaper(item, n.id);
-      item.remove();
-    } else if (n.type === 'Image') {
-      if (!Object.hasOwn(imageAssets, n.asset)) throw Error('Missing image asset');
-      const size = read('size');
-      if (size.some((v) => v <= 0 || v > 100000))
-        throw Error('Image size must be positive and at most 100000');
-      result = { kind: 'image', asset: n.asset, position: read('position'), size };
-    } else if (n.type === 'Curve')
-      result = {
-        contours: [
-          {
-            id: n.id,
-            closed: read('closed'),
-            points: n.points.map((pt) => ({
-              id: pt.id,
-              position: read(`${pt.id}.position`),
-              handleA: read(`${pt.id}.handleA`),
-              handleB: read(`${pt.id}.handleB`),
-            })),
-          },
-        ],
-      };
-    else if (n.type === 'Text') {
-      let font = fonts[n.font];
-      if (!font) throw Error('Font is still loading or unavailable');
-      const layout = layoutText(font, n.text, {
-        position: read('position'),
-        size: read('size'),
-        writingMode: n.writingMode,
-        letterSpacing: n.params.letterSpacing ? read('letterSpacing') : 0,
-        lineSpacing: n.params.lineSpacing ? read('lineSpacing') : 1.2,
-      });
-      warnings.push(...layout.warnings.map((warning) => `${n.name}: ${warning}`));
-      const d = layout.path.toPathData(5);
-      let item = new scope.CompoundPath({ pathData: d, insert: false });
-      result = fromPaper(item, n.id);
-      result.unstable = true;
-      result.fingerprint = signature(result);
-      item.remove();
-    } else if (n.type === 'Imported Path') {
-      result = parsePath(n.rawPath, n.id);
-      result.unstable = true;
-      result.fingerprint = signature(result);
-    } else if (n.type === 'Boolean') {
-      let a = read('a'),
-        b = read('b');
-      if (!a || !b) throw Error('Connect both Boolean paths');
-      if ([...a.contours, ...b.contours].some((c) => !c.closed))
-        throw Error('Boolean requires closed contours');
-      let pa = toPaper(a),
-        pb = toPaper(b);
-      let op = {
-        union: 'unite',
-        subtract: 'subtract',
-        intersect: 'intersect',
-        difference: 'exclude',
-      }[n.operation];
-      if (!op) throw Error('Unknown Boolean operation');
-      let r = pa[op](pb, { insert: false });
-      result = fromPaper(r, n.id);
-      result.unstable = true;
-      result.fingerprint = signature(result);
-      pa.remove();
-      pb.remove();
-      r.remove();
-    } else {
-      result = read('path');
-      if (!result) throw Error(`Connect a ${n.params.path.type} input`);
-      result = clone(result);
-      if (n.type === 'Fill') result.fill = read('color');
-      if (n.type === 'Stroke') {
-        const width = read('width');
-        if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
-        result.stroke = { ...read('color'), width };
+      const warningStart = warnings.length;
+      computed++;
+      function read(key) {
+        let q = parameter(n, key);
+        if (!q) throw Error(`Missing parameter ${key}`);
+        if (q.type === 'Color' && q.expression) throw Error('Color expressions are not supported');
+        let value = q.source
+          ? run(q.source, q.sourcePort)
+          : q.expression
+            ? q.type === 'Vector2'
+              ? q.expression.split(';').map(expression)
+              : expression(q.expression)
+            : n.type === 'Fill' && key === 'color' && q.value === null
+              ? { hex: layer.fill, alpha: 1 }
+              : clone(q.value);
+        if (q.source && !socketCompatible(outputType(byId.get(q.source), q.sourcePort), q.type))
+          throw Error('Incompatible socket types');
+        assertValue(q.type, value);
+        return value;
       }
-      if (n.type === 'Path Remap') {
-        let offset = read('offset');
-        for (const contour of result.contours)
-          for (const pt of contour.points) pt.position = pt.position.map((v, i) => v + offset[i]);
-        for (const edit of n.edits) {
-          let pt = result.contours.flatMap((c) => c.points).find((p) => p.id === edit.pointId);
-          if (!pt || (result.unstable && edit.fingerprint !== result.fingerprint)) {
-            warnings.push(
-              `${n.name}: vertex edit suspended because its source changed. Rebind explicitly.`,
+      let result;
+      if (['Value', 'Vector', 'Expression', 'Toggle', 'Color'].includes(n.type))
+        result = read('value');
+      else if (n.type === 'Separate Vector') result = read('vector');
+      else if (n.type === 'Math') {
+        result = mathValue(n.operation, read);
+        assertValue('Scalar', result);
+      } else if (n.type === 'Combine Vector') {
+        result = [read('x'), read('y')];
+        assertValue('Vector2', result);
+      } else if (n.type === 'Circle' || n.type === 'Ellipse' || n.type === 'Rectangle') {
+        const center = read('center');
+        let item;
+        if (n.type === 'Circle')
+          item = new scope.Path.Circle({
+            center,
+            radius: Math.max(0, read('radius')),
+            insert: false,
+          });
+        else {
+          let size = read('size').map(Math.abs),
+            rectangle = new scope.Rectangle(
+              center[0] - size[0] / 2,
+              center[1] - size[1] / 2,
+              ...size,
             );
-            continue;
-          }
-          for (const key of ['position', 'handleA', 'handleB']) {
-            const delta = edit.params?.[key] ? read(`remap.${edit.pointId}.${key}`) : edit[key];
-            if (delta) pt[key] = pt[key].map((v, i) => v + delta[i]);
-          }
+          item =
+            n.type === 'Ellipse'
+              ? new scope.Path.Ellipse({ rectangle, insert: false })
+              : new scope.Path.Rectangle({ rectangle, insert: false });
         }
-      } else if (n.type === 'Transform') {
-        let obj = toPaper(result);
-        obj.scale(read('scale'), [0, 0]);
-        obj.rotate(read('rotation'), [0, 0]);
-        obj.translate(read('offset'));
-        let transformed = fromPaper(obj, n.id);
-        transformed.contours.forEach((c, ci) => {
-          c.id = result.contours[ci].id;
-          c.points.forEach((p, pi) => (p.id = result.contours[ci].points[pi].id));
+        result = fromPaper(item, n.id);
+        item.remove();
+      } else if (n.type === 'Image') {
+        if (!Object.hasOwn(imageAssets, n.asset)) throw Error('Missing image asset');
+        const size = read('size');
+        if (size.some((v) => v <= 0 || v > 100000))
+          throw Error('Image size must be positive and at most 100000');
+        result = { kind: 'image', asset: n.asset, position: read('position'), size };
+      } else if (n.type === 'Curve')
+        result = {
+          contours: [
+            {
+              id: n.id,
+              closed: read('closed'),
+              points: n.points.map((pt) => ({
+                id: pt.id,
+                position: read(`${pt.id}.position`),
+                handleA: read(`${pt.id}.handleA`),
+                handleB: read(`${pt.id}.handleB`),
+              })),
+            },
+          ],
+        };
+      else if (n.type === 'Text') {
+        let font = fonts[n.font];
+        if (!font) throw Error('Font is still loading or unavailable');
+        const layout = layoutText(font, n.text, {
+          position: read('position'),
+          size: read('size'),
+          writingMode: n.writingMode,
+          letterSpacing: n.params.letterSpacing ? read('letterSpacing') : 0,
+          lineSpacing: n.params.lineSpacing ? read('lineSpacing') : 1.2,
         });
-        transformed.unstable = result.unstable;
-        transformed.fingerprint = result.fingerprint;
-        result = transformed;
-        obj.remove();
+        warnings.push(...layout.warnings.map((warning) => `${n.name}: ${warning}`));
+        const d = layout.path.toPathData(5);
+        let item = new scope.CompoundPath({ pathData: d, insert: false });
+        result = fromPaper(item, n.id);
+        result.unstable = true;
+        result.fingerprint = signature(result);
+        item.remove();
+      } else if (n.type === 'Imported Path') {
+        result = parsePath(n.rawPath, n.id);
+        result.unstable = true;
+        result.fingerprint = signature(result);
+      } else if (n.type === 'Boolean') {
+        let a = read('a'),
+          b = read('b');
+        if (!a || !b) throw Error('Connect both Boolean paths');
+        if ([...a.contours, ...b.contours].some((c) => !c.closed))
+          throw Error('Boolean requires closed contours');
+        let pa = toPaper(a),
+          pb = toPaper(b);
+        let op = {
+          union: 'unite',
+          subtract: 'subtract',
+          intersect: 'intersect',
+          difference: 'exclude',
+        }[n.operation];
+        if (!op) throw Error('Unknown Boolean operation');
+        let r = pa[op](pb, { insert: false });
+        result = fromPaper(r, n.id);
+        result.unstable = true;
+        result.fingerprint = signature(result);
+        pa.remove();
+        pb.remove();
+        r.remove();
+      } else {
+        result = read('path');
+        if (!result) throw Error(`Connect a ${n.params.path.type} input`);
+        result = clone(result);
+        if (n.type === 'Fill') result.fill = read('color');
+        if (n.type === 'Stroke') {
+          const width = read('width');
+          if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
+          result.stroke = { ...read('color'), width };
+        }
+        if (n.type === 'Path Remap') {
+          let offset = read('offset');
+          for (const contour of result.contours)
+            for (const pt of contour.points) pt.position = pt.position.map((v, i) => v + offset[i]);
+          for (const edit of n.edits) {
+            let pt = result.contours.flatMap((c) => c.points).find((p) => p.id === edit.pointId);
+            if (!pt || (result.unstable && edit.fingerprint !== result.fingerprint)) {
+              warnings.push(
+                `${n.name}: vertex edit suspended because its source changed. Rebind explicitly.`,
+              );
+              continue;
+            }
+            for (const key of ['position', 'handleA', 'handleB']) {
+              const delta = edit.params?.[key] ? read(`remap.${edit.pointId}.${key}`) : edit[key];
+              if (delta) pt[key] = pt[key].map((v, i) => v + delta[i]);
+            }
+          }
+        } else if (n.type === 'Transform') {
+          let obj = toPaper(result);
+          obj.scale(read('scale'), [0, 0]);
+          obj.rotate(read('rotation'), [0, 0]);
+          obj.translate(read('offset'));
+          let transformed = fromPaper(obj, n.id);
+          transformed.contours.forEach((c, ci) => {
+            c.id = result.contours[ci].id;
+            c.points.forEach((p, pi) => (p.id = result.contours[ci].points[pi].id));
+          });
+          transformed.unstable = result.unstable;
+          transformed.fingerprint = result.fingerprint;
+          result = transformed;
+          obj.remove();
+        }
       }
+      active.delete(id);
+      values.set(id, result);
+      const version = ++revision;
+      versions.set(id, version);
+      cache.set(id, {
+        key: cacheKey,
+        font: fonts[n.font],
+        value: clone(result),
+        version,
+        warnings: warnings.slice(warningStart),
+      });
+      return result;
+    } finally {
+      active.delete(id);
     }
-    active.delete(id);
-    values.set(id, result);
-    const version = ++revision;
-    versions.set(id, version);
-    cache.set(id, {
-      key: cacheKey,
-      font: fonts[n.font],
-      value: clone(result),
-      version,
-      warnings: warnings.slice(warningStart),
-    });
-    return result;
   }
   let path = null,
     error = null;
@@ -605,16 +677,19 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   for (const id of cache.keys()) if (!byId.has(id)) cache.delete(id);
   return { path, error, warnings, values, run, stats: { computed, reused } };
 }
-export function connect(layer, sourceId, targetId, key, validating = false) {
+export function connect(layer, sourceId, targetId, key, validating = false, sourcePort) {
   let from = layer.nodes.find((n) => n.id === sourceId),
     to = layer.nodes.find((n) => n.id === targetId),
     q = to && parameter(to, key);
   if (!from || !q) throw Error('Missing socket');
   if (q.locked && !validating) throw Error('Parameter is locked');
-  if (!socketCompatible(outputType(from), q.type))
-    throw Error(`Cannot connect ${outputType(from)} to ${q.type}`);
-  const old = q.source;
+  if (!socketCompatible(outputType(from, sourcePort), q.type))
+    throw Error(`Cannot connect ${outputType(from, sourcePort)} to ${q.type}`);
+  const old = q.source,
+    oldPort = q.sourcePort;
   q.source = sourceId;
+  if (sourcePort !== undefined) q.sourcePort = sourcePort;
+  else delete q.sourcePort;
   const seen = new Set(),
     active = new Set();
   function visit(id) {
@@ -631,6 +706,8 @@ export function connect(layer, sourceId, targetId, key, validating = false) {
   } catch (e) {
     if (old) q.source = old;
     else delete q.source;
+    if (oldPort !== undefined) q.sourcePort = oldPort;
+    else delete q.sourcePort;
     throw e;
   }
 }
@@ -638,6 +715,7 @@ export function disconnect(n, key) {
   const q = parameter(n, key);
   if (q.locked) throw Error('Parameter is locked');
   delete q.source;
+  delete q.sourcePort;
 }
 // Upgrade on load/validation only; storage is never written by migration.
 export function migratePaint(doc) {
@@ -705,6 +783,8 @@ export function validate(doc) {
     if (typeof q.locked !== 'boolean') throw Error('Invalid lock state');
     if (q.source !== undefined && (typeof q.source !== 'string' || !idPattern.test(q.source)))
       throw Error('Invalid source ID');
+    if (q.sourcePort !== undefined && (!q.source || !['x', 'y'].includes(q.sourcePort)))
+      throw Error('Invalid source port');
   }
   if (!doc || ![1, 2].includes(doc.schemaVersion)) throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -758,8 +838,8 @@ export function validate(doc) {
         !Array.isArray(n.edits)
       )
         throw Error('Invalid node');
-      if (!['union', 'subtract', 'intersect', 'difference'].includes(n.operation))
-        throw Error('Invalid Boolean operation');
+      if (!(operationOptions[n.type] || operationOptions.Boolean).includes(n.operation))
+        throw Error('Invalid operation');
       // Older schema-v1 Text nodes omit spacing; migrate only the documented new fields.
       if (n.type === 'Text')
         for (const key of ['letterSpacing', 'lineSpacing'])
@@ -794,7 +874,8 @@ export function validate(doc) {
     if (!l.nodes.some((n) => n.id === l.output && ['Output', 'Image Output'].includes(n.type)))
       throw Error('Missing Output node');
     for (const n of l.nodes)
-      for (const [key, q] of parameters(n)) if (q.source) connect(l, q.source, n.id, key, true);
+      for (const [key, q] of parameters(n))
+        if (q.source) connect(l, q.source, n.id, key, true, q.sourcePort);
   }
   return doc;
 }

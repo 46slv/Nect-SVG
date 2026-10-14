@@ -23,8 +23,12 @@ import {
   sameDocument,
   definitions,
   parameters,
+  activeParameters,
+  operationOptions,
+  setOperation,
   parameter,
   outputType,
+  outputPorts,
   socketCompatible,
   evaluate,
   enableRemapPoint,
@@ -166,7 +170,7 @@ function field(n, key, q) {
   let displayed = q.value;
   if (source && renderEvaluation) {
     try {
-      displayed = renderEvaluation.run(source.id);
+      displayed = renderEvaluation.run(source.id, q.sourcePort);
     } catch {}
   }
   if (['Path', 'PaintedPath', 'Image'].includes(q.type))
@@ -191,7 +195,7 @@ function field(n, key, q) {
           `<input type="number" step="any" ${n.type === 'Stroke' && key === 'width' ? 'min="0" max="100000"' : ''} aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(v.toFixed?.(3) ?? v)}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
-  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name)} · connected value</span>` : ''}</div>`;
+  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + q.sourcePort.toUpperCase() : ''))} · connected value</span>` : ''}</div>`;
 }
 function remapFields(n, result) {
   let input;
@@ -228,10 +232,17 @@ function remapFields(n, result) {
   );
 }
 function nodeHeader(n) {
-  return `<div class="node-head"><button class="node-collapse" data-collapse="${n.id}" aria-expanded="${!n.collapsed}" aria-label="Toggle ${esc(n.name)} node details" title="${n.collapsed ? 'Expand' : 'Collapse'} node">${n.collapsed ? '▸' : '▾'}</button><strong>${esc(n.name)}</strong><span class="type-tag">${outputType(n)}</span><button class="socket output" data-source="${n.id}" aria-label="${esc(n.name)} output" title="Drag output to a compatible field"></button></div>`;
+  return `<div class="node-head"><button class="node-collapse" data-collapse="${n.id}" aria-expanded="${!n.collapsed}" aria-label="Toggle ${esc(n.name)} node details" title="${n.collapsed ? 'Expand' : 'Collapse'} node">${n.collapsed ? '▸' : '▾'}</button><strong>${esc(n.name)}</strong><span class="type-tag">${outputType(n) || 'Scalar X/Y'}</span>${outputPorts(
+    n,
+  )
+    .map(
+      (port) =>
+        `<span class="output-port">${port.label}<button class="socket output" data-source="${n.id}" ${port.id ? `data-source-port="${port.id}"` : ''} aria-label="${esc(n.name + (port.label ? ' ' + port.label : ''))} output" title="Drag output to a compatible field"></button></span>`,
+    )
+    .join('')}</div>`;
 }
 function compactFields(n) {
-  return parameters(n)
+  return activeParameters(n)
     .map(
       ([key, q]) =>
         `<div class="field compact-field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><button class="socket ${q.source ? 'input' : 'available-input'}" ${q.source ? '' : 'data-connect-menu'} aria-label="${esc(n.name + ' ' + key)} input" title="${esc(key)} · ${q.type}${q.source ? ' · connected; drag or right-click to disconnect' : ' · connect input'}"></button></div>`,
@@ -251,10 +262,14 @@ function textControls(n) {
       '',
     )}</select></div><button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p><div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><p class="font-note">letterSpacing: extra px per glyph. lineSpacing: × text size. Enter starts a new line or column. Vertical position is the first column center/top.</p></div>`;
 }
+function operationControls(n) {
+  const options = operationOptions[n.type];
+  if (!options) return '';
+  return `<div class="field"><label>Operation</label><select data-operation="${n.id}" aria-label="${esc(n.name)} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
+}
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${n.type === 'Boolean' ? `<div class="field"><label>Operation</label><select data-operation="${n.id}">${['union', 'subtract', 'intersect', 'difference'].map((op) => `<option ${n.operation === op ? 'selected' : ''}>${op}</option>`).join('')}</select></div>` : ''}${textControls(n)}${Object.entries(
-    n.params,
-  )
+  return `<div class="node-body">${operationControls(n)}${textControls(n)}${activeParameters(n)
+    .filter(([k]) => Object.hasOwn(n.params, k))
     .map(([k, q]) => field(n, k, q))
     .join(
       '',
@@ -333,10 +348,13 @@ function render(resetView = false) {
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n)}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${textControls(n)}${Object.entries(
-          n.params,
+      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${textControls(n)}${activeParameters(
+          n,
         )
-          .filter(([, q]) => !['Path', 'PaintedPath', 'Image'].includes(q.type))
+          .filter(
+            ([k, q]) =>
+              Object.hasOwn(n.params, k) && !['Path', 'PaintedPath', 'Image'].includes(q.type),
+          )
           .map(([k, q]) => field(n, k, q))
           .join('')}`
       : '<p>Select a node.</p>'
@@ -580,7 +598,9 @@ function drawWires() {
   for (const n of current().nodes)
     for (const [key, q] of parameters(n)) {
       if (!q.source) continue;
-      let from = graph.querySelector(`[data-source="${q.source}"]`),
+      let from = graph.querySelector(
+          `[data-source="${q.source}"]${q.sourcePort ? `[data-source-port="${q.sourcePort}"]` : ':not([data-source-port])'}`,
+        ),
         to = [...graph.querySelectorAll('.field')]
           .find((el) => el.dataset.node === n.id && el.dataset.key === key)
           ?.querySelector('.input');
@@ -934,10 +954,14 @@ app.addEventListener('click', async (e) => {
       q = parameter(nn, f.dataset.key);
     let dialog = document.createElement('dialog');
     dialog.innerHTML = `<h3>Connect ${esc(nn.name)} · ${esc(f.dataset.key)}</h3><p>Choose a ${q.type} source. Disconnect restores the saved value or expression.</p><select aria-label="Input source"><option value="">Disconnected</option>${current()
-      .nodes.filter((x) => x.id !== nn.id && socketCompatible(outputType(x), q.type))
-      .map(
-        (x) =>
-          `<option value="${x.id}" ${q.source === x.id ? 'selected' : ''}>${esc(x.name)} · ${x.id.slice(-4)}</option>`,
+      .nodes.filter((x) => x.id !== nn.id)
+      .flatMap((x) =>
+        outputPorts(x)
+          .filter((port) => socketCompatible(port.type, q.type))
+          .map(
+            (port) =>
+              `<option value="${esc(port.id ? JSON.stringify([x.id, port.id]) : x.id)}" ${q.source === x.id && q.sourcePort === port.id ? 'selected' : ''}>${esc(x.name + (port.label ? ' ' + port.label : ''))} · ${x.id.slice(-4)}</option>`,
+          ),
       )
       .join(
         '',
@@ -945,9 +969,14 @@ app.addEventListener('click', async (e) => {
     dialog.querySelector('[data-cancel]').onclick = () => dialog.remove();
     dialog.querySelector('[data-confirm]').onclick = () => {
       const source = dialog.querySelector('select').value;
+      const [sourceId, sourcePort] = source.startsWith('[')
+        ? JSON.parse(source)
+        : [source, undefined];
       change(
         () =>
-          source ? connect(current(), source, nn.id, f.dataset.key) : disconnect(nn, f.dataset.key),
+          source
+            ? connect(current(), sourceId, nn.id, f.dataset.key, false, sourcePort)
+            : disconnect(nn, f.dataset.key),
         'Connection updated',
       );
       dialog.remove();
@@ -993,7 +1022,11 @@ app.addEventListener('click', async (e) => {
     change(() => {
       current().nodes = current().nodes.filter((x) => x.id !== d.delete);
       for (const x of current().nodes)
-        for (const [, q] of parameters(x)) if (q.source === d.delete) delete q.source;
+        for (const [, q] of parameters(x))
+          if (q.source === d.delete) {
+            delete q.source;
+            delete q.sourcePort;
+          }
       if (selected === d.delete) selected = null;
     }, 'Node deleted');
   if (d.duplicate)
@@ -1226,7 +1259,7 @@ app.addEventListener('change', async (e) => {
   }
   change(
     () => {
-      if (d.operation) current().nodes.find((n) => n.id === d.operation).operation = el.value;
+      if (d.operation) setOperation(current(), d.operation, el.value);
       else if (d.text) current().nodes.find((n) => n.id === d.text).text = el.value;
       else if (d.font) current().nodes.find((n) => n.id === d.font).font = el.value;
       else if (d.writingMode)
@@ -1461,9 +1494,14 @@ app.addEventListener('pointerdown', (e) => {
     return;
   }
   if (e.target.closest('.output')) {
-    let id = e.target.closest('.output').dataset.source;
-    wiring = { source: id };
-    let type = outputType(current().nodes.find((n) => n.id === id));
+    const socket = e.target.closest('.output');
+    let id = socket.dataset.source,
+      port = socket.dataset.sourcePort;
+    wiring = { source: id, port };
+    let type = outputType(
+      current().nodes.find((n) => n.id === id),
+      port,
+    );
     document
       .querySelectorAll('.graph .field')
       .forEach((f) =>
@@ -1851,7 +1889,10 @@ document.addEventListener('pointerup', (e) => {
           'Disconnected; fallback restored',
         );
     } else if (f)
-      change(() => connect(current(), w.source, f.dataset.node, f.dataset.key), 'Connected');
+      change(
+        () => connect(current(), w.source, f.dataset.node, f.dataset.key, false, w.port),
+        'Connected',
+      );
     return;
   }
   if (drag) {

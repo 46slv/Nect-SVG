@@ -784,3 +784,21 @@ image.guide-layer-shape {
   font-size: 10px;
   color: #66717b;
 }
+
+/* Separate Vector keeps both named outputs visible when collapsed. */
+.node-head:has([data-source-port]) {
+  min-height: 68px;
+  padding-right: 42px;
+}
+.output-port:has([data-source-port]) {
+  position: absolute;
+  right: 0;
+  padding-right: 12px;
+  font-size: 11px;
+}
+.output-port:has([data-source-port='x']) {
+  top: 12px;
+}
+.output-port:has([data-source-port='y']) {
+  top: 42px;
+}
