@@ -613,8 +613,32 @@ function drawWires() {
         yy = (b.y + b.height / 2 - rect.y) / graphZoom;
       html += `<path class="wire" d="M${x},${y} C${x + 80},${y} ${xx - 80},${yy} ${xx},${yy}"/>`;
     }
+  if (wiring?.pointer) {
+    const target = wiring.disconnect && current().nodes.find((n) => n.id === wiring.node);
+    const q = target ? parameter(target, wiring.key) : null;
+    const source = q?.source || wiring.source,
+      port = q?.sourcePort || wiring.port;
+    const from = graph.querySelector(
+      `[data-source="${source}"]${port ? `[data-source-port="${port}"]` : ':not([data-source-port])'}`,
+    );
+    if (from) {
+      const a = from.getBoundingClientRect(),
+        x = (a.x + a.width / 2 - rect.x) / graphZoom,
+        y = (a.y + a.height / 2 - rect.y) / graphZoom,
+        xx = (wiring.pointer[0] - rect.x) / graphZoom,
+        yy = (wiring.pointer[1] - rect.y) / graphZoom;
+      html += `<path class="wire wire-preview" d="M${x},${y} C${x + 80},${y} ${xx - 80},${yy} ${xx},${yy}"/>`;
+    }
+  }
   svg.innerHTML = html;
 }
+app.addEventListener(
+  'scroll',
+  (e) => {
+    if (wiring && e.target.matches('.graph-scroll')) drawWires();
+  },
+  true,
+);
 function updateGraphBounds() {
   const graph = document.querySelector('.graph');
   if (!graph) return;
@@ -1497,19 +1521,24 @@ app.addEventListener('pointerdown', (e) => {
     const socket = e.target.closest('.output');
     let id = socket.dataset.source,
       port = socket.dataset.sourcePort;
-    wiring = { source: id, port };
+    if (current().locked) return;
+    document.querySelector('.graph-scroll').focus({ preventScroll: true });
+    wiring = { source: id, port, pointer: [e.clientX, e.clientY], pointerId: e.pointerId };
     let type = outputType(
       current().nodes.find((n) => n.id === id),
       port,
     );
-    document
-      .querySelectorAll('.graph .field')
-      .forEach((f) =>
-        f.classList.toggle(
-          'compatible',
-          socketCompatible(type, f.dataset.type) && f.dataset.node !== id,
-        ),
-      );
+    document.querySelectorAll('.graph .field').forEach((f) =>
+      f.classList.toggle(
+        'compatible',
+        socketCompatible(type, f.dataset.type) &&
+          f.dataset.node !== id &&
+          !parameter(
+            current().nodes.find((n) => n.id === f.dataset.node),
+            f.dataset.key,
+          )?.locked,
+      ),
+    );
     updateGraphBounds();
     drawWires();
     e.preventDefault();
@@ -1517,7 +1546,20 @@ app.addEventListener('pointerdown', (e) => {
   }
   if (e.target.closest('.input')) {
     let f = e.target.closest('.field');
-    wiring = { disconnect: true, node: f.dataset.node, key: f.dataset.key };
+    const q = parameter(
+      current().nodes.find((n) => n.id === f.dataset.node),
+      f.dataset.key,
+    );
+    if (current().locked || q.locked) return;
+    document.querySelector('.graph-scroll').focus({ preventScroll: true });
+    wiring = {
+      disconnect: true,
+      node: f.dataset.node,
+      key: f.dataset.key,
+      pointer: [e.clientX, e.clientY],
+      pointerId: e.pointerId,
+    };
+    drawWires();
     e.preventDefault();
     return;
   }
@@ -1781,6 +1823,12 @@ app.addEventListener('pointerdown', (e) => {
   } else notify('Select only shape, Text, Image or Curve generators to move them');
 });
 document.addEventListener('pointermove', (e) => {
+  if (wiring) {
+    if (wiring.pointerId !== undefined && wiring.pointerId !== e.pointerId) return;
+    wiring.pointer = [e.clientX, e.clientY];
+    drawWires();
+    return;
+  }
   if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
   if (drag.type === 'graph-pan') {
     const viewport = document.querySelector('.graph-scroll');
@@ -1868,10 +1916,15 @@ document.addEventListener('pointermove', (e) => {
   }
   updateCanvas();
 });
-document.addEventListener('pointercancel', cancelInteraction);
+document.addEventListener('pointercancel', (e) => {
+  const pointerId = wiring?.pointerId ?? drag?.pointerId;
+  if (pointerId !== undefined && pointerId !== e.pointerId) return;
+  cancelInteraction();
+});
 document.addEventListener('pointerup', (e) => {
   if (drag?.pointerId !== undefined && drag.pointerId !== e.pointerId) return;
   if (wiring) {
+    if (wiring.pointerId !== undefined && wiring.pointerId !== e.pointerId) return;
     let w = wiring;
     wiring = null;
     document.querySelectorAll('.compatible').forEach((x) => x.classList.remove('compatible'));

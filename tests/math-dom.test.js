@@ -60,6 +60,11 @@ test('synthetic math UI: distinct X/Y sockets, menus, active fields, collapse, d
     document
       .querySelector(`[data-source="${from}"]${port ? `[data-source-port="${port}"]` : ''}`)
       .dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+    assert.ok(document.querySelector('.wire-preview'));
+    document.dispatchEvent(
+      new win.PointerEvent('pointermove', { bubbles: true, clientX: 123, clientY: 234 }),
+    );
+    assert.match(document.querySelector('.wire-preview').getAttribute('d'), /123,234$/);
     field(to, key).dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, button: 0 }));
     await tick();
   };
@@ -106,5 +111,40 @@ test('synthetic math UI: distinct X/Y sockets, menus, active fields, collapse, d
   assert.deepEqual(win.nect.evaluate().run(combine), [5, 250]);
   win.nect.load(JSON.stringify(win.nect.document));
   assert.deepEqual(win.nect.evaluate().run(combine), [5, 250]);
+  const vm = await add('Vector Math');
+  await wire(vm, v, 'value');
+  const vmOp = () => document.querySelector(`.graph [data-operation="${vm}"]`);
+  const beforeReject = JSON.stringify(win.nect.document);
+  await change(vmOp(), 'length');
+  assert.equal(JSON.stringify(win.nect.document), beforeReject);
+  assert.equal(vmOp().value, 'add');
+  field(v, 'value')
+    .querySelector('.input')
+    .dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true }));
+  await tick();
+  await change(vmOp(), 'length');
+  assert.equal(field(vm, 'b'), null);
+  assert.equal(field(vm, 'scale'), null);
+  await wire(vm, combine, 'x');
+  await change(vmOp(), 'normalize');
+  assert.equal(win.nect.document.layers[0].nodes.find((n) => n.id === vm).operation, 'length');
+  assert.equal(vmOp().querySelector('option[selected]').value, 'length');
+  field(combine, 'x')
+    .querySelector('.input')
+    .dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true }));
+  await tick();
+  await change(vmOp(), 'scale');
+  assert.ok(field(vm, 'scale'));
+  assert.equal(field(vm, 'b'), null);
+  const beforeCancel = JSON.stringify(win.nect.document);
+  document
+    .querySelector(`[data-source="${separate}"][data-source-port="y"]`)
+    .dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+  assert.ok(document.querySelector('.wire-preview'));
+  document
+    .querySelector('.graph-scroll')
+    .dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(document.querySelector('.wire-preview'), null);
+  assert.equal(JSON.stringify(win.nect.document), beforeCancel);
   win.close();
 });

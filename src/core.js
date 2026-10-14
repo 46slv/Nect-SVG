@@ -67,6 +67,7 @@ export const definitions = {
   },
   Value: { value: p('Scalar', 100) },
   Math: { a: p('Scalar', 0), b: p('Scalar', 0), min: p('Scalar', 0), max: p('Scalar', 1) },
+  'Vector Math': { a: p('Vector2', [0, 0]), b: p('Vector2', [0, 0]), scale: p('Scalar', 1) },
   'Separate Vector': { vector: p('Vector2', [0, 0]) },
   'Combine Vector': { x: p('Scalar', 0), y: p('Scalar', 0) },
   Toggle: { value: p('Boolean', true) },
@@ -109,7 +110,7 @@ export function node(type, x = 40, y = 40) {
     collapsed: false,
     params: clone(definitions[type]),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
-    operation: type === 'Math' ? 'add' : 'subtract',
+    operation: ['Math', 'Vector Math'].includes(type) ? 'add' : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -160,6 +161,8 @@ export function outputPorts(n) {
 export function outputType(n, port) {
   if (n.type === 'Separate Vector') return ['x', 'y'].includes(port) ? 'Scalar' : undefined;
   if (port !== undefined) return undefined;
+  if (n.type === 'Vector Math')
+    return ['length', 'distance', 'dot'].includes(n.operation) ? 'Scalar' : 'Vector2';
   if (['Fill', 'Stroke', 'Output'].includes(n.type)) return 'PaintedPath';
   if (n.type === 'Color') return 'Color';
   if (n.type === 'Image' || n.type === 'Image Output') return 'Image';
@@ -188,9 +191,29 @@ export function parameters(n) {
 export const operationOptions = {
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
   Math: ['add', 'subtract', 'multiply', 'divide', 'min', 'max', 'abs', 'clamp'],
+  'Vector Math': [
+    'add',
+    'subtract',
+    'multiply',
+    'divide',
+    'scale',
+    'normalize',
+    'length',
+    'distance',
+    'dot',
+  ],
 };
 export function activeParameters(n) {
   const entries = parameters(n);
+  if (n.type === 'Vector Math') {
+    const keys =
+      n.operation === 'scale'
+        ? ['a', 'scale']
+        : ['normalize', 'length'].includes(n.operation)
+          ? ['a']
+          : ['a', 'b'];
+    return entries.filter(([key]) => keys.includes(key));
+  }
   if (n.type !== 'Math') return entries;
   const keys =
     n.operation === 'abs' ? ['a'] : n.operation === 'clamp' ? ['a', 'min', 'max'] : ['a', 'b'];
@@ -227,6 +250,35 @@ function mathValue(operation, read) {
     min: () => Math.min(a, b),
     max: () => Math.max(a, b),
   }[operation]();
+}
+function vectorMathValue(operation, read) {
+  if (!operationOptions['Vector Math'].includes(operation))
+    throw Error('Invalid Vector Math operation');
+  const a = read('a');
+  if (operation === 'length') return Math.hypot(...a);
+  if (operation === 'normalize') {
+    // Scale before measuring so both huge and subnormal finite inputs normalize safely.
+    const largest = Math.max(...a.map(Math.abs));
+    if (largest === 0) return [0, 0];
+    const scaled = a.map((v) => v / largest),
+      length = Math.hypot(...scaled);
+    return scaled.map((v) => v / length);
+  }
+  if (operation === 'scale') {
+    const scale = read('scale');
+    return a.map((v) => v * scale);
+  }
+  const b = read('b');
+  if (operation === 'distance') return Math.hypot(a[0] - b[0], a[1] - b[1]);
+  if (operation === 'dot') return a[0] * b[0] + a[1] * b[1];
+  return a.map((v, i) =>
+    ({
+      add: () => v + b[i],
+      subtract: () => v - b[i],
+      multiply: () => v * b[i],
+      divide: () => (b[i] === 0 ? 0 : v / b[i]),
+    })[operation](),
+  );
 }
 export function enableRemapPoint(n, input, pointId) {
   if (
@@ -514,7 +566,10 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       let result;
       if (['Value', 'Vector', 'Expression', 'Toggle', 'Color'].includes(n.type))
         result = read('value');
-      else if (n.type === 'Separate Vector') result = read('vector');
+      else if (n.type === 'Vector Math') {
+        result = vectorMathValue(n.operation, read);
+        assertValue(outputType(n), result);
+      } else if (n.type === 'Separate Vector') result = read('vector');
       else if (n.type === 'Math') {
         result = mathValue(n.operation, read);
         assertValue('Scalar', result);

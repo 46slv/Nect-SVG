@@ -802,3 +802,9 @@ image.guide-layer-shape {
 .output-port:has([data-source-port='y']) {
   top: 42px;
 }
+
+.wire-preview {
+  stroke: #2588d8;
+  stroke-width: 2.5;
+  stroke-dasharray: 6 4;
+}

@@ -103,11 +103,68 @@ try {
     .setInputFiles({ name: 'math.json', mimeType: 'application/json', buffer: json });
   assert.deepEqual(await value(), [170, 120]);
   await page.screenshot({ path: 'test-results/workflow-math.png', fullPage: true });
+  const vectorIds = await page.evaluate(async () => {
+    const { document, node, connect, setOperation } = await import('/src/core.js');
+    const d = document(),
+      l = d.layers[0],
+      vm = node('Vector Math', 40, 40),
+      r = node('Circle', 350, 40),
+      f = node('Fill', 660, 40),
+      o = node('Output', 970, 40);
+    vm.params.a.value = [3, 4];
+    vm.params.b.value = [2, 2];
+    vm.params.scale.value = 20;
+    l.nodes = [vm, r, f, o];
+    l.output = o.id;
+    setOperation(l, vm.id, 'length');
+    connect(l, vm.id, r.id, 'radius');
+    connect(l, r.id, f.id, 'path');
+    connect(l, f.id, o.id, 'path');
+    window.nect.load(JSON.stringify(d));
+    return { vm: vm.id, r: r.id };
+  });
+  await inspect(vectorIds.vm);
+  const vmOp = () => page.locator(`.inspector-body [data-operation="${vectorIds.vm}"]`);
+  const vmValue = () => page.evaluate((id) => window.nect.evaluate().run(id), vectorIds.vm);
+  assert.equal(await vmValue(), 5);
+  await vmOp().selectOption('normalize');
+  assert.equal(await vmOp().inputValue(), 'length');
+  assert.equal(await vmValue(), 5);
+  await inspect(vectorIds.r);
+  await field(vectorIds.r, 'radius').locator('.input').click({ button: 'right' });
+  await inspect(vectorIds.vm);
+  await vmOp().selectOption('normalize');
+  assert.deepEqual(await vmValue(), [0.6, 0.8]);
+  assert.equal(await field(vectorIds.vm, 'b').count(), 0);
+  await vmOp().selectOption('scale');
+  assert.deepEqual(await vmValue(), [60, 80]);
+  assert.equal(await field(vectorIds.vm, 'scale').count(), 1);
+  await inspect(vectorIds.r);
+  await field(vectorIds.r, 'center').locator('[data-connect-menu]').click();
+  await page.locator('dialog select').selectOption(vectorIds.vm);
+  await page.locator('dialog [data-confirm]').click();
+  await inspect(vectorIds.vm);
+  await vmOp().selectOption('dot');
+  assert.equal(await vmOp().inputValue(), 'scale');
+  assert.deepEqual(await vmValue(), [60, 80]);
+  const vectorJson = await download('save', 'test-results/workflow-vector-math.json');
+  await download('export', 'test-results/workflow-vector-math.svg');
+  await page
+    .locator('#open-file')
+    .setInputFiles({ name: 'vector-math.json', mimeType: 'application/json', buffer: vectorJson });
+  await page.waitForFunction(() =>
+    document.querySelector('.status').textContent.includes('Project restored'),
+  );
+  assert.deepEqual(await vmValue(), [60, 80]);
+  await inspect(vectorIds.vm);
+  await page.screenshot({ path: 'test-results/workflow-vector-math.png', fullPage: true });
   assert.deepEqual(errors, []);
   await fs.writeFile(
     'test-results/workflow-math-evidence.json',
     JSON.stringify(
       {
+        vectorMathTypedOperationGuard: true,
+        vectorMathScaleNormalize: true,
         portsDistinct: true,
         dragBothStates: true,
         menuY: true,

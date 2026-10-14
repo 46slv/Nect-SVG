@@ -165,3 +165,126 @@ test('source beats expression, disconnect restores expression then fallback; poi
   curve.points[0].position.sourcePort = 'x';
   assert.throws(() => validate(doc), /Cannot connect/);
 });
+
+test('Vector Math operations return typed finite outputs and componentwise zero division', () => {
+  const { l, add } = scene(),
+    v = add('Vector Math');
+  v.params.a.value = [3, 4];
+  v.params.b.value = [2, 0];
+  v.params.scale.value = 2;
+  const expected = {
+    add: [5, 4],
+    subtract: [1, 4],
+    multiply: [6, 0],
+    divide: [1.5, 0],
+    scale: [6, 8],
+    normalize: [0.6, 0.8],
+    length: 5,
+    distance: Math.sqrt(17),
+    dot: 6,
+  };
+  for (const [op, result] of Object.entries(expected)) {
+    setOperation(l, v.id, op);
+    assert.deepEqual(evaluate(l).run(v.id), result);
+    assert.equal(outputType(v), Array.isArray(result) ? 'Vector2' : 'Scalar');
+  }
+  setOperation(l, v.id, 'normalize');
+  v.params.a.value = [0, 0];
+  assert.deepEqual(evaluate(l).run(v.id), [0, 0]);
+  for (const value of [Number.MAX_VALUE, Number.MIN_VALUE]) {
+    v.params.a.value = [value, value];
+    const r = evaluate(l).run(v.id);
+    assert.ok(r.every((x) => Math.abs(x - Math.SQRT1_2) < 1e-15));
+  }
+  setOperation(l, v.id, 'length');
+  v.params.a.value = [3e200, 4e200];
+  assert.ok(Math.abs(evaluate(l).run(v.id) / 5e200 - 1) < 1e-15);
+  v.params.a.value = [Number.MAX_VALUE, Number.MAX_VALUE];
+  assert.throws(() => evaluate(l).run(v.id), /Scalar|finite/);
+  setOperation(l, v.id, 'scale');
+  v.params.scale.value = 2;
+  assert.throws(() => evaluate(l).run(v.id), /Vector2/);
+  v.params.a.value = [Infinity, 1];
+  assert.throws(() => evaluate(l).run(v.id), /Vector2/);
+  assert.throws(() => setOperation(l, v.id, 'cross'), /Invalid/);
+});
+test('Vector Math output type changes reject every stored outgoing edge atomically', () => {
+  const { doc, l, add } = scene(),
+    v = add('Vector Math'),
+    target = add('Vector Math');
+  connect(l, v.id, target.id, 'b');
+  setOperation(l, target.id, 'normalize');
+  target.params.b.locked = true;
+  const saved = serialize(doc);
+  assert.throws(() => setOperation(l, v.id, 'length'), /break/);
+  assert.equal(serialize(doc), saved);
+  target.params.b.locked = false;
+  disconnect(target, 'b');
+  const curve = add('Curve');
+  connect(l, v.id, curve.id, `${curve.points[0].id}.handleA`);
+  curve.points[0].handleA.locked = true;
+  assert.throws(() => setOperation(l, v.id, 'dot'), /break/);
+  assert.equal(v.operation, 'add');
+  curve.points[0].handleA.locked = false;
+  disconnect(curve, `${curve.points[0].id}.handleA`);
+  const remap = l.nodes.find((n) => n.type === 'Path Remap');
+  remap.edits = [
+    {
+      pointId: 'test-point',
+      params: {
+        position: { type: 'Vector2', value: [0, 0], expression: '', locked: true, source: v.id },
+      },
+    },
+  ];
+  assert.throws(() => setOperation(l, v.id, 'distance'), /break/);
+  remap.edits = [];
+  setOperation(l, v.id, 'length');
+  const math = add('Math');
+  connect(l, v.id, math.id, 'b');
+  setOperation(l, math.id, 'abs');
+  math.params.b.locked = true;
+  assert.throws(() => setOperation(l, v.id, 'normalize'), /break/);
+  assert.equal(v.operation, 'length');
+  setOperation(l, v.id, 'dot');
+  assert.equal(math.params.b.source, v.id);
+  assert.doesNotThrow(() => validate(doc));
+  math.params.b.locked = false;
+  disconnect(math, 'b');
+  setOperation(l, v.id, 'normalize');
+  assert.equal(outputType(v), 'Vector2');
+});
+test('Vector Math active dependencies, cache, source priority, history and roundtrip', () => {
+  const { doc, l, add } = scene(),
+    v = add('Vector Math'),
+    bad = add('Vector'),
+    scale = add('Value');
+  v.params.a.value = [3, 4];
+  bad.params.value.expression = '1/0;2';
+  connect(l, bad.id, v.id, 'b');
+  const circle = l.nodes.find((n) => n.type === 'Circle');
+  connect(l, v.id, circle.id, 'center');
+  setOperation(l, v.id, 'normalize');
+  assert.equal(evaluate(l).error, null);
+  bad.params.value.expression = 'sqrt(-1);0';
+  assert.equal(evaluate(l).stats.computed, 0);
+  assert.equal(v.params.b.source, bad.id);
+  assert.throws(() => connect(l, v.id, bad.id, 'value'), /cycle/);
+  setOperation(l, v.id, 'scale');
+  scale.params.value.value = 2;
+  connect(l, scale.id, v.id, 'scale');
+  v.params.scale.expression = '3';
+  v.params.scale.value = 4;
+  assert.deepEqual(evaluate(l).run(v.id), [6, 8]);
+  disconnect(v, 'scale');
+  assert.deepEqual(evaluate(l).run(v.id), [9, 12]);
+  v.params.scale.expression = '';
+  assert.deepEqual(evaluate(l).run(v.id), [12, 16]);
+  assert.equal(serialize(deserialize(serialize(doc))), serialize(doc));
+  const h = new History(doc);
+  h.apply((d) => setOperation(d.layers[0], v.id, 'normalize'));
+  assert.equal(h.doc.layers[0].nodes.find((n) => n.id === v.id).operation, 'normalize');
+  h.undo();
+  assert.equal(h.doc.layers[0].nodes.find((n) => n.id === v.id).operation, 'scale');
+  h.redo();
+  assert.equal(h.doc.layers[0].nodes.find((n) => n.id === v.id).operation, 'normalize');
+});
