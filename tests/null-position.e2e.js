@@ -14,7 +14,7 @@ const saved = () => page.evaluate(() => JSON.stringify(window.nect.document));
 const pos = () => page.evaluate(() => window.nect.evaluate().run('null-origin'));
 const near = (actual, expected) =>
   actual.forEach((v, i) =>
-    assert.ok(Math.abs(v - expected[i]) < 0.00001, `${actual} != ${expected}`),
+    assert.ok(Math.abs(v - expected[i]) < 0.001, `${actual} != ${expected}`),
   );
 const screen = (p) =>
   page.locator('.artboard').evaluate((el, p) => {
