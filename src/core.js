@@ -1,7 +1,37 @@
 import paper from 'paper';
+import { validateFontAssets, resolveFonts, MAX_PROJECT_BYTES, utf8ByteLength } from './fonts.js';
+import { layoutText } from './text-layout.js';
 const scope = new paper.PaperScope();
 scope.setup(new scope.Size(1200, 800));
 export const clone = (x) => structuredClone(x);
+// Font assets are immutable and shared across snapshots; copying large base64 strings
+// for every keystroke would turn a 20 MB font into gigabytes of undo history.
+export function cloneDocument(doc) {
+  const { fontAssets, ...model } = doc;
+  const copy = clone(model);
+  if (fontAssets) {
+    for (const asset of Object.values(fontAssets)) Object.freeze(asset);
+    copy.fontAssets = { ...fontAssets };
+  }
+  return copy;
+}
+export function sameDocument(a, b) {
+  const { fontAssets: af = {}, ...am } = a;
+  const { fontAssets: bf = {}, ...bm } = b;
+  return (
+    Object.keys(af).length === Object.keys(bf).length &&
+    Object.entries(af).every(([id, asset]) => {
+      const other = bf[id];
+      return (
+        other &&
+        asset.name === other.name &&
+        asset.fileName === other.fileName &&
+        asset.data === other.data
+      );
+    }) &&
+    JSON.stringify(am) === JSON.stringify(bm)
+  );
+}
 export const uid = (prefix = 'id') => `${prefix}-${globalThis.crypto.randomUUID()}`;
 const p = (type, value) => ({ type, value, expression: '', locked: false });
 export const definitions = {
@@ -23,7 +53,12 @@ export const definitions = {
   Vector: { value: p('Vector2', [300, 250]) },
   Expression: { value: p('Scalar', 100) },
   Output: { path: p('Path', null) },
-  Text: { position: p('Vector2', [200, 300]), size: p('Scalar', 100) },
+  Text: {
+    position: p('Vector2', [200, 300]),
+    size: p('Scalar', 100),
+    letterSpacing: p('Scalar', 0),
+    lineSpacing: p('Scalar', 1.2),
+  },
   'Text to Path': { path: p('Path', null) },
   'Imported Path': {},
 };
@@ -51,6 +86,7 @@ export function node(type, x = 40, y = 40) {
     edits: [],
     text: 'Nect',
     font: 'default',
+    ...(type === 'Text' ? { writingMode: 'horizontal-tb' } : {}),
     rawPath: '',
   };
 }
@@ -311,6 +347,7 @@ export function evaluate(layer, fonts = {}) {
       n.edits,
       n.text,
       n.font,
+      n.writingMode,
       n.rawPath,
       deps.map((dep) => [dep, versions.get(dep)]),
     ]);
@@ -384,8 +421,15 @@ export function evaluate(layer, fonts = {}) {
     else if (n.type === 'Text') {
       let font = fonts[n.font];
       if (!font) throw Error('Font is still loading or unavailable');
-      let pos = read('position'),
-        d = font.getPath(n.text, pos[0], pos[1], read('size')).toPathData(5);
+      const layout = layoutText(font, n.text, {
+        position: read('position'),
+        size: read('size'),
+        writingMode: n.writingMode,
+        letterSpacing: n.params.letterSpacing ? read('letterSpacing') : 0,
+        lineSpacing: n.params.lineSpacing ? read('lineSpacing') : 1.2,
+      });
+      warnings.push(...layout.warnings.map((warning) => `${n.name}: ${warning}`));
+      const d = layout.path.toPathData(5);
       let item = new scope.CompoundPath({ pathData: d, insert: false });
       result = fromPaper(item, n.id);
       result.unstable = true;
@@ -535,6 +579,7 @@ export function validate(doc) {
   }
   if (!doc || doc.schemaVersion !== 1) throw Error('Unsupported project version');
   text(doc.name);
+  validateFontAssets(doc.fontAssets);
   if (!Array.isArray(doc.layers) || doc.layers.length < 1 || doc.layers.length > 100)
     throw Error('Invalid layers');
   for (const key of ['width', 'height'])
@@ -560,6 +605,15 @@ export function validate(doc) {
         throw Error('Invalid node collapse state');
       text(n.text);
       text(n.font);
+      if (n.type === 'Text') {
+        if (n.font !== 'default' && !Object.hasOwn(doc.fontAssets || {}, n.font))
+          throw Error('Missing font asset');
+        if (
+          n.writingMode !== undefined &&
+          !['horizontal-tb', 'vertical-rl'].includes(n.writingMode)
+        )
+          throw Error('Invalid writing mode');
+      }
       if (n.rawPath !== undefined) text(n.rawPath);
       if (n.type === 'Imported Path') parsePath(n.rawPath, n.id);
       if (
@@ -571,6 +625,10 @@ export function validate(doc) {
         throw Error('Invalid node');
       if (!['union', 'subtract', 'intersect', 'difference'].includes(n.operation))
         throw Error('Invalid Boolean operation');
+      // Older schema-v1 Text nodes omit spacing; migrate only the documented new fields.
+      if (n.type === 'Text')
+        for (const key of ['letterSpacing', 'lineSpacing'])
+          if (!Object.hasOwn(n.params, key)) n.params[key] = clone(definitions.Text[key]);
       if (Object.keys(n.params).length !== Object.keys(definitions[n.type]).length)
         throw Error('Unexpected parameter');
       for (const [key, def] of Object.entries(definitions[n.type])) param(n.params[key], def.type);
@@ -603,10 +661,14 @@ export function validate(doc) {
   return doc;
 }
 export function serialize(doc) {
-  return JSON.stringify(doc, null, 2);
+  const text = JSON.stringify(doc, null, 2);
+  if (text.length > MAX_PROJECT_BYTES || utf8ByteLength(text) > MAX_PROJECT_BYTES)
+    throw Error('Project exceeds 50 MB');
+  return text;
 }
 export function deserialize(text) {
-  if (text.length > 10000000) throw Error('Project exceeds 10 MB');
+  if (text.length > MAX_PROJECT_BYTES || utf8ByteLength(text) > MAX_PROJECT_BYTES)
+    throw Error('Project exceeds 50 MB');
   return validate(JSON.parse(text));
 }
 const escape = (s) =>
@@ -615,6 +677,7 @@ const escape = (s) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c],
   );
 export function exportSVG(doc, fonts = {}) {
+  fonts = resolveFonts(doc, fonts);
   let paths = [];
   for (const l of doc.layers) {
     if (!l.visible) continue;
@@ -633,17 +696,29 @@ export class History {
     this.doc = doc;
   }
   apply(fn) {
-    let before = clone(this.doc);
+    let before = cloneDocument(this.doc);
     try {
       fn(this.doc);
     } catch (e) {
       this.doc = before;
       throw e;
     }
-    if (JSON.stringify(before) === JSON.stringify(this.doc)) return;
+    if (sameDocument(before, this.doc)) return;
+    this.record(before);
+  }
+  record(before) {
     this.past.push(before);
-    if (this.past.length > 100) this.past.shift();
     this.future = [];
+    const retainedFontBytes = () => {
+      const data = new Set(
+        [this.doc, ...this.past].flatMap((doc) =>
+          Object.values(doc.fontAssets || {}).map((asset) => asset.data),
+        ),
+      );
+      return [...data].reduce((sum, value) => sum + value.length * 0.75, 0);
+    };
+    while (this.past.length > 100 || (this.past.length > 1 && retainedFontBytes() > 96_000_000))
+      this.past.shift();
   }
   undo() {
     if (this.past.length) {

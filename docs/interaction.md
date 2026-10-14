@@ -49,3 +49,7 @@ Graph input socket centers sit on the left card border at their value row; outpu
 The title's triangle collapses or expands a node without changing its name, width, position, selection or geometry. Collapsed cards keep their output and connected input ports, with 24 px between input centers. During output dragging, compatible disconnected inputs appear temporarily so a collapsed node can be connected or rewired directly. Cancellation hides those temporary targets again. Port tooltips identify their parameter keys and types; right-click and input dragging still disconnect.
 
 Expansion restores parameter editing and the session's per-point disclosure state. The optional Boolean `collapsed` field is saved in schemaVersion 1 JSON; older files without it open expanded. It is editor state excluded from the evaluation cache key. Collapse/expand is one undoable change and obeys the composition lock.
+
+## Text fonts and direction
+
+Text nodes and their Inspector expose multiline content, a shared project-font dropdown, Load TTF / OTF, and Horizontal/Vertical direction. Letter spacing and line/column spacing are typed parameters. Font load preflights a candidate and commits one undo step; cancellation, errors, locks and stale reads preserve the document. The license/embedding notice appears next to the picker. See [typography](typography.md) for origins, supported glyph behavior, persistence, limits and headless parity.

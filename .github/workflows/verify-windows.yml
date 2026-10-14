@@ -49,6 +49,10 @@ jobs:
           name: nect-svg-windows-development-${{ github.sha }}
           path: |
             test-results/*.png
+            test-results/japanese-*.json
+            test-results/japanese-*.svg
+            tests/fixtures/fonts/OFL.txt
+            tests/fixtures/fonts/README.md
             src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: ignore
           retention-days: 1

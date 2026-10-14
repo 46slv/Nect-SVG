@@ -34,7 +34,7 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
     .replace("from './core.js'", `from '${new URL('../src/core.js', import.meta.url)}'`)
     .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
-    .replace("from 'opentype.js'", `from '${import.meta.resolve('opentype.js')}'`);
+    .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 100));
   let doc = win.nect.document,

@@ -3,7 +3,13 @@ import './style.css';
 import { findFreeNodePosition } from './layout.js';
 import { importSVG } from './svg-import.js';
 import { desktop, saveFile, openFile } from './storage.js';
-import opentype from 'opentype.js';
+import {
+  parseFont,
+  makeFontAsset,
+  resolveFonts,
+  MAX_FONT_BYTES,
+  MAX_PROJECT_BYTES,
+} from './fonts.js';
 import {
   document as newDocument,
   layer,
@@ -11,6 +17,8 @@ import {
   point,
   uid,
   clone,
+  cloneDocument,
+  sameDocument,
   definitions,
   parameters,
   parameter,
@@ -40,6 +48,9 @@ let history = new History(newDocument()),
   message = 'Ready • edit a generator or connect a node',
   error = false,
   fonts = {},
+  bundledFont = null,
+  fontRequest = null,
+  fontRequestId = 0,
   wiring = null,
   drag = null,
   penId = null;
@@ -195,8 +206,21 @@ function compactFields(n) {
     )
     .join('');
 }
+function textControls(n) {
+  if (n.type !== 'Text') return '';
+  return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><div class="field"><label>Font</label><select data-font="${n.id}" aria-label="Text font"><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
+    history.doc.fontAssets || {},
+  )
+    .map(
+      ([id, asset]) =>
+        `<option value="${id}" ${n.font === id ? 'selected' : ''}>${esc(asset.name)}</option>`,
+    )
+    .join(
+      '',
+    )}</select></div><button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p><div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><p class="font-note">letterSpacing: extra px per glyph. lineSpacing: × text size. Enter starts a new line or column. Vertical position is the first column center/top.</p></div>`;
+}
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${n.type === 'Boolean' ? `<div class="field"><label>Operation</label><select data-operation="${n.id}">${['union', 'subtract', 'intersect', 'difference'].map((op) => `<option ${n.operation === op ? 'selected' : ''}>${op}</option>`).join('')}</select></div>` : ''}${n.type === 'Text' ? `<div class="field"><label>Text</label><input class="string" data-text="${n.id}" value="${esc(n.text)}" aria-label="Text content"></div>` : ''}${Object.entries(
+  return `<div class="node-body">${n.type === 'Boolean' ? `<div class="field"><label>Operation</label><select data-operation="${n.id}">${['union', 'subtract', 'intersect', 'difference'].map((op) => `<option ${n.operation === op ? 'selected' : ''}>${op}</option>`).join('')}</select></div>` : ''}${textControls(n)}${Object.entries(
     n.params,
   )
     .map(([k, q]) => field(n, k, q))
@@ -230,6 +254,7 @@ function render(resetView = false) {
     l = current();
   activeLayer = l.id;
   const n = selectedNode();
+  fonts = resolveFonts(doc, bundledFont ? { default: bundledFont } : {});
   let results = doc.layers.map((x) => [x, evaluate(x, fonts)]),
     result = results.find(([x]) => x.id === l.id)[1];
   renderEvaluation = result;
@@ -273,7 +298,7 @@ function render(resetView = false) {
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n)}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${Object.entries(
+      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n)}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${textControls(n)}${Object.entries(
           n.params,
         )
           .filter(([, q]) => q.type !== 'Path')
@@ -287,7 +312,7 @@ function render(resetView = false) {
     )
     .join(
       '',
-    )}<p>Dynamic sockets<br>Drag a node output onto a compatible field. Drag a connected input into empty graph space to disconnect. Right-click an input also disconnects.</p><p>Expressions: arithmetic, pi, sin, cos, sqrt, min/max. Vector2: x expression; y expression.</p></div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+    )}<p>Dynamic sockets<br>Drag a node output onto a compatible field. Drag a connected input into empty graph space to disconnect. Right-click an input also disconnects.</p><p>Expressions: arithmetic, pi, sin, cos, sqrt, min/max. Vector2: x expression; y expression.</p></div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
   const gs = document.querySelector('.graph-scroll');
   gs.scrollLeft = oldScroll[0];
   gs.scrollTop = oldScroll[1];
@@ -547,6 +572,22 @@ app.addEventListener('click', async (e) => {
     }
     return;
   }
+  if (d.loadFont) {
+    if (current().locked) {
+      notify('Composition is locked', true);
+      return;
+    }
+    fontRequest = {
+      id: ++fontRequestId,
+      layer: current().id,
+      node: d.loadFont,
+      before: serialize(history.doc),
+    };
+    const input = document.querySelector('#font-file');
+    input.value = '';
+    input.click();
+    return;
+  }
   if (d.tool) {
     tool = d.tool;
     if (tool === 'pen') {
@@ -713,12 +754,54 @@ app.addEventListener('change', async (e) => {
     else notify('Expected a finite batch delta', true);
     return;
   }
+  if (el.id === 'font-file') {
+    const file = el.files[0],
+      request = fontRequest;
+    if (!file || !request) return;
+    try {
+      if (file.size > MAX_FONT_BYTES) throw Error('Font exceeds 20 MB');
+      if (!/\.(ttf|otf)$/i.test(file.name)) throw Error('Choose a static .ttf or .otf font');
+      const bytes = await file.arrayBuffer();
+      if (fontRequest?.id !== request.id) return;
+      if (serialize(history.doc) !== request.before || activeLayer !== request.layer)
+        throw Error('Document changed while reading; load the font again');
+      const prepared = makeFontAsset(bytes, file.name, history.doc.fontAssets);
+      // Preflight lazy outlines and glyph coverage before touching the active document.
+      const candidate = cloneDocument(history.doc);
+      candidate.fontAssets = { ...candidate.fontAssets, [prepared.id]: prepared.asset };
+      const candidateLayer = candidate.layers.find((l) => l.id === request.layer);
+      const candidateText = candidateLayer.nodes.find(
+        (n) => n.id === request.node && n.type === 'Text',
+      );
+      if (!candidateText) throw Error('Text node no longer exists');
+      candidateText.font = prepared.id;
+      const preflight = evaluate(
+        { ...candidateLayer, output: candidateText.id },
+        resolveFonts(candidate, bundledFont ? { default: bundledFont } : {}),
+      );
+      if (preflight.error) throw Error(preflight.error);
+      change(() => {
+        const target = current().nodes.find((n) => n.id === request.node && n.type === 'Text');
+        if (!target) throw Error('Text node no longer exists');
+        history.doc.fontAssets ||= {};
+        history.doc.fontAssets[prepared.id] = prepared.asset;
+        target.font = prepared.id;
+        serialize(history.doc); // Enforce the whole-document bound before committing.
+      }, `Loaded ${prepared.asset.name} · saved JSON will include this font`);
+    } catch (err) {
+      notify(`Font rejected; current document preserved: ${err.message}`, true);
+    }
+    if (fontRequest?.id === request.id) fontRequest = null;
+    return;
+  }
   if (el.id === 'open-file' || el.id === 'import-svg-file') {
     let file = el.files[0];
     if (!file) return;
     try {
       const request = ++openRequest,
         before = serialize(history.doc);
+      if (file.size > (el.id === 'open-file' ? MAX_PROJECT_BYTES : 10_000_000))
+        throw Error('File exceeds the supported size limit');
       let text = await file.text(),
         next = el.id === 'import-svg-file' ? importSVG(text) : deserialize(text);
       if (request !== openRequest) return;
@@ -746,6 +829,9 @@ app.addEventListener('change', async (e) => {
     () => {
       if (d.operation) current().nodes.find((n) => n.id === d.operation).operation = el.value;
       else if (d.text) current().nodes.find((n) => n.id === d.text).text = el.value;
+      else if (d.font) current().nodes.find((n) => n.id === d.font).font = el.value;
+      else if (d.writingMode)
+        current().nodes.find((n) => n.id === d.writingMode).writingMode = el.value;
       else if (d.layerName !== undefined) current().name = el.value;
       else if (d.fill !== undefined) current().fill = el.value;
       else if (d.dimension) {
@@ -859,7 +945,7 @@ app.addEventListener('pointerdown', (e) => {
         id,
         position: [...current().nodes.find((n) => n.id === id).position],
       })),
-      before: clone(history.doc),
+      before: cloneDocument(history.doc),
     };
     document
       .querySelectorAll('.node')
@@ -875,7 +961,7 @@ app.addEventListener('pointerdown', (e) => {
       id: resized.dataset.id,
       startX: e.clientX,
       width: resized.offsetWidth,
-      before: clone(history.doc),
+      before: cloneDocument(history.doc),
     };
     e.preventDefault();
     return;
@@ -909,7 +995,7 @@ app.addEventListener('pointerdown', (e) => {
       render();
       return;
     }
-    let before = clone(history.doc);
+    let before = cloneDocument(history.doc);
     if (!penId) {
       if (current().nodes.find((x) => x.id === current().output).params.path.locked) {
         notify('Output Path is locked; unlock it before starting a new pen path', true);
@@ -952,7 +1038,7 @@ app.addEventListener('pointerdown', (e) => {
       notify(`${key} is locked or driven`, true);
       return;
     }
-    const before = clone(history.doc),
+    const before = cloneDocument(history.doc),
       edit = enableRemapPoint(n, input, pointId);
     drag = {
       type: 'remap',
@@ -987,7 +1073,7 @@ app.addEventListener('pointerdown', (e) => {
       key,
       start: pos,
       original: clone(q.value),
-      before: clone(history.doc),
+      before: cloneDocument(history.doc),
     };
     return;
   }
@@ -1023,7 +1109,7 @@ app.addEventListener('pointerdown', (e) => {
       notify('A selected position is locked or driven by an input', true);
       return;
     }
-    drag = { type: 'shape', targets, start: pos, before: clone(history.doc) };
+    drag = { type: 'shape', targets, start: pos, before: cloneDocument(history.doc) };
   } else notify('Select only Circle, Rectangle, Text or Curve generators to move them');
 });
 document.addEventListener('pointermove', (e) => {
@@ -1141,10 +1227,8 @@ document.addEventListener('pointerup', (e) => {
       n.width = Math.max(220, Math.min(550, el.offsetWidth));
     }
     drag = null;
-    if (d.before && JSON.stringify(d.before) !== JSON.stringify(history.doc)) {
-      history.past.push(d.before);
-      if (history.past.length > 100) history.past.shift();
-      history.future = [];
+    if (d.before && !sameDocument(d.before, history.doc)) {
+      history.record(d.before);
       notify('Updated');
     }
     render();
@@ -1239,7 +1323,7 @@ fetch('/fonts/DejaVuSans.ttf')
     return r.arrayBuffer();
   })
   .then((b) => {
-    fonts.default = opentype.parse(b);
+    bundledFont = parseFont(b);
     render();
   })
   .catch((e) => notify(e.message, true));

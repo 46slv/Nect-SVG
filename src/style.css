@@ -20,7 +20,8 @@ body {
 }
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -49,7 +50,8 @@ button.active {
 }
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+textarea:focus-visible {
   outline: 2px solid var(--selection);
   outline-offset: 1px;
 }
@@ -596,4 +598,25 @@ dialog::backdrop {
 summary input[type='checkbox'] {
   vertical-align: middle;
   margin: 0 4px 0 0;
+}
+
+.text-controls textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 60px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 6px;
+  background: white;
+}
+.text-controls .field select {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+}
+.font-note {
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--muted);
+  margin: 6px 0;
 }

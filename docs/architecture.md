@@ -2,7 +2,8 @@
 
 ## Boundaries and decisions
 
-- `src/core.js`: UI-independent document constructors, typed graph connection rules, safe numeric expressions, geometry evaluation, JSON validation/serialization, SVG export and transactional undo. It imports Paper.js only, and does not access browser or Windows APIs.
+- `src/core.js`: UI-independent document constructors, typed graph connection rules, safe numeric expressions, geometry evaluation, JSON validation/serialization, SVG export and transactional undo. It uses Paper.js and the shared pure font/layout modules, and does not access browser or Windows APIs.
+- `src/fonts.js`, `src/text-layout.js`: bounded local font assets and deterministic Japanese/Latin outline layout, shared by editor and CLI. See [typography](typography.md).
 - `src/main.js`, `src/style.css`: browser editor. Canvas and graph mutate the same document. No second geometry source of truth exists.
 - `src/svg-import.js`: strict browser/XML adapter for basic SVG shapes and compound path data. It rejects unsupported attributes/elements rather than silently changing rendering.
 - `src/storage.js`: thin browser-download / Tauri-command adapter. Native destinations are selected by the user; the frontend does not receive a general filesystem API.
@@ -20,11 +21,11 @@
 
 `pathData(path)`, `pathArea(path)`, `exportSVG(document, fonts)` consume plain geometry. `exportSVG` refuses any erroneous visible composition, and emits nonzero-filled compound paths.
 
-`serialize(document)` creates JSON. `deserialize(text)` parses and validates a candidate before editor replacement. `History.apply(fn)` snapshots before mutations, rolls back thrown mutations and clears redo only for actual changes. History is bounded to 100 changes for normal transactions; pointer gestures are one change each.
+`serialize(document)` creates JSON. `deserialize(text)` parses and validates a candidate before editor replacement. `History.apply(fn)` snapshots before mutations, rolls back thrown mutations and clears redo only for actual changes. History is bounded to 100 changes and 96 MB of distinct font bytes; immutable font assets are shared across snapshots. Pointer gestures are one change each.
 
 ## Project schema
 
-Root: `{schemaVersion:1, name, width, height, layers}`. The artboard ratio is independent from the 16:9 workspace design.
+Root: `{schemaVersion:1, name, width, height, layers, fontAssets?}`. The artboard ratio is independent from the 16:9 workspace design.
 
 Layer: `{id, name, visible, locked, fill, nodes, output}`. Layer order is paint order (last is front). One layer equals one composition. No implicit node sharing.
 
@@ -36,7 +37,7 @@ Parameter: `{type, value, expression, locked, source?}`. Types: Scalar, Vector2,
 
 Point: `{id, position:Parameter, handleA:Parameter, handleB:Parameter, handleType}`. Handles are relative vectors. `corner`, `smooth`, `symmetric` affect interactive handle movement. Curve points are owned and edited by the Curve generator, without requiring Remap.
 
-Evaluated Path: `{contours:[{id,closed,points:[{id,position,handleA,handleB}]}], unstable?, fingerprint?}`. No Paper.js objects escape the evaluator. Text font objects are caller-supplied dependencies in `fonts` and are not serialized.
+Evaluated Path: `{contours:[{id,closed,points:[{id,position,handleA,handleB}]}], unstable?, fingerprint?}`. No Paper.js objects escape the evaluator. Parsed font objects are caller-supplied dependencies in `fonts` and are not serialized; imported original bytes are embedded separately in `fontAssets`. `exportSVG` resolves them automatically.
 
 ## Geometry and correspondence
 
@@ -44,11 +45,11 @@ Paper.js 0.12.18 computes cubic Bézier Boolean union/subtract/intersection/excl
 
 Primitive/Curve vertex IDs are stable; Transform preserves their IDs because affine transforms do not alter topology. Boolean, Text and Imported Path contours are marked unstable. Their Remap edits store an exact source-geometry fingerprint and suspend with a warning whenever it changes. This conservative rule can suspend more edits than necessary, but never intentionally assigns an old edit to a different vertex. Suspended definitions remain in the saved file; the user can explicitly rebind a retained edit to the currently displayed point, or clear it. Rebind changes only the source fingerprint and is undoable; it does not automatically infer correspondence. Better provenance mapping is deferred.
 
-Text uses OpenType.js and bundled DejaVu Sans. Multiple contours and counters are preserved. User font import, shaping complex scripts, variable-font axes and font fallback are not yet supported. Text is evaluated into outlines, with a pass-through Text to Path node retained as the explicit UI boundary.
+Text uses OpenType.js with bundled DejaVu Sans or embedded local static TTF/OTF bytes. Multiple contours/counters, Japanese and mixed vertical writing are preserved; the detailed layout, fallback, format and licensing boundaries are in [typography](typography.md). Complex shaping, variable-font axes and automatic font fallback are not supported. Text is evaluated into outlines, with a pass-through Text to Path node retained as the explicit UI boundary.
 
 ## Trust and failures
 
-JSON IDs use a conservative safe-character grammar. All graph UI positions, vectors, scalar values, locks, types, expected parameters, layer fills, operations and remap edits are validated; duplicate IDs and edit targets are rejected. File size is limited to 10 MB before parsing. Unknown versions are rejected. UI text is escaped. Expressions use a numeric parser, never `eval` or `Function`.
+JSON IDs use a conservative safe-character grammar. All graph UI positions, vectors, scalar values, locks, types, expected parameters, layer fills, operations and remap edits are validated; duplicate IDs and edit targets are rejected. Project size is limited to 50 MB UTF-8 before parsing; fonts have separate 20 MB/file and 32 MB/project limits. SVG import retains its 10 MB limit. Unknown versions are rejected. UI text is escaped. Expressions use a numeric parser, never `eval` or `Function`.
 
 An evaluation failure reports an error instead of overwriting stored source data. SVG export does not silently emit a partial visible document. This is not a hardened multi-tenant service: additional graph-depth/CPU bounds and worker isolation are needed before cloud exposure.
 
