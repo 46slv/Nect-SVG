@@ -930,3 +930,24 @@ input[data-scrub-step].scrubbing {
   display: block;
   margin: 5px 0;
 }
+
+.null-marker {
+  cursor: move;
+  color: #744dc4;
+}
+.null-marker circle {
+  fill: #fff;
+  fill-opacity: 0.85;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.null-marker path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.null-marker.readonly {
+  cursor: not-allowed;
+  color: #697683;
+}

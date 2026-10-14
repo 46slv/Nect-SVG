@@ -323,7 +323,7 @@ function operationControls(n) {
   return `<div class="field"><label>Operation</label><select data-operation="${n.id}" aria-label="${esc(n.name)} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
+  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${nullControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
     n,
   )
     .filter(([k]) => Object.hasOwn(n.params, k))
@@ -412,7 +412,7 @@ function render(resetView = false) {
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
+      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${nullControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
           n,
         )
           .filter(
@@ -580,6 +580,11 @@ function guidesOverlay() {
 function transformControls(n) {
   return n.type === 'Transform'
     ? '<p class="font-note">Shared parent: connect child paths through Join Geometry, then this Transform, then Fill / Stroke. Anchor is the scale/rotation pivot in input coordinates; offset moves the result. Select this Transform to drag the whole group. Child parameters stay unchanged.</p>'
+    : '';
+}
+function nullControls(n) {
+  return n.type === 'Null'
+    ? '<p class="font-note">Position-only controller. Select this node and drag its crosshair; Alt bypasses snapping. Only the selected Null is shown, and the marker never exports. Connect Position OUT to Text, shape Position, or Vector Math. Coordinates are before downstream Transform. Connected, expression-driven or locked Position is read-only on canvas.</p>'
     : '';
 }
 function radialControls(n) {
@@ -806,6 +811,11 @@ function canvasOverlay(n, result) {
   } catch {
     return '';
   }
+  if (n.type === 'Null') {
+    const q = n.params.position,
+      readonly = current().locked || q.locked || q.source || q.expression;
+    return `<g class="null-marker ${readonly ? 'readonly' : ''}" data-null-handle="${n.id}" transform="translate(${path[0]} ${path[1]})" aria-label="${esc(n.name)} Position handle${readonly ? ' (read-only)' : ''}"><title>${esc(n.name)} · Position${readonly ? ' · Locked or driven by an input' : ' · Drag to move; Alt bypasses snap'}</title><g class="null-marker-size"><circle r="11"/><path d="M-8 0H8 M0-8V8"/></g></g>`;
+  }
   if (path?.kind === 'image')
     return `<rect class="guide" x="${path.position[0]}" y="${path.position[1]}" width="${path.size[0]}" height="${path.size[1]}" stroke-dasharray="5 4"/>`;
   if (outputType(n) !== 'Path') return '';
@@ -841,8 +851,14 @@ function updateCanvas() {
       guidesOverlay() +
       canvasOverlay(selectedNode(), r);
     renderEvaluation = r;
+    sizeNullHandle();
     positionCharacterFloating();
   });
+}
+function sizeNullHandle() {
+  document
+    .querySelector('.null-marker-size')
+    ?.setAttribute('transform', `scale(${1 / canvasScale()})`);
 }
 function fitCanvas() {
   let stage = document.querySelector('.canvas-stage'),
@@ -856,6 +872,7 @@ function fitCanvas() {
   svg.style.width = history.doc.width * scale + 'px';
   svg.style.height = history.doc.height * scale + 'px';
   svg.style.transform = `translate(${pan[0]}px,${pan[1]}px)`;
+  sizeNullHandle();
   positionCharacterFloating();
 }
 function drawWires() {
@@ -2355,6 +2372,31 @@ app.addEventListener('pointerdown', (e) => {
     if (nn.points.length === 1) revealNode(nn.id);
     return;
   }
+  if (n?.type === 'Null') {
+    // A dedicated point target never turns a click elsewhere into a controller move.
+    if (e.target.closest('[data-null-handle]')?.dataset.nullHandle !== n.id) return;
+    const q = n.params.position;
+    if (q.locked || q.source || q.expression) {
+      notify('Position is locked or driven by an input', true);
+      return;
+    }
+    stage.focus({ preventScroll: true });
+    n = selectedNode();
+    drag = {
+      type: 'null-position',
+      nodeId: n.id,
+      start: canvasPoint(e),
+      startClient: [e.clientX, e.clientY],
+      original: [...n.params.position.value],
+      before: cloneDocument(history.doc),
+      pointerId: e.pointerId,
+      capture: stage,
+      started: false,
+    };
+    stage.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+    return;
+  }
   if (e.target.dataset.point && n?.type === 'Path Remap') {
     const input = evaluate(current(), fonts, history.doc.imageAssets).run(n.params.path.source),
       pointId = e.target.dataset.point,
@@ -2494,6 +2536,39 @@ document.addEventListener('pointermove', (e) => {
     return;
   }
   if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
+  if (drag.type === 'null-position') {
+    const n = selectedNode(),
+      q = n?.params.position;
+    if (
+      n?.id !== drag.nodeId ||
+      current().locked ||
+      !layerShown(current()) ||
+      !q ||
+      q.locked ||
+      q.source ||
+      q.expression
+    ) {
+      cancelInteraction();
+      return;
+    }
+    if (
+      !drag.started &&
+      Math.hypot(e.clientX - drag.startClient[0], e.clientY - drag.startClient[1]) < 3
+    )
+      return;
+    const pos = canvasPoint(e),
+      delta = snapped(
+        [[drag.original[0]], [drag.original[1]]],
+        pos.map((v, i) => v - drag.start[i]),
+        e,
+      ),
+      next = drag.original.map((v, i) => v + delta[i]);
+    if (!next.every(Number.isFinite)) return;
+    q.value = next;
+    drag.started = true;
+    updateCanvas();
+    return;
+  }
   if (drag.type === 'character') {
     if (current().locked || characterEdit?.node !== drag.nodeId || selected !== drag.nodeId) {
       cancelInteraction();
@@ -2757,7 +2832,7 @@ document.addEventListener('keydown', (e) => {
     cancelInteraction();
     return;
   }
-  if (drag?.type === 'character' && e.key === 'Escape') {
+  if (['character', 'null-position'].includes(drag?.type) && e.key === 'Escape') {
     e.preventDefault();
     cancelInteraction();
     return;

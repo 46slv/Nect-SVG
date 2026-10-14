@@ -286,4 +286,4 @@ Text は既存の Path 出力を保ち、Vector2 の Position 出力を追加す
 
 型・優先順位・キャッシュ・Transform 空間・循環・JSON・履歴・既存 Path と、DOM のメニュー／配線／取消／スナップ所有権／削除／複製をテストする。実 Chrome の同操作と JSON/SVG/PNG 出力は `tests/text-position-output.e2e.js` に用意し、Windows CI の対応コミットで別途実行する。ローカル環境の Chromium socket 制限は解消していないため、この実装時点で Chrome／NSIS 合格とはしない。
 
-[Position 再利用の実験候補](position-reuse-candidates.md) に4案を維持する。Text Position OUT のみ今回試作し、Null・ハンドル付き Vector・Reference は未実装。クロスレイヤー参照、ポスト Transform 点、キャンバスリサイズは今回含めない。試用後に採否・併存・統合を判断する。
+[Position 再利用の実験候補](position-reuse-candidates.md) に4案を維持する。Text Position OUT に続き、[Nullの位置専用コントローラー](null-position.md)も試作した。Nullは選択時のみ十字ハンドルを表示し、既存スナップでPositionを編集して単一Vector2 OUTを出す。マーカーはSVG/PNGへ出力せず、接続・数式・ロック中の値はキャンバスから変更しない。ハンドル付き Vector・Reference は未実装。クロスレイヤー参照、ポスト Transform 点、キャンバスリサイズは今回含めない。試用後に採否・併存・統合を判断する。

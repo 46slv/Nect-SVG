@@ -1,0 +1,276 @@
+{
+  "schemaVersion": 2,
+  "name": "Null Position controller",
+  "width": 960,
+  "height": 540,
+  "layers": [
+    {
+      "id": "layer-32614f46-b0e3-43d4-bad4-9cc1717235ec",
+      "name": "Shared position",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "null-origin",
+          "type": "Null",
+          "name": "Layout origin",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": true,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [250, 200],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "null-offset",
+          "type": "Vector Math",
+          "name": "Caption offset",
+          "position": [380, 330],
+          "width": 264,
+          "collapsed": true,
+          "params": {
+            "a": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false,
+              "source": "null-origin"
+            },
+            "b": {
+              "type": "Vector2",
+              "value": [0, 110],
+              "expression": "",
+              "locked": false
+            },
+            "scale": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "add",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "null-title",
+          "type": "Text",
+          "name": "Title",
+          "position": [710, 40],
+          "width": 264,
+          "collapsed": true,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [200, 300],
+              "expression": "",
+              "locked": false,
+              "source": "null-origin"
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 90,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "NECT",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "null-caption",
+          "type": "Text",
+          "name": "Caption",
+          "position": [710, 330],
+          "width": 264,
+          "collapsed": true,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [200, 300],
+              "expression": "",
+              "locked": false,
+              "source": "null-offset"
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 28,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "One point, shared position",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "null-join",
+          "type": "Join Geometry",
+          "name": "Text group",
+          "position": [1050, 40],
+          "width": 264,
+          "collapsed": true,
+          "params": {
+            "a": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "null-title"
+            },
+            "b": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "null-caption"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "null-fill",
+          "type": "Fill",
+          "name": "Ink",
+          "position": [1380, 40],
+          "width": 264,
+          "collapsed": true,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "null-join"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "null-output",
+          "type": "Output",
+          "name": "Artwork",
+          "position": [1710, 40],
+          "width": 264,
+          "collapsed": true,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "null-fill"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "null-output"
+    }
+  ],
+  "editor": {
+    "guides": [
+      {
+        "id": "null-guide-x",
+        "axis": "x",
+        "position": 250,
+        "locked": true
+      },
+      {
+        "id": "null-guide-y",
+        "axis": "y",
+        "position": 200,
+        "locked": true
+      }
+    ],
+    "visible": true,
+    "locked": false,
+    "gridVisible": false,
+    "gridSize": 8,
+    "snap": true,
+    "snapGuides": true,
+    "snapArtboard": true,
+    "snapGrid": false
+  }
+}

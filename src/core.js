@@ -101,6 +101,7 @@ export const definitions = {
   Toggle: { value: p('Boolean', true) },
   Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
   Vector: { value: p('Vector2', [300, 250]) },
+  Null: { position: p('Vector2', [300, 250]) },
   Expression: { value: p('Scalar', 100) },
   Fill: { path: p('PaintedPath', null), color: p('Color', { hex: '#36434e', alpha: 1 }) },
   Stroke: {
@@ -267,7 +268,7 @@ export function outputPorts(n) {
           { id: undefined, label: 'Path', type: 'Path' },
           { id: 'position', label: 'Position', type: 'Vector2' },
         ]
-      : [{ id: undefined, label: '', type: outputType(n) }];
+      : [{ id: undefined, label: n.type === 'Null' ? 'Position' : '', type: outputType(n) }];
 }
 export function outputType(n, port) {
   if (n.type === 'Separate Vector') return ['x', 'y'].includes(port) ? 'Scalar' : undefined;
@@ -280,7 +281,7 @@ export function outputType(n, port) {
   if (n.type === 'Image' || n.type === 'Image Output') return 'Image';
   return ['Value', 'Expression', 'Math'].includes(n.type)
     ? 'Scalar'
-    : ['Vector', 'Combine Vector'].includes(n.type)
+    : ['Vector', 'Combine Vector', 'Null'].includes(n.type)
       ? 'Vector2'
       : n.type === 'Toggle'
         ? 'Boolean'
@@ -740,7 +741,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         return value;
       }
       let result;
-      if (positionOutput) result = read('position');
+      if (positionOutput || n.type === 'Null') result = read('position');
       else if (['Value', 'Vector', 'Expression', 'Toggle', 'Color'].includes(n.type))
         result = read('value');
       else if (n.type === 'Vector Math') {
