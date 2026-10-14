@@ -42,6 +42,14 @@ try {
   await click('[data-action="guides-panel"]');
   await page.getByLabel('Show guides', { exact: true }).uncheck();
   assert.equal(await page.locator('.guide-layer-shape').count(), 0);
+  const hidden = await snapshot();
+  // Use blank artboard coordinates; a hidden active guide must not move invisibly.
+  const board = await page.locator('.artboard').boundingBox();
+  await page.mouse.move(board.x + board.width * 0.8, board.y + board.height * 0.8);
+  await page.mouse.down();
+  await page.mouse.move(board.x + board.width * 0.85, board.y + board.height * 0.8);
+  await page.mouse.up();
+  assert.equal(await snapshot(), hidden);
   await page.getByLabel('Show guides', { exact: true }).check();
   await click('[data-add-guide="x"]');
   await edit('Guide 1 position', 720);

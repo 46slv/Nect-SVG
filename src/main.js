@@ -258,6 +258,11 @@ function render(resetView = false) {
   }
   const focused = resetView ? null : captureFocus(app);
   const inspectorScroll = resetView ? 0 : document.querySelector('.inspector-body')?.scrollTop || 0;
+  const guideScroll = resetView
+    ? [0, 0]
+    : ['.guides-panel', '.guide-list'].map(
+        (selector) => document.querySelector(selector)?.scrollTop || 0,
+      );
   for (const el of document.querySelectorAll('.graph details[data-detail]'))
     detailsState.set(`${el.closest('.node').dataset.id}/${el.dataset.detail}`, el.open);
   if (selected && !current().nodes.some((n) => n.id === selected)) selected = null;
@@ -337,6 +342,10 @@ function render(resetView = false) {
   fitCanvas();
   restoreFocus(app, focused);
   document.querySelector('.inspector-body').scrollTop = inspectorScroll;
+  ['.guides-panel', '.guide-list'].forEach((selector, index) => {
+    const el = document.querySelector(selector);
+    if (el) el.scrollTop = guideScroll[index];
+  });
   requestAnimationFrame(() => {
     updateGraphBounds();
     drawWires();
@@ -472,7 +481,9 @@ function snapped(sources, delta, event, excludedGuide = null) {
       .filter((l) => l.guide && layerShown(l) && l.id !== activeLayer)
       .flatMap((l) => {
         const r = evaluate(l, fonts);
-        return r.path && !r.error ? [pathBounds(r.path)] : [];
+        return !r.error && r.path?.contours.some((c) => c.points.length > 0)
+          ? [pathBounds(r.path)]
+          : [];
       }),
   );
   snapMatches = result.matches;
@@ -1261,6 +1272,16 @@ app.addEventListener('pointerdown', (e) => {
     return;
   }
   selectedGuide = null;
+  if (tool === 'select' && e.target.dataset.layer && e.target.dataset.layer !== activeLayer) {
+    activeLayer = e.target.dataset.layer;
+    selected = current().nodes[0]?.id;
+    render();
+    return;
+  }
+  if (!layerShown(current())) {
+    notify('Show the active layer before editing it on the canvas', true);
+    return;
+  }
   if (current().locked) {
     notify('Composition is locked', true);
     return;
@@ -1378,12 +1399,6 @@ app.addEventListener('pointerdown', (e) => {
       })(),
       before: cloneDocument(history.doc),
     };
-    return;
-  }
-  if (e.target.dataset.layer && e.target.dataset.layer !== activeLayer) {
-    activeLayer = e.target.dataset.layer;
-    selected = current().nodes[0]?.id;
-    render();
     return;
   }
   const generators = current().nodes.filter((n) => selection.has(n.id));

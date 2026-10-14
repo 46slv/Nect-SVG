@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
-import { document as newDocument, guideDefaults } from '../src/core.js';
+import { document as newDocument, guideDefaults, layer, node, connect } from '../src/core.js';
 test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and focused inputs', async () => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
@@ -165,10 +165,20 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   click(`[data-visible="${layerId}"]`);
   assert.equal($('.guide-layer-shape'), null);
   assert.equal($('.artboard .guide'), null);
+  const hiddenLayer = JSON.stringify(get());
+  pointer($('.artboard'), 'pointerdown', 100, 100);
+  pointer(document, 'pointermove', 140, 100);
+  pointer(document, 'pointerup', 140, 100);
+  assert.equal(JSON.stringify(get()), hiddenLayer);
   click(`[data-visible="${layerId}"]`);
   if (!$('[data-add-guide="x"]')) click('[data-action="guides-panel"]');
   click('[data-guide-setting="visible"]');
   assert.equal($('.guide-layer-shape'), null);
+  const hiddenGuides = JSON.stringify(get());
+  pointer($('.artboard'), 'pointerdown', 100, 100);
+  pointer(document, 'pointermove', 140, 100);
+  pointer(document, 'pointerup', 140, 100);
+  assert.equal(JSON.stringify(get()), hiddenGuides);
   click('[data-guide-setting="visible"]');
   assert.ok($('.guide-layer-shape'));
   click(`[data-layer-guide="${layerId}"]`);
@@ -176,7 +186,11 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   click('[data-add-guide="x"]');
   const manualId = get().editor.guides[0].id,
     initial = JSON.stringify(get());
+  $('.guides-panel').scrollTop = 120;
+  $('.guide-list').scrollTop = 20;
   edit('[data-layout-field="columns"]', 4);
+  assert.equal($('.guides-panel').scrollTop, 120);
+  assert.equal($('.guide-list').scrollTop, 20);
   edit('[data-layout-field="rows"]', 2);
   click('[data-layout-preview]');
   assert.equal(document.querySelectorAll('.layout-preview').length, 12);
@@ -224,5 +238,23 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   click('[data-layout-preview]');
   click('[data-action="guides-panel"]');
   assert.equal(document.querySelectorAll('.layout-preview').length, 0);
+  const emptyTarget = newDocument();
+  emptyTarget.editor = guideDefaults();
+  emptyTarget.editor.snap = true;
+  emptyTarget.editor.snapArtboard = false;
+  emptyTarget.editor.snapGrid = false;
+  emptyTarget.layers[0].nodes[0].params.center.value = [124, 250];
+  const emptyGuide = layer('Empty guide'),
+    curve = node('Curve');
+  curve.points = [];
+  emptyGuide.nodes.push(curve);
+  connect(emptyGuide, curve.id, emptyGuide.output, 'path');
+  emptyGuide.guide = true;
+  emptyTarget.layers.push(emptyGuide);
+  win.nect.load(JSON.stringify(emptyTarget));
+  pointer($('.shape'), 'pointerdown', 50, 250);
+  pointer(document, 'pointermove', 52, 250);
+  pointer(document, 'pointerup', 52, 250);
+  assert.equal(get().layers[0].nodes[0].params.center.value[0], 126);
   win.happyDOM.abort();
 });
