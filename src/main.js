@@ -54,6 +54,13 @@ import {
   layoutGridDefaults,
   layoutGridLines,
   setLayoutGrid,
+  characterOccurrences,
+  inverseCharacterDelta,
+  characterBoxPoints,
+  hitCharacter,
+  setCharacterOffsets,
+  resetCharacterOffsets,
+  reconcileCharacterEdit,
 } from './core.js';
 const app = document.querySelector('#app');
 let history = new History(newDocument()),
@@ -90,6 +97,8 @@ let savedSnapshot = serialize(history.doc),
 let selection = new Set([selected]);
 const detailsState = new Map();
 const remapBatches = new Map();
+let characterEdit = null;
+const textDrafts = new Map();
 function remapBatch(id) {
   if (!remapBatches.has(id)) remapBatches.set(id, { selected: new Set(), delta: [0, 0] });
   return remapBatches.get(id);
@@ -163,6 +172,9 @@ function resetTransient() {
   selectedGuide = null;
   snapMatches = [];
   remapBatches.clear();
+  characterEdit = null;
+  textDrafts.clear();
+  document.querySelector('.character-choice')?.remove();
   drag = null;
   wiring = null;
   penId = null;
@@ -352,6 +364,11 @@ function render(resetView = false) {
     l = current();
   activeLayer = l.id;
   const n = selectedNode();
+  if (
+    characterEdit &&
+    (characterEdit.node !== n?.id || characterEdit.layer !== l.id || l.locked || !layerShown(l))
+  )
+    characterEdit = null;
   fonts = resolveFonts(doc, bundledFont ? { default: bundledFont } : {});
   let results = doc.layers.map((x) => [x, evaluate(x, fonts, history.doc.imageAssets)]),
     result = results.find(([x]) => x.id === l.id)[1];
@@ -376,7 +393,7 @@ function render(resetView = false) {
     .map(([x, r]) => layerShape(x, r.path))
     .join(
       '',
-    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg></div><div class="hint">${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : n ? `Editing ${esc(n.name)}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select a generator to edit its original parameters'}</div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head"><strong>Node graph</strong><span class="muted">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
+    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint">${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : n ? `Editing ${esc(n.name)}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select a generator to edit its original parameters'}</div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head"><strong>Node graph</strong><span class="muted">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
     definitions,
   )
     .filter((x) => !['Output', 'Image Output', 'Image'].includes(x))
@@ -395,7 +412,7 @@ function render(resetView = false) {
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
+      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${operationControls(n)}${strokeControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
           n,
         )
           .filter(
@@ -413,6 +430,12 @@ function render(resetView = false) {
     .join(
       '',
     )}<p>Dynamic sockets<br>Drag a node output onto a compatible field. Drag a connected input into empty graph space to disconnect. Right-click an input also disconnects.</p><p>Expressions: arithmetic, pi, sin, cos, sqrt, min/max. Vector2: x expression; y expression.</p></div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+  const instanceControl = document.querySelector('[data-character-instance]');
+  if (instanceControl && characterEdit) instanceControl.value = characterEdit.route || '';
+  const characterList = document.querySelector('[data-character-selection]');
+  if (characterList && characterEdit)
+    for (const option of characterList.options)
+      option.selected = characterEdit.selected.has(option.value);
   if (resetView) graphZoom = 1;
   document.querySelector('.graph').style.zoom = graphZoom;
   updateGraphBounds();
@@ -589,7 +612,193 @@ function snapped(sources, delta, event, excludedGuide = null) {
   snapMatches = result.matches;
   return result.delta;
 }
+// Character position is a source edit, with an explicit final-output occurrence.
+function characterContext(result = renderEvaluation) {
+  const n = selectedNode();
+  if (
+    !characterEdit ||
+    n?.id !== characterEdit.node ||
+    current().id !== characterEdit.layer ||
+    n.type !== 'Text'
+  )
+    return null;
+  try {
+    const layout = result.textLayout(n.id),
+      occurrences = characterOccurrences(result.path)
+        .filter((o) => o.source === n.id)
+        .map((o) => {
+          let reason = o.reason;
+          try {
+            inverseCharacterDelta(o.matrix, [0, 0]);
+          } catch (e) {
+            reason ||= e.message;
+          }
+          return { ...o, reason };
+        });
+    const editable = occurrences.filter((o) => !o.reason);
+    if (!characterEdit.route && editable.length === 1) characterEdit.route = editable[0].route;
+    if (characterEdit.route && !editable.some((o) => o.route === characterEdit.route))
+      characterEdit.route = null;
+    const ids = new Set(layout.characters.map((g) => g.id));
+    characterEdit.selected = new Set([...characterEdit.selected].filter((id) => ids.has(id)));
+    return {
+      n,
+      layout,
+      occurrences,
+      editable,
+      occurrence: editable.find((o) => o.route === characterEdit.route),
+      selected: layout.characters.filter((g) => characterEdit.selected.has(g.id)),
+    };
+  } catch (e) {
+    return {
+      n,
+      layout: { characters: [], reason: e.message },
+      occurrences: [],
+      editable: [],
+      selected: [],
+    };
+  }
+}
+function characterFields(context, floating = false) {
+  const disabled = current().locked || !context.selected.length || !!context.layout.reason;
+  return `<div class="character-values">${['X', 'Y']
+    .map((axis, i) => {
+      const values = context.selected.map((g) => g.offset[i]),
+        mixed = values.some((v) => v !== values[0]);
+      return `<label>Δ${axis}<input type="number" step="any" min="-100000" max="100000" data-character-axis="${i}" aria-label="${floating ? 'Floating ' : ''}Character delta ${axis}" placeholder="${mixed ? 'Mixed' : '0'}" value="${mixed ? '' : (values[0] ?? 0)}" ${disabled ? 'disabled' : ''}></label>`;
+    })
+    .join(
+      '',
+    )}<button data-character-reset="selected" ${disabled ? 'disabled' : ''} title="Reset selected positions">Reset</button></div>`;
+}
+function characterControls(n) {
+  if (n.type !== 'Text') return '';
+  const context = characterContext();
+  return `<section class="character-panel" aria-label="Character position"><div class="character-actions"><button data-character-mode="${n.id}" aria-pressed="${!!context}" ${current().locked ? 'disabled' : ''}>${context ? 'Finish character position' : 'Character position'}</button><button data-edit-text="${n.id}">Edit text</button></div>${
+    context
+      ? `<p>Click a character, then drag. Shift-click selects several. Arrows move 1 px; Shift moves 10 px.</p>${context.layout.reason ? `<p class="warning">${esc(context.layout.reason)}. Undo, restore the prior text, or reset all positions.</p>` : ''}${!context.editable.length ? `<p class="warning">${esc(context.occurrences[0]?.reason || 'This Text does not reach the visible Output.')} Local numeric editing remains available when character mapping is valid.</p>` : ''}${context.occurrences.length > 1 ? `<p>Editing shared Text: affects ${context.occurrences.length} displayed instances.</p>` : ''}${
+          context.editable.length > 1
+            ? `<label>Displayed instance<select data-character-instance aria-label="Character displayed instance"><option value="">Choose an instance</option>${context.editable
+                .map(
+                  (o, i) =>
+                    `<option value="${esc(o.route)}" ${o.route === characterEdit.route ? 'selected' : ''}>Instance ${i + 1} · ${esc(
+                      o.route
+                        .split('/')
+                        .slice(1)
+                        .map(
+                          (part) =>
+                            current().nodes.find((n) => part.startsWith(n.id))?.name || part,
+                        )
+                        .join(' → ') || 'Text',
+                    )}</option>`,
+                )
+                .join('')}</select></label>`
+            : ''
+        }<label>Characters <select multiple size="${Math.min(6, Math.max(2, context.layout.characters.length))}" data-character-selection aria-label="Select characters">${context.layout.characters.map((g) => `<option value="${g.id}" ${characterEdit.selected.has(g.id) ? 'selected' : ''}>${g.sourceIndex + 1} · ${g.whitespace ? '[space]' : esc(g.text)}</option>`).join('')}</select></label><p>${context.selected.length} selected${context.selected.some((g) => g.whitespace) ? ' · Moving a space changes its visual position only. Use letterSpacing/kerning for spacing.' : ''}</p>${characterFields(context)}<button data-character-reset="all" ${current().locked ? 'disabled' : ''}>Reset all positions</button><p class="font-note">Local X points right; Y points down, before downstream Transform. Offsets apply after alignment: Position and Position OUT stay fixed. Adjusted outlines can extend beyond that reference.</p>`
+      : ''
+  }</section>`;
+}
+function characterFloating() {
+  const context = characterContext();
+  if (!context?.selected.length || !context.occurrence) return '';
+  return `<div class="character-floating" aria-label="Quick character position">${characterFields(context, true)}</div>`;
+}
+function positionCharacterFloating() {
+  const toolbar = document.querySelector('.character-floating'),
+    stage = document.querySelector('.canvas-stage'),
+    svg = document.querySelector('.artboard'),
+    context = characterContext();
+  if (!toolbar || !stage || !context?.occurrence || !context.selected.length) return;
+  const ctm = svg.getScreenCTM(),
+    rect = stage.getBoundingClientRect();
+  if (!ctm) return;
+  const points = context.selected
+    .flatMap((g) => characterBoxPoints(g, context.occurrence.matrix))
+    .map((p) => new DOMPoint(...p).matrixTransform(ctm));
+  const box = [
+    Math.min(...points.map((p) => p.x)) - rect.left,
+    Math.min(...points.map((p) => p.y)) - rect.top,
+    Math.max(...points.map((p) => p.x)) - rect.left,
+    Math.max(...points.map((p) => p.y)) - rect.top,
+  ];
+  const width = toolbar.offsetWidth || 250,
+    height = toolbar.offsetHeight || 44,
+    gap = 10;
+  const clamp = (v, max) => Math.max(6, Math.min(Math.max(6, max - 6), v));
+  const candidates = [
+    [box[0], box[1] - height - gap],
+    [box[0], box[3] + gap],
+    [box[2] + gap, box[1]],
+    [box[0] - width - gap, box[1]],
+  ].map(([x, y]) => [clamp(x, stage.clientWidth - width), clamp(y, stage.clientHeight - height)]);
+  const overlap = ([x, y]) =>
+    Math.max(0, Math.min(x + width, box[2]) - Math.max(x, box[0])) *
+    Math.max(0, Math.min(y + height, box[3]) - Math.max(y, box[1]));
+  candidates.sort((a, b) => overlap(a) - overlap(b));
+  toolbar.style.left = candidates[0][0] + 'px';
+  toolbar.style.top = candidates[0][1] + 'px';
+  for (const input of document.querySelectorAll('[data-character-axis]'))
+    if (input !== document.activeElement) {
+      const values = context.selected.map((g) => g.offset[Number(input.dataset.characterAxis)]),
+        mixed = values.some((v) => v !== values[0]);
+      input.value = mixed ? '' : String(values[0] ?? 0);
+      input.placeholder = mixed ? 'Mixed' : '0';
+    }
+}
+function characterOverlay(result) {
+  const context = characterContext(result);
+  if (!context || current().locked) return '';
+  return context.editable
+    .map(
+      (o, instance) =>
+        `<g class="character-occurrence" data-character-route="${esc(o.route)}" transform="matrix(${o.matrix.join(' ')})">${context.layout.characters
+          .map((g) => {
+            const [x1, y1, x2, y2] = g.bounds,
+              chosen = characterEdit.selected.has(g.id),
+              hovered = characterEdit.hover === `${o.route}:${g.id}`;
+            return `<rect class="character-hit ${chosen ? 'selected' : ''} ${hovered ? 'hovered' : ''} ${g.whitespace ? 'whitespace' : ''}" data-character="${g.id}" data-character-instance-index="${instance}" x="${x1}" y="${y1}" width="${Math.max(0.01, x2 - x1)}" height="${Math.max(0.01, y2 - y1)}"/><path class="character-outline ${chosen ? 'selected' : ''}" d="${esc(g.path)}"/>${chosen ? `<path class="character-base" d="M${g.base[0] - 3} ${g.base[1]}h6 M${g.base[0]} ${g.base[1] - 3}v6"/>` : ''}`;
+          })
+          .join('')}</g>`,
+    )
+    .join('');
+}
+function writeCharacterChanges(changes) {
+  const n = selectedNode();
+  if (!n || n.type !== 'Text') throw Error('Select a Text node');
+  const next = setCharacterOffsets(n.text, n.characterPositions, changes);
+  if (next) {
+    n.characterPositions = next;
+    history.doc.schemaVersion = 3;
+  }
+}
+function chooseCharacter(hit, additive = false) {
+  characterEdit.route = hit.occurrence.route;
+  if (additive) {
+    if (characterEdit.selected.has(hit.glyph.id)) characterEdit.selected.delete(hit.glyph.id);
+    else characterEdit.selected.add(hit.glyph.id);
+  } else if (!characterEdit.selected.has(hit.glyph.id))
+    characterEdit.selected = new Set([hit.glyph.id]);
+}
+function selectOverlappingCharacters(hits, additive) {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'character-choice';
+  dialog.innerHTML = `<h3>Choose overlapping character</h3><p>Each entry identifies a character and displayed instance.</p>${hits.map((hit, i) => `<button data-choice="${i}">${hit.glyph.sourceIndex + 1} · ${esc(hit.glyph.whitespace ? '[space]' : hit.glyph.text)} · Instance ${hit.instance + 1}</button>`).join('')}<button data-close-choice>Cancel</button>`;
+  document.body.append(dialog);
+  dialog.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.choice !== undefined && characterEdit)
+      chooseCharacter(hits[Number(b.dataset.choice)], additive);
+    dialog.remove();
+    render();
+    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+  });
+  dialog.addEventListener('cancel', () => dialog.remove());
+  dialog.showModal();
+}
+
 function canvasOverlay(n, result) {
+  if (characterEdit) return characterOverlay(result);
   if (!n || !layerShown(current())) return '';
   let path;
   try {
@@ -631,6 +840,8 @@ function updateCanvas() {
         .join('') +
       guidesOverlay() +
       canvasOverlay(selectedNode(), r);
+    renderEvaluation = r;
+    positionCharacterFloating();
   });
 }
 function fitCanvas() {
@@ -645,6 +856,7 @@ function fitCanvas() {
   svg.style.width = history.doc.width * scale + 'px';
   svg.style.height = history.doc.height * scale + 'px';
   svg.style.transform = `translate(${pan[0]}px,${pan[1]}px)`;
+  positionCharacterFloating();
 }
 function drawWires() {
   let graph = document.querySelector('.graph'),
@@ -760,6 +972,47 @@ app.addEventListener('click', async (e) => {
   if (!b) return;
   const d = b.dataset,
     n = selectedNode();
+  if (d.characterMode) {
+    cancelInteraction();
+    if (characterEdit?.node === d.characterMode) characterEdit = null;
+    else if (!current().locked) {
+      characterEdit = {
+        node: d.characterMode,
+        layer: current().id,
+        selected: new Set(),
+        route: null,
+        hover: null,
+      };
+      tool = 'select';
+    }
+    render();
+    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+    return;
+  }
+  if (d.editText) {
+    characterEdit = null;
+    render();
+    document
+      .querySelector(`.inspector-body [data-text="${d.editText}"]`)
+      ?.focus({ preventScroll: true });
+    return;
+  }
+  if (d.characterReset) {
+    change(() => {
+      const target = selectedNode();
+      if (!target || target.type !== 'Text' || !target.characterPositions) return;
+      const next = resetCharacterOffsets(
+        target.text,
+        target.characterPositions,
+        d.characterReset === 'all' ? undefined : [...characterEdit.selected],
+      );
+      if (next) {
+        target.characterPositions = next;
+        history.doc.schemaVersion = 3;
+      }
+    }, 'Character positions reset');
+    return;
+  }
   if (d.layoutCancel !== undefined) {
     layoutDraft = null;
     layoutPreview = false;
@@ -995,6 +1248,8 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.tool) {
+    cancelInteraction();
+    characterEdit = null;
     tool = d.tool;
     if (tool === 'pen') {
       penId = null;
@@ -1226,10 +1481,153 @@ async function loadInstalledFont(id, nodeId) {
     }
   }
 }
+function textDraft(el) {
+  const n = current().nodes.find((n) => n.id === el.dataset.text);
+  if (!n) return null;
+  let draft = textDrafts.get(n.id);
+  if (!draft || draft.saved !== n.text) {
+    draft = {
+      saved: n.text,
+      raw: n.text,
+      record: n.characterPositions,
+      snapshots: [{ raw: n.text, record: n.characterPositions }],
+      cursor: 0,
+      capture: null,
+      composition: null,
+    };
+    textDrafts.set(n.id, draft);
+  }
+  return draft;
+}
+function stageTextInput(el, transaction) {
+  const draft = textDraft(el);
+  if (!draft) return;
+  const type = transaction?.inputType;
+  if (['historyUndo', 'historyRedo'].includes(type)) {
+    const index = draft.cursor + (type === 'historyUndo' ? -1 : 1),
+      snapshot = draft.snapshots[index];
+    if (snapshot?.raw === el.value) {
+      draft.cursor = index;
+      draft.raw = snapshot.raw;
+      draft.record = snapshot.record;
+      return;
+    }
+  }
+  if (
+    draft.raw === el.value &&
+    !(
+      transaction?.selectionEnd > transaction?.selectionStart &&
+      /^(insertText|insertFromPaste|insertFromDrop|insertReplacementText)$/.test(
+        transaction?.inputType || '',
+      )
+    )
+  )
+    return;
+  const updated = reconcileCharacterEdit(draft.record, {
+    previousRaw: draft.raw,
+    nextRaw: el.value,
+    ...transaction,
+  });
+  draft.raw = el.value;
+  draft.record = updated.record;
+  draft.snapshots = draft.snapshots.slice(0, draft.cursor + 1);
+  draft.snapshots.push({ raw: draft.raw, record: draft.record });
+  draft.cursor++;
+  if (draft.snapshots.length > 100) {
+    draft.snapshots.shift();
+    draft.cursor--;
+  }
+}
+app.addEventListener('beforeinput', (e) => {
+  if (!e.target.matches('textarea[data-text]')) return;
+  const el = e.target,
+    draft = textDraft(el);
+  if (!draft) return;
+  draft.capture = {
+    previousRaw: el.value,
+    selectionStart: el.selectionStart,
+    selectionEnd: el.selectionEnd,
+    inputType: e.inputType,
+    isComposing: e.isComposing,
+  };
+});
+app.addEventListener('input', (e) => {
+  if (!e.target.matches('textarea[data-text]')) return;
+  const draft = textDraft(e.target);
+  if (!draft || draft.composition || e.isComposing) return;
+  stageTextInput(e.target, draft.capture || { inputType: e.inputType });
+  draft.capture = null;
+});
+app.addEventListener('compositionstart', (e) => {
+  if (!e.target.matches('textarea[data-text]')) return;
+  const el = e.target,
+    draft = textDraft(el);
+  if (!draft) return;
+  draft.composition = {
+    previousRaw: el.value,
+    selectionStart: el.selectionStart,
+    selectionEnd: el.selectionEnd,
+  };
+});
+app.addEventListener('compositionend', (e) => {
+  if (!e.target.matches('textarea[data-text]')) return;
+  const draft = textDraft(e.target);
+  if (!draft) return;
+  const initial = draft.composition;
+  draft.composition = null;
+  stageTextInput(e.target, {
+    ...initial,
+    inputType: 'insertCompositionText',
+    composition: true,
+    isComposing: false,
+  });
+  draft.capture = null;
+  if (draft.pendingCommit) {
+    draft.pendingCommit = false;
+    e.target.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+});
+
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (d.text && textDrafts.get(d.text)?.composition) {
+    textDrafts.get(d.text).pendingCommit = true;
+    return;
+  }
   if (drag?.type === 'numeric' && drag.started && el === drag.capture) return;
+  if (d.characterInstance !== undefined) {
+    if (characterEdit) characterEdit.route = el.value || null;
+    render();
+    return;
+  }
+  if (d.characterSelection !== undefined) {
+    if (characterEdit)
+      characterEdit.selected = new Set([...el.selectedOptions].map((o) => o.value));
+    render();
+    return;
+  }
+  if (d.characterAxis !== undefined) {
+    const context = characterContext(),
+      value = Number(el.value),
+      axis = Number(d.characterAxis);
+    if (!el.value.trim() || !Number.isFinite(value) || Math.abs(value) > 100000) {
+      notify('Character offset must be between -100000 and 100000 px', true);
+      return;
+    }
+    if (context?.selected.length)
+      change(
+        () =>
+          writeCharacterChanges(
+            Object.fromEntries(
+              context.selected.map((g) => [g.id, g.offset.map((v, i) => (i === axis ? value : v))]),
+            ),
+          ),
+        'Character positions updated',
+        true,
+      );
+    return;
+  }
   if (d.batchPoint) {
     const selected = remapBatch(d.node).selected;
     if (el.checked) selected.add(d.batchPoint);
@@ -1390,8 +1788,21 @@ app.addEventListener('change', async (e) => {
         else if (d.strokeJoin) n.strokeJoin = el.value;
         else n.strokeDash = parseStrokeDash(el.value);
         validateStrokeStyle(n);
-      } else if (d.text) current().nodes.find((n) => n.id === d.text).text = el.value;
-      else if (d.font) current().nodes.find((n) => n.id === d.font).font = el.value;
+      } else if (d.text) {
+        const n = current().nodes.find((n) => n.id === d.text),
+          draft = textDrafts.get(n.id);
+        const record =
+          draft && draft.saved === n.text && draft.raw === el.value
+            ? draft.record
+            : reconcileCharacterEdit(n.characterPositions, {
+                previousRaw: n.text,
+                nextRaw: el.value,
+              }).record;
+        n.text = el.value;
+        if (record) n.characterPositions = record;
+        else delete n.characterPositions;
+        textDrafts.delete(n.id);
+      } else if (d.font) current().nodes.find((n) => n.id === d.font).font = el.value;
       else if (d.positionReference)
         current().nodes.find((n) => n.id === d.positionReference).positionReference = el.value;
       else if (d.referenceBounds)
@@ -1672,6 +2083,8 @@ app.addEventListener('pointerdown', (e) => {
     return;
   }
   const stage = e.target.closest('.canvas-stage');
+  // Floating fields/buttons are UI, never canvas hit targets or navigation gestures.
+  if (stage && e.target.closest('.character-floating')) return;
   if (stage && !control && !wiring && (e.button === 1 || (e.button === 0 && space))) {
     // View navigation takes priority over guides, shapes and Pen, including after zoom.
     drag = {
@@ -1684,6 +2097,72 @@ app.addEventListener('pointerdown', (e) => {
     stage.focus({ preventScroll: true });
     stage.setPointerCapture?.(e.pointerId);
     e.preventDefault();
+    return;
+  }
+  if (
+    stage &&
+    characterEdit &&
+    !control &&
+    !e.target.closest('.character-floating') &&
+    e.button === 0
+  ) {
+    e.preventDefault();
+    if (current().locked || !layerShown(current())) return;
+    if ([...textDrafts.values()].some((draft) => draft.composition)) {
+      notify('Finish or cancel text composition before selecting characters');
+      return;
+    }
+    // Blur the original control before any structural render so its change commits its draft.
+    stage.focus({ preventScroll: true });
+    const result = evaluate(current(), fonts, history.doc.imageAssets),
+      context = characterContext(result),
+      pos = canvasPoint(e);
+    if (!context) return;
+    const hits = context.editable.flatMap((occurrence, instance) =>
+      context.layout.characters
+        .filter((g) => hitCharacter(g, occurrence.matrix, pos))
+        .map((glyph) => ({ occurrence, glyph, instance })),
+    );
+    if (!hits.length) {
+      characterEdit.selected.clear();
+      render();
+      document.querySelector('.canvas-stage').focus({ preventScroll: true });
+      return;
+    }
+    const already = hits.filter(
+      (h) => h.occurrence.route === characterEdit.route && characterEdit.selected.has(h.glyph.id),
+    );
+    if (hits.length > 1 && (e.shiftKey || already.length !== 1)) {
+      selectOverlappingCharacters(hits, e.shiftKey);
+      return;
+    }
+    const hit = hits.length === 1 ? hits[0] : already[0];
+    chooseCharacter(hit, e.shiftKey);
+    render();
+    const capture = document.querySelector('.canvas-stage');
+    capture.focus({ preventScroll: true });
+    if (e.shiftKey || !characterEdit.selected.size) return;
+    const next = characterContext(),
+      points = next.selected.flatMap((g) => characterBoxPoints(g, hit.occurrence.matrix));
+    drag = {
+      type: 'character',
+      nodeId: next.n.id,
+      route: hit.occurrence.route,
+      matrix: hit.occurrence.matrix,
+      start: pos,
+      startClient: [e.clientX, e.clientY],
+      originals: next.selected.map((g) => ({ id: g.id, offset: [...g.offset] })),
+      anchors: [0, 1].map((axis) => {
+        const values = points.map((p) => p[axis]),
+          low = Math.min(...values),
+          high = Math.max(...values);
+        return [low, (low + high) / 2, high];
+      }),
+      before: cloneDocument(history.doc),
+      pointerId: e.pointerId,
+      capture,
+    };
+    capture.setPointerCapture?.(e.pointerId);
     return;
   }
   if (e.button !== 0) {
@@ -1999,6 +2478,15 @@ app.addEventListener('pointerdown', (e) => {
   } else notify('Select generators, or one Transform to move its whole group');
 });
 document.addEventListener('pointermove', (e) => {
+  if (characterEdit && !drag && !wiring) {
+    const target = e.target.closest?.('[data-character]');
+    const route = target?.closest('[data-character-route]')?.dataset.characterRoute;
+    characterEdit.hover = target ? `${route}:${target.dataset.character}` : null;
+    document
+      .querySelectorAll('.character-hit.hovered')
+      .forEach((el) => el.classList.remove('hovered'));
+    target?.classList.add('hovered');
+  }
   if (wiring) {
     if (wiring.pointerId !== undefined && wiring.pointerId !== e.pointerId) return;
     wiring.pointer = [e.clientX, e.clientY];
@@ -2006,6 +2494,35 @@ document.addEventListener('pointermove', (e) => {
     return;
   }
   if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
+  if (drag.type === 'character') {
+    if (current().locked || characterEdit?.node !== drag.nodeId || selected !== drag.nodeId) {
+      cancelInteraction();
+      return;
+    }
+    if (
+      Math.hypot(e.clientX - drag.startClient[0], e.clientY - drag.startClient[1]) < 3 &&
+      !drag.started
+    )
+      return;
+    try {
+      const pos = canvasPoint(e),
+        displayed = snapped(
+          drag.anchors,
+          pos.map((v, i) => v - drag.start[i]),
+          e,
+        ),
+        local = inverseCharacterDelta(drag.matrix, displayed);
+      writeCharacterChanges(
+        Object.fromEntries(drag.originals.map((g) => [g.id, g.offset.map((v, i) => v + local[i])])),
+      );
+      drag.started = true;
+      updateCanvas();
+    } catch (error) {
+      cancelInteraction();
+      notify(error.message, true);
+    }
+    return;
+  }
   if (drag.type === 'numeric') {
     const d = drag,
       dx = e.clientX - d.startX;
@@ -2187,6 +2704,12 @@ document.addEventListener('pointerup', (e) => {
     if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
     snapMatches = [];
     if (d.type === 'numeric' && !d.started) return;
+    if (d.type === 'character' && d.before) {
+      const offsets =
+        current().nodes.find((n) => n.id === d.nodeId)?.characterPositions?.offsets || {};
+      if (d.originals.every((g) => g.offset.every((v, i) => v === (offsets[g.id]?.[i] || 0))))
+        history.doc = d.before;
+    }
     if (d.before && !sameDocument(d.before, history.doc)) {
       history.record(d.before);
       notify('Updated');
@@ -2234,7 +2757,42 @@ document.addEventListener('keydown', (e) => {
     cancelInteraction();
     return;
   }
+  if (drag?.type === 'character' && e.key === 'Escape') {
+    e.preventDefault();
+    cancelInteraction();
+    return;
+  }
   if (editingControl(e.target)) return;
+  if (
+    characterEdit &&
+    e.target.closest('.canvas-stage') &&
+    ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)
+  ) {
+    e.preventDefault();
+    if (drag) return;
+    const context = characterContext();
+    if (!context?.occurrence || !context.selected.length) return;
+    try {
+      const step = e.shiftKey ? 10 : 1,
+        delta = inverseCharacterDelta(context.occurrence.matrix, [
+          e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0,
+          e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0,
+        ]);
+      change(
+        () =>
+          writeCharacterChanges(
+            Object.fromEntries(
+              context.selected.map((g) => [g.id, g.offset.map((v, i) => v + delta[i])]),
+            ),
+          ),
+        'Character positions updated',
+      );
+      document.querySelector('.canvas-stage').focus({ preventScroll: true });
+    } catch (err) {
+      notify(err.message, true);
+    }
+    return;
+  }
   if (e.code === 'Space') {
     space = true;
     e.preventDefault();
@@ -2248,6 +2806,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.key === 'Escape') {
+    characterEdit = null;
     cancelInteraction();
     layoutDraft = null;
     layoutPreview = false;

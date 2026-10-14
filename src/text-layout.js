@@ -1,4 +1,9 @@
 import opentype from 'opentype.js';
+import {
+  normalizeCharacterText,
+  characterPositionStatus,
+  hasCharacterOffsets,
+} from './character-identity.js';
 
 const rotatePunctuation = new Set([
   ...'ーｰ―—‐‑–−〜～…‥「」『』（）〔〕［］｛｝〈〉《》【】〖〗〘〙〚〛＝',
@@ -78,6 +83,7 @@ export function layoutText(
     kerning = true,
     referenceBounds = 'advance',
     crossAlignment = 'origin',
+    characterPositions,
   },
 ) {
   if (!['start', 'center', 'end'].includes(alignment)) throw Error('Invalid text alignment');
@@ -99,7 +105,7 @@ export function layoutText(
   if (!['horizontal-tb', 'vertical-rl'].includes(writingMode))
     throw Error('Unsupported writing mode');
   if (text.length > 10000) throw Error('Text exceeds 10000 characters');
-  const normalized = text.replace(/\r\n?/g, '\n').normalize('NFC');
+  const normalized = normalizeCharacterText(text);
   if (/[\p{Mark}\p{Cf}\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u.test(normalized))
     throw Error(
       'Combining sequences, variation selectors, tabs and control characters are unsupported',
@@ -124,11 +130,16 @@ export function layoutText(
     path.extend(outline);
   }
   const lines = normalized.split('\n');
+  let sourceIndex = 0,
+    mappingReason = null;
   const advances = [];
   const factor = { start: 0, center: 0.5, end: 1 }[alignment];
   for (const [line, content] of lines.entries()) {
     const commandStart = path.commands.length,
-      glyphStart = glyphs.length;
+      glyphStart = glyphs.length,
+      chars = [...content],
+      lineSourceStart = sourceIndex;
+    sourceIndex += chars.length + 1;
     function align(advance) {
       if (!Number.isFinite(advance)) throw Error('Invalid text advance');
       advances.push(advance);
@@ -156,10 +167,37 @@ export function layoutText(
         size,
         { letterSpacing: letterSpacing / size, kerning },
         (glyph, x, y) => {
+          const index = glyphs.length - glyphStart,
+            char = chars[index],
+            start = path.commands.length;
           append(glyph.getPath(x, y, size));
-          glyphs.push({ id: glyph.index, line, x, y, rotation: 0 });
+          glyphs.push({
+            id: glyph.index,
+            char,
+            sourceIndex: lineSourceStart + index,
+            line,
+            x,
+            y,
+            rotation: 0,
+            advance: (glyph.advanceWidth || font.unitsPerEm) * scale,
+            commandStart: start,
+            commandEnd: path.commands.length,
+          });
         },
       );
+      const emitted = glyphs.slice(glyphStart);
+      if (
+        emitted.length !== chars.length ||
+        emitted.some((glyph, i) => glyph.id !== font.charToGlyphIndex(chars[i])) ||
+        chars.some(
+          (char) =>
+            !/^[\p{Script=Latin}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Common}]$/u.test(
+              char,
+            ),
+        )
+      )
+        mappingReason =
+          'This shaped run has no verified one-to-one Japanese/Latin character mapping';
       align(end - position[0] - (glyphs.length > glyphStart ? letterSpacing : 0));
       continue;
     }
@@ -203,8 +241,12 @@ export function layoutText(
         warnings.add(
           'Font lacks some vertical alternates; brackets/long marks rotate geometrically.',
         );
+      const start = path.commands.length;
       append(outline);
       glyphs.push({
+        sourceIndex: lineSourceStart + glyphs.length - glyphStart,
+        commandStart: start,
+        commandEnd: path.commands.length,
         char,
         id: glyph.index,
         originalId: original.index,
@@ -233,10 +275,65 @@ export function layoutText(
       for (const glyph of glyphs) glyph[axis] += shift;
     }
   }
+  const status = characterPositionStatus(text, characterPositions);
+  const reason = status.suspended ? status.reason : mappingReason;
+  const suspended = !!reason && hasCharacterOffsets(characterPositions);
+  if (suspended)
+    warnings.add(
+      `Character positions suspended: ${reason}. Undo, restore text, or Reset all positions before export.`,
+    );
+  const characters = [];
+  if (!reason)
+    for (const glyph of glyphs) {
+      const unit =
+        characterPositions?.basis === normalized
+          ? characterPositions.units[glyph.sourceIndex]
+          : null;
+      const id = unit?.id || `c${glyph.sourceIndex + 1}`;
+      const offset = characterPositions?.offsets[id] || [0, 0];
+      const base = [glyph.x, glyph.y];
+      for (let i = glyph.commandStart; i < glyph.commandEnd; i++)
+        for (const suffix of ['', '1', '2']) {
+          const command = path.commands[i];
+          if ('x' + suffix in command) {
+            command['x' + suffix] += offset[0];
+            command['y' + suffix] += offset[1];
+          }
+        }
+      const outline = new opentype.Path();
+      outline.commands = path.commands.slice(glyph.commandStart, glyph.commandEnd);
+      const box = outline.getBoundingBox(),
+        whitespace = !outline.commands.length;
+      const x = glyph.x + offset[0],
+        y = glyph.y + offset[1];
+      const bounds = whitespace
+        ? writingMode === 'horizontal-tb'
+          ? [x, y - size * 0.8, x + Math.max(glyph.advance, size * 0.2), y + size * 0.2]
+          : [x - size * 0.5, y, x + size * 0.5, y + Math.max(glyph.advance, size * 0.2)]
+        : [box.x1, box.y1, box.x2, box.y2];
+      characters.push({
+        id,
+        text: glyph.char,
+        sourceIndex: glyph.sourceIndex,
+        bounds,
+        base,
+        offset: [...offset],
+        whitespace,
+        path: outline.toPathData(5),
+      });
+    }
   if (path.commands.length > 500000) throw Error('Text outline is too complex');
   for (const cmd of path.commands)
     for (const [key, value] of Object.entries(cmd))
       if (key !== 'type' && !Number.isFinite(value))
         throw Error('Font produced invalid outline coordinates');
-  return { path, glyphs, advances, warnings: [...warnings] };
+  return {
+    path,
+    glyphs,
+    advances,
+    warnings: [...warnings],
+    characters,
+    characterReason: reason,
+    characterSuspended: suspended,
+  };
 }

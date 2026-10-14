@@ -833,3 +833,100 @@ input[data-scrub-step].scrubbing {
   user-select: none;
   cursor: ew-resize;
 }
+
+/* A single source Text, with lightweight final-output editing overlays. */
+.canvas-stage {
+  position: relative;
+}
+.character-panel {
+  border: 1px solid #b9c7d0;
+  border-radius: 7px;
+  padding: 10px;
+  margin-bottom: 14px;
+  background: #f4f8fb;
+}
+.character-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.character-panel p {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.character-panel select {
+  display: block;
+  width: 100%;
+  margin: 5px 0;
+}
+.character-values {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+.character-values label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 11px;
+  flex: 1;
+}
+.character-values input {
+  width: 100%;
+  min-width: 0;
+}
+.character-floating {
+  position: absolute;
+  z-index: 3;
+  width: 250px;
+  max-width: calc(100% - 12px);
+  padding: 7px;
+  border: 1px solid #adbeca;
+  border-radius: 8px;
+  box-shadow: 0 3px 14px #26374720;
+  background: #fff;
+}
+.character-hit {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+  cursor: move;
+}
+.character-hit.hovered {
+  stroke: #6e92ac;
+  stroke-dasharray: 3 3;
+}
+.character-hit.selected {
+  stroke: #1680c2;
+  fill: #1680c208;
+}
+.character-hit.selected.whitespace {
+  stroke-dasharray: 3 3;
+  fill: #1680c212;
+}
+.character-outline {
+  fill: none;
+  stroke: none;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+.character-outline.selected {
+  stroke: #1680c270;
+  stroke-width: 1;
+}
+.character-base {
+  fill: none;
+  stroke: #1680c280;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.character-choice {
+  max-width: 400px;
+}
+.character-choice button {
+  display: block;
+  margin: 5px 0;
+}

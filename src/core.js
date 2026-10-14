@@ -14,6 +14,10 @@ import paper from 'paper/dist/paper-core.js';
 import { validateFontAssets, resolveFonts, MAX_PROJECT_BYTES, utf8ByteLength } from './fonts.js';
 import { layoutText } from './text-layout.js';
 import { fingerprint } from './fingerprint.js';
+import { validateCharacterPositions } from './character-identity.js';
+import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
+export * from './character-identity.js';
+export * from './character-geometry.js';
 const scope = new paper.PaperScope();
 scope.setup(new scope.Size(1200, 800));
 export const clone = (x) => structuredClone(x);
@@ -640,7 +644,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   const values = new Map(),
     warnings = [],
     active = new Set(),
-    versions = new Map();
+    versions = new Map(),
+    textLayouts = new Map();
   let computed = 0,
     reused = 0;
   const byId = new Map(layer.nodes.map((n) => [n.id, n]));
@@ -684,6 +689,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               n.operation,
               n.edits,
               n.text,
+              n.characterPositions,
               n.font,
               n.writingMode,
               n.alignment,
@@ -710,6 +716,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         versions.set(key, existing.version);
         active.delete(id);
         warnings.push(...existing.warnings);
+        if (existing.textLayout) textLayouts.set(id, clone(existing.textLayout));
         return result;
       }
       const warningStart = warnings.length;
@@ -797,6 +804,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         if (!font) throw Error('Font is still loading or unavailable');
         const layout = layoutText(font, n.text, {
           position: read('position'),
+          characterPositions: n.characterPositions,
           size: read('size'),
           writingMode: n.writingMode,
           alignment: n.alignment,
@@ -810,6 +818,20 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         const d = layout.path.toPathData(5);
         let item = new scope.CompoundPath({ pathData: d, insert: false });
         result = fromPaper(item, n.id);
+        textLayouts.set(n.id, {
+          characters: layout.characters,
+          reason: layout.characterReason,
+          suspended: layout.characterSuspended,
+        });
+        result.characterOccurrences = [
+          {
+            source: n.id,
+            route: n.id,
+            matrix: identityMatrix(),
+            reason: layout.characterReason || null,
+            suspended: layout.characterSuspended,
+          },
+        ];
         result.unstable = true;
         result.fingerprint = signature(result);
         item.remove();
@@ -839,6 +861,10 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             })),
           ),
         };
+        result.characterOccurrences = [
+          ...routeCharacters(a, `${n.id}:a`),
+          ...routeCharacters(b, `${n.id}:b`),
+        ];
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Geometry Repeater') {
@@ -900,6 +926,12 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               })),
             });
         }
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Geometry Repeater',
+        );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Imported Path') {
@@ -923,6 +955,20 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         if (!op) throw Error('Unknown Boolean operation');
         let r = pa[op](pb, { insert: false });
         result = fromPaper(r, n.id);
+        result.characterOccurrences = [
+          ...routeCharacters(
+            a,
+            `${n.id}:a`,
+            null,
+            'Canvas character editing is unavailable through Boolean',
+          ),
+          ...routeCharacters(
+            b,
+            `${n.id}:b`,
+            null,
+            'Canvas character editing is unavailable through Boolean',
+          ),
+        ];
         result.unstable = true;
         result.fingerprint = signature(result);
         pa.remove();
@@ -946,6 +992,12 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           result.stroke = { ...read('color'), width, ...style, miterLimit, dashOffset };
         }
         if (n.type === 'Path Remap') {
+          result.characterOccurrences = routeCharacters(
+            result,
+            n.id,
+            null,
+            'Canvas character editing is unavailable through Path Remap',
+          );
           let offset = read('offset');
           for (const contour of result.contours)
             for (const pt of contour.points) pt.position = pt.position.map((v, i) => v + offset[i]);
@@ -974,6 +1026,11 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             if (result.contours[ci].group !== undefined) c.group = result.contours[ci].group;
             c.points.forEach((p, pi) => (p.id = result.contours[ci].points[pi].id));
           });
+          transformed.characterOccurrences = routeCharacters(
+            result,
+            n.id,
+            characterTransform(anchor, read('offset'), read('scale'), read('rotation')),
+          );
           transformed.unstable = result.unstable;
           transformed.fingerprint = result.fingerprint;
           result = transformed;
@@ -1003,6 +1060,15 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             for (const point of contour.points)
               point.position = point.position.map((v, axis) => v + delta[axis]);
       }
+      if (result?.characterOccurrences?.length > 256)
+        result.characterOccurrences = [
+          ...new Map(
+            result.characterOccurrences.map((o) => [
+              o.source,
+              { ...o, reason: 'Canvas character editing exceeds 256 displayed instances' },
+            ]),
+          ).values(),
+        ];
       active.delete(id);
       values.set(key, result);
       const version = ++revision;
@@ -1013,6 +1079,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         value: clone(result),
         version,
         warnings: warnings.slice(warningStart),
+        textLayout: textLayouts.has(id) ? clone(textLayouts.get(id)) : undefined,
       });
       return result;
     } finally {
@@ -1027,7 +1094,18 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     error = e.message;
   }
   for (const key of cache.keys()) if (!byId.has(key.split('\0')[0])) cache.delete(key);
-  return { path, error, warnings, values, run, stats: { computed, reused } };
+  return {
+    path,
+    error,
+    warnings,
+    values,
+    run,
+    textLayout(id) {
+      run(id);
+      return textLayouts.get(id);
+    },
+    stats: { computed, reused },
+  };
 }
 export function connect(layer, sourceId, targetId, key, validating = false, sourcePort) {
   let from = layer.nodes.find((n) => n.id === sourceId),
@@ -1138,7 +1216,7 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2].includes(doc.schemaVersion)) throw Error('Unsupported project version');
+  if (!doc || ![1, 2, 3].includes(doc.schemaVersion)) throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   text(doc.name);
   validateFontAssets(doc.fontAssets);
@@ -1177,7 +1255,10 @@ export function validate(doc) {
           !/^(origin|(left|center|right)-(top|middle|bottom))$/.test(n.positionReference))
       )
         throw Error('Invalid object Position reference');
+      if (n.characterPositions !== undefined && (n.type !== 'Text' || doc.schemaVersion < 3))
+        throw Error('Character positions require schemaVersion 3 and a Text node');
       if (n.type === 'Text') {
+        validateCharacterPositions(n.characterPositions);
         if (n.referenceBounds !== undefined && !['visible', 'advance'].includes(n.referenceBounds))
           throw Error('Invalid text reference bounds');
         if (
@@ -1318,6 +1399,10 @@ export function exportScene(doc, fonts = {}) {
     .map((l) => {
       const result = evaluate(l, fonts, doc.imageAssets);
       if (result.error) throw Error(`${l.name}: ${result.error}`);
+      if (result.path?.characterOccurrences?.some((o) => o.suspended))
+        throw Error(
+          `${l.name}: Character positions are suspended; restore text/mapping or reset all positions before export`,
+        );
       return { layer: l, value: result.path };
     });
 }

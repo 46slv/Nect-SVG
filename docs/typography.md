@@ -69,3 +69,7 @@ Text uses its existing `alignment` (`start`, `center`, `end`) as the inline Posi
 `crossAlignment` is `origin` (first horizontal baseline / first vertical column center), `start`, `center`, or `end`. Non-origin values align the whole block's visible cross-axis bounds: Top/Center/Bottom horizontally, Left/Center/Right vertically. Missing values mean `origin`. Cross-axis bounds exclude empty lines. This setting is independent of inline visible/advance measurement.
 
 Changing a reference keeps the numeric Position unchanged and repositions the geometry. Editing text, font, or size keeps the chosen reference fixed. There is one inline reference control, reusing alignment, rather than a second conflicting text anchor. No Position output socket, wrapping or paragraph frame is introduced. Transform's Anchor remains the separate transform pivot.
+
+## Independent character position prototype
+
+The Inspector's Character position mode keeps one editable Text and applies sparse per-character local XY offsets after normal layout/alignment. It supports final-output editing through Transform and Join Geometry, bounded stable identity across verified textarea edits, cancellation, mixed numerical controls and reset. Unsupported shaping/routes do not show guessed targets. Active unresolved adjustments block artwork export while preserving editable JSON. See [Character position](character-position.md) and its [editable sample](../examples/character-position-prototype.json). Native Windows IME acceptance is reported separately from synthetic tests.
