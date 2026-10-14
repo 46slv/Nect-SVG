@@ -17,6 +17,9 @@ try {
       const { document: makeDoc, node } = await import('/src/core.js');
       const doc = makeDoc(),
         n = node(type);
+      // Keep this fixture's editable card clear of the default Circle at [40, 50].
+      // Raw mouse gestures must hit the intended control, not an overlapping card.
+      for (const existing of doc.layers[0].nodes) existing.position[0] += 1600;
       doc.layers[0].nodes.unshift(n);
       window.nect.load(JSON.stringify(doc));
       return n.id;
@@ -36,6 +39,14 @@ try {
     const b = await el.boundingBox(),
       x = b.x + b.width * 0.4,
       y = b.y + b.height / 2;
+    const hit = await el.evaluate(
+      (target, { x, y }) => {
+        const actual = document.elementFromPoint(x, y);
+        return { matches: actual === target, actual: actual?.outerHTML, target: target.outerHTML };
+      },
+      { x, y },
+    );
+    assert.equal(hit.matches, true, `Scrub hit target mismatch: ${JSON.stringify(hit)}`);
     await page.mouse.move(x, y);
     await page.mouse.down();
     return { x, y };
