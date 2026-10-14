@@ -71,3 +71,14 @@ Resume conditions:
 - Future scope may add user fonts/shaping, broader SVG fidelity, richer graph navigation and cloud isolation; none is claimed complete or required to operate this first usable editor.
 
 No protected-main merge, public release, deployment, signing or permission/billing change was performed. Draft PR #1 is the review/handoff point. Documentation-only result updates do not alter the tested application code.
+
+## Border ports and cancelled gestures / 2026-10-14
+
+Code commit `c0cb41cfdce1c7ae68df276017e36a2c876a5532`, [Windows CI 38501443561](https://github.com/46slv/Nect-SVG/actions/runs/38501443561), passed formatting, all 33 tests, production build, actual Chrome interaction and Tauri/NSIS packaging.
+
+- Synthetic DOM regressions confirm cancelled generator, graph-card, Pen and vertex gestures restore the exact document; undo/redo history is retained and later pointer movement/release does not resume the cancelled operation. Cancelled wiring clears compatible-target highlights without connecting on a later release. Ordinary Pen gestures still undo in one step.
+- Actual Chrome verifies pointer cancellation, socket centers on left/right card borders, external-half input hit testing, dynamic connection visibility, matching wire endpoints, horizontal resize/undo and socket positions after long-Curve graph scrolling. A connected card placed at graph origin retains its complete input circles.
+- Initial, connecting, connected, graph-origin and long-Curve screenshots were visually inspected. White/silver styling, border-centered circles and reachable tall-card controls are retained. Screenshots are browser evidence, not native WebView2 evidence.
+- Unsigned NSIS installer: 2,371,437 bytes. The 2,979,162-byte artifact ZIP was downloaded and its SHA256 matched `9cf44b30ede427f10ed55cba4887fc45516d94dfc4bd8a10b30ce8fab0ec8557`. The archive and a representative screenshot were separately retained beyond the one-day CI retention.
+
+The restored local workspace had no installed project dependencies. Local syntax checks, diff checks and the dependency-free layout test passed; the full local check stopped at missing Prettier, and the DOM test could not load Happy DOM. Those local runs are not claimed passed. The complete tests and build passed in the existing isolated Windows workflow using the unchanged lockfile. No dependency patch was installed or retried. Native Windows interaction and the previously cancelled dependency update remain separate open gates.
