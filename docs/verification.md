@@ -82,3 +82,16 @@ Code commit `c0cb41cfdce1c7ae68df276017e36a2c876a5532`, [Windows CI 38501443561]
 - Unsigned NSIS installer: 2,371,437 bytes. The 2,979,162-byte artifact ZIP was downloaded and its SHA256 matched `9cf44b30ede427f10ed55cba4887fc45516d94dfc4bd8a10b30ce8fab0ec8557`. The archive and a representative screenshot were separately retained beyond the one-day CI retention.
 
 The restored local workspace had no installed project dependencies. Local syntax checks, diff checks and the dependency-free layout test passed; the full local check stopped at missing Prettier, and the DOM test could not load Happy DOM. Those local runs are not claimed passed. The complete tests and build passed in the existing isolated Windows workflow using the unchanged lockfile. No dependency patch was installed or retried. Native Windows interaction and the previously cancelled dependency update remain separate open gates.
+
+## Collapsed-node acceptance / 2026-10-14
+
+Tested commit `020047d5da5119cee8c9ee09c16c89f798259916`, [Windows CI 38504090197](https://github.com/46slv/Nect-SVG/actions/runs/38504090197), passed formatting, 34 tests, production build, actual Chrome interaction and Tauri/NSIS packaging.
+
+- Nodes collapse through their title triangle while retaining the name, output and connected inputs. Input centers are 24 px apart; the two-input Boolean card is below 100 px high. Compatible empty inputs appear during wiring, allowing replacement, disconnection and reconnection without expanding the card.
+- Core tests verify persistence, legacy files without the optional flag, invalid flag rejection and no geometry-cache invalidation. DOM and Chrome verify undo/redo, unchanged width/position/selection, saved reload, keyboard focus through repeated Enter toggles, cancelled temporary wiring and resumed parameter editing after expansion. The previous border-port, pointer-cancellation and long-Curve regressions still pass.
+- The 1920×1080 collapsed, active-wiring and expanded-node screenshots were visually inspected. The complete archive and a representative collapsed-node screenshot were retained separately beyond CI expiry.
+- Unsigned NSIS installer: 2,371,968 bytes. Downloaded artifact ZIP: 3,188,086 bytes. SHA256 matched `04847b43d5bed401091acff0567e03ab8e2e8545340c5cfa565791df9bd643d7`.
+
+Earlier attempt `c3cbad1` stopped at test-file formatting before tests or browser execution. Attempt `0f3767f` passed all 34 tests and build, then stopped because the browser assertion treated a newly introduced temporary input socket as an output. The assertion now distinguishes outputs explicitly; inspection confirmed the temporary input was on the correct left border. The final run above passed that check and all remaining interactions. These earlier stopped stages are not counted as passes.
+
+Local dependencies remained absent; only syntax/diff checks and the dependency-free layout test ran locally. No dependency update, main merge, release, signing or native Windows interaction was performed. PR-body editing remains paused after its separate cancelled tool call; the repository documents contain these current results.
