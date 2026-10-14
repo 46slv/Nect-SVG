@@ -28,7 +28,7 @@ async function assertBorderSockets() {
       offsets: sockets.map((el) => {
         const r = el.getBoundingClientRect(),
           n = el.closest('.node').getBoundingClientRect();
-        return r.x + r.width / 2 - (el.classList.contains('input') ? n.left : n.right);
+        return r.x + r.width / 2 - (el.classList.contains('output') ? n.right : n.left);
       }),
       wired: [...document.querySelectorAll('.graph .field.connected')]
         .filter((el) => visible(el.querySelector('.input')))
