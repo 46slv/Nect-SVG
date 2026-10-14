@@ -20,7 +20,11 @@ async function reset() {
     const d = document(),
       n = node('Rectangle', 100, 70);
     n.collapsed = true;
-    d.layers[0].nodes.unshift(n);
+    const out = node('Output', 700, 70);
+    out.params.path.source = n.id;
+    out.collapsed = true;
+    d.layers[0].nodes = [n, out];
+    d.layers[0].output = out.id;
     window.nect.load(JSON.stringify(d));
     return n.id;
   });
@@ -29,6 +33,14 @@ async function reset() {
 async function grab() {
   const box = await page.locator(`.node[data-id="${id}"] .node-head strong`).boundingBox();
   const p = [box.x + box.width / 2, box.y + box.height / 2];
+  assert.equal(
+    await page.evaluate(
+      ([x, y]) => document.elementFromPoint(x, y)?.closest('.node')?.dataset.id,
+      p,
+    ),
+    id,
+    'drag target is unobstructed',
+  );
   await page.mouse.move(...p);
   await page.mouse.down();
   return p;
@@ -55,7 +67,7 @@ try {
     shifted = await scroll();
   assert.ok(
     after[0] > atEdge[0] + 60 && after[1] > atEdge[1] + 30,
-    'stationary diagonal edge drag keeps moving',
+    'stationary diagonal edge drag keeps moving: ' + JSON.stringify({ atEdge, after, shifted }),
   );
   const card = await page.locator(`.node[data-id="${id}"]`).boundingBox();
   const originalOffset = [start[0] - box.x - 16 - original[0], start[1] - box.y - 16 - original[1]];
