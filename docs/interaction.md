@@ -81,3 +81,7 @@ Generated guides are fixed document coordinates. After changing artboard dimensi
 ## Transform scale and rotation handles
 
 Select one existing Transform to show its fixed Anchor + Offset pivot, uniform Scale square and Rotate circle. Controls and dashed geometry explicitly show **Selected Transform output**, before downstream nodes. They do not impersonate an arbitrary final-output branch. Scale remains Scalar, including negative/zero values; Shift snaps Rotation to 15°. Only the chosen scalar changes. Existing canvas translation still edits Offset. Read-only parameters, focus commit, single-gesture history, no-op precision and cancellation follow [the Transform handle contract](transform-canvas-handles.md). Handles never export.
+
+## Artwork bounds snapping
+
+Guides → **Snap artwork** optionally aligns canvas moves to other visible layers’ final geometry edges and centers. It is off by default; locked references remain targets, while hidden/error/empty outputs and the whole editing layer are excluded. Bounds do not include stroke width. The same six-screen-pixel threshold, Alt bypass, single-gesture Undo and pan priority apply. See [the contract and example](artwork-bounds-snapping.md).

@@ -64,3 +64,5 @@ Geometry: [Paper.js PathItem](https://paperjs.org/reference/pathitem/). Text out
 ## Image workflow
 
 Export transparent SVG or PNG (0.5×–4×) from the same artboard scene. Import local PNG/JPEG into an Image composition, move/resize it, and save embedded assets in editable JSON. Image sockets remain separate from Path operations. See [export, limits and roundtrip boundaries](docs/image-export.md).
+
+Artwork alignment: enable **Guides → Snap artwork** to align to other visible shape, text and image layers. Try [the editable snapping example](examples/artwork-bounds-snapping.json); see [bounds, priority and compatibility](docs/artwork-bounds-snapping.md).

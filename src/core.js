@@ -4,6 +4,7 @@ export {
   guideDefaults,
   guideSettings,
   snapTranslation,
+  collectSnapLayerBounds,
   layoutGridDefaults,
   layoutGridLines,
   setLayoutGrid,

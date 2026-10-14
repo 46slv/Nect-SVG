@@ -9,6 +9,7 @@ export const guideDefaults = () => ({
   snapGuides: true,
   snapArtboard: true,
   snapGrid: true,
+  snapArtwork: false,
 });
 export const guideSettings = (doc) => doc.editor || guideDefaults();
 export function validateGuides(editor, validateId) {
@@ -25,6 +26,8 @@ export function validateGuides(editor, validateId) {
     'snapGrid',
   ])
     if (typeof editor[key] !== 'boolean') throw Error('Invalid guide setting');
+  if (editor.snapArtwork !== undefined && typeof editor.snapArtwork !== 'boolean')
+    throw Error('Invalid artwork snap setting');
   if (!Number.isFinite(editor.gridSize) || editor.gridSize < 1 || editor.gridSize > 10000)
     throw Error('Grid spacing must be between 1 and 10000');
   if (!Array.isArray(editor.guides) || editor.guides.length > 200)
@@ -43,6 +46,29 @@ export function validateGuides(editor, validateId) {
       throw Error('Invalid guide');
   }
 }
+// Reuse a render's evaluated final outputs. Graphs are layer-local, so excluding
+// the whole editing layer also excludes every follower/dependent of a moved node.
+// Keep this snapshot for canvas-only gesture updates; never evaluate from a move.
+export function collectSnapLayerBounds(doc, evaluations, excludedLayer, boundsForPath) {
+  const settings = guideSettings(doc),
+    result = { guides: [], artwork: [] };
+  if (!settings.snap) return result;
+  for (const [layer, evaluation] of evaluations) {
+    if (!layer.visible || layer.id === excludedLayer || evaluation.error) continue;
+    const key = layer.guide ? 'guides' : 'artwork';
+    if (layer.guide ? !settings.snapGuides || !settings.visible : !settings.snapArtwork) continue;
+    const path = evaluation.path;
+    if (!path || path.characterOccurrences?.some((o) => o.suspended)) continue;
+    if (path.kind !== 'image' && !path.contours?.some((c) => c.points.length)) continue;
+    const bounds = boundsForPath(path);
+    if (
+      bounds.length === 2 &&
+      bounds.every((axis) => axis.length === 3 && axis.every(Number.isFinite))
+    )
+      result[key].push(bounds);
+  }
+  return result;
+}
 // Sources are coordinates of the original point or selected generators' bounds.
 // Return a single translation per axis so a multi-selection never deforms.
 export function snapTranslation(
@@ -53,6 +79,7 @@ export function snapTranslation(
   bypass = false,
   excludedGuide = null,
   layerBounds = [],
+  artworkBounds = [],
 ) {
   const settings = guideSettings(doc),
     matches = [],
@@ -75,12 +102,19 @@ export function snapTranslation(
         doc[axis ? 'height' : 'width'],
       ])
         candidates.push({ position, kind: 'artboard' });
+    if (settings.snapArtwork)
+      for (const bounds of artworkBounds)
+        for (const position of bounds[axis]) candidates.push({ position, kind: 'artwork' });
+    const priority = { guide: 0, 'guide-layer': 1, artboard: 2, artwork: 3, grid: 4 };
     let best = null;
     const consider = (source, candidate) => {
       const correction = candidate.position - (source + delta[axis]);
       if (
         Math.abs(correction) <= threshold &&
-        (!best || Math.abs(correction) < Math.abs(best.correction))
+        (!best ||
+          Math.abs(correction) < Math.abs(best.correction) ||
+          (Math.abs(correction) === Math.abs(best.correction) &&
+            priority[candidate.kind] < priority[best.kind]))
       )
         best = { ...candidate, correction, axis };
     };

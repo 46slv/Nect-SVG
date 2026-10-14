@@ -305,3 +305,7 @@ Text は既存の Path 出力を保ち、Vector2 の Position 出力を追加す
 - 既存 anchor／offset、子の位置、文字設定・文字単位offsetを変えず、対象の scale または rotation のみ更新。Shift で回転を15°刻みにスナップ。負scaleは保持し、ゼロ／極小からも操作できる。
 - 接続／式／ロック中の対象パラメーターは読取専用。1gesture=1Undo、全取消経路の復元、クリックと往復の精度保持、pan優先、zoom座標変換、数値draft先行確定に対応する。
 - JSON は既存モデル、SVG／PNG は作品のみ。例は [transform-canvas-handles.json](../examples/transform-canvas-handles.json)、詳細と検証範囲は [Transformハンドル仕様](transform-canvas-handles.md)。Chrome／NSISは対象commitのCIで別確認する。
+
+### Other-layer artwork alignment
+
+Implemented: opt-in **Snap artwork** adds other visible ordinary layers’ final evaluated shape/text/image edges and centers to existing translation snapping. The whole active layer and hidden/error/empty/suspended outputs are excluded; locked visible references remain usable. Snapshot bounds reuse prevents extra per-move evaluation. No same-layer all-node snapping, glyph target search, equal-spacing inference or rotated-edge inference is included. [Detailed behavior](artwork-bounds-snapping.md).

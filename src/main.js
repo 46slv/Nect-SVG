@@ -50,6 +50,7 @@ import {
   guideDefaults,
   guideSettings,
   snapTranslation,
+  collectSnapLayerBounds,
   pathBounds,
   layoutGridDefaults,
   layoutGridLines,
@@ -109,6 +110,7 @@ function remapBatch(id) {
   return remapBatches.get(id);
 }
 let renderEvaluation = null;
+let snapLayerBounds = { guides: [], artwork: [] };
 const esc = (s) =>
   String(s ?? '').replace(
     /[&<>"']/g,
@@ -378,6 +380,7 @@ function render(resetView = false) {
   let results = doc.layers.map((x) => [x, evaluate(x, fonts, history.doc.imageAssets)]),
     result = results.find(([x]) => x.id === l.id)[1];
   renderEvaluation = result;
+  snapLayerBounds = collectSnapLayerBounds(doc, results, l.id, pathBounds);
   app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New</button><button data-action="open">Open</button><button data-action="import-svg">Import SVG</button><button data-action="import-image">Import image</button><button data-action="save">Save JSON</button><button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -393,7 +396,7 @@ function render(resetView = false) {
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar"><button data-action="zoom-out" aria-label="Zoom out">−</button><span>${Math.round(zoom * 100)}%</span><button data-action="zoom-in" aria-label="Zoom in">+</button><button data-action="fit">Fit</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to guides, artboard and grid; hold Alt to bypass">Snap</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span></div>${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" title="Middle drag or Space+drag: pan · Fit: reset view"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar"><button data-action="zoom-out" aria-label="Zoom out">−</button><span>${Math.round(zoom * 100)}%</span><button data-action="zoom-in" aria-label="Zoom in">+</button><button data-action="fit">Fit</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard and grid; hold Alt to bypass">Snap</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span></div>${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" title="Middle drag or Space+drag: pan · Fit: reset view"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => layerShown(x) && r.path && !r.error)
     .map(([x, r]) => layerShape(x, r.path))
     .join(
@@ -537,6 +540,7 @@ function guidesPanel() {
     ['snapGuides', 'Snap guides'],
     ['snapArtboard', 'Snap artboard'],
     ['snapGrid', 'Snap grid'],
+    ['snapArtwork', 'Snap artwork'],
   ]
     .map(
       ([key, label]) =>
@@ -544,7 +548,7 @@ function guidesPanel() {
     )
     .join(
       '',
-    )}</div><label>Grid spacing <input type="number" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label>${layoutPanel()}<div class="guide-add"><button data-add-guide="y" ${a.locked ? 'disabled' : ''}>+ Horizontal</button><button data-add-guide="x" ${a.locked ? 'disabled' : ''}>+ Vertical</button></div><div class="guide-list">${a.guides.map((g, i) => `<div class="guide-row ${selectedGuide === g.id ? 'selected' : ''}"><button data-select-guide="${g.id}" aria-label="Select guide ${i + 1}" aria-pressed="${selectedGuide === g.id}">${g.origin === 'layout' ? '▦ ' : ''}${g.axis === 'x' ? 'V · X' : 'H · Y'}</button><input type="number" step="any" min="-100000" max="100000" data-guide-position="${g.id}" aria-label="Guide ${i + 1} position" value="${g.position}" ${a.locked || g.locked ? 'disabled' : ''}><button data-lock-guide="${g.id}" aria-label="${g.locked ? 'Unlock' : 'Lock'} guide ${i + 1}" aria-pressed="${g.locked}" ${a.locked ? 'disabled' : ''}>${g.locked ? '🔒' : '○'}</button><button data-delete-guide="${g.id}" aria-label="Delete guide ${i + 1}" ${a.locked || g.locked ? 'disabled' : ''}>×</button></div>`).join('')}</div><p>Drag a guide to move it. Hidden guides do not snap; locked guides still snap. Alt bypasses snapping.</p></section>`;
+    )}</div><label>Grid spacing <input type="number" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label>${layoutPanel()}<div class="guide-add"><button data-add-guide="y" ${a.locked ? 'disabled' : ''}>+ Horizontal</button><button data-add-guide="x" ${a.locked ? 'disabled' : ''}>+ Vertical</button></div><div class="guide-list">${a.guides.map((g, i) => `<div class="guide-row ${selectedGuide === g.id ? 'selected' : ''}"><button data-select-guide="${g.id}" aria-label="Select guide ${i + 1}" aria-pressed="${selectedGuide === g.id}">${g.origin === 'layout' ? '▦ ' : ''}${g.axis === 'x' ? 'V · X' : 'H · Y'}</button><input type="number" step="any" min="-100000" max="100000" data-guide-position="${g.id}" aria-label="Guide ${i + 1} position" value="${g.position}" ${a.locked || g.locked ? 'disabled' : ''}><button data-lock-guide="${g.id}" aria-label="${g.locked ? 'Unlock' : 'Lock'} guide ${i + 1}" aria-pressed="${g.locked}" ${a.locked ? 'disabled' : ''}>${g.locked ? '🔒' : '○'}</button><button data-delete-guide="${g.id}" aria-label="Delete guide ${i + 1}" ${a.locked || g.locked ? 'disabled' : ''}>×</button></div>`).join('')}</div><p>Drag a guide to move it. Hidden guides do not snap; locked guides still snap. Snap artwork aligns to other visible layers’ geometry edges and centers (without stroke), including locked layers. The editing layer is excluded. Alt bypasses snapping.</p></section>`;
 }
 function gridOverlay() {
   const a = guideSettings(history.doc);
@@ -619,15 +623,8 @@ function snapped(sources, delta, event, excludedGuide = null) {
     canvasScale(),
     event.altKey,
     excludedGuide,
-    history.doc.layers
-      .filter((l) => l.guide && layerShown(l) && l.id !== activeLayer)
-      .flatMap((l) => {
-        const r = evaluate(l, fonts, history.doc.imageAssets);
-        return !r.error &&
-          (r.path?.kind === 'image' || r.path?.contours.some((c) => c.points.length > 0))
-          ? [pathBounds(r.path)]
-          : [];
-      }),
+    snapLayerBounds.guides,
+    snapLayerBounds.artwork,
   );
   snapMatches = result.matches;
   return result.delta;
