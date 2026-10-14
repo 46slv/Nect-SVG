@@ -17,7 +17,7 @@
           "name": "Text",
           "position": [40, 40],
           "width": 264,
-          "collapsed": false,
+          "collapsed": true,
           "params": {
             "position": {
               "type": "Vector2",
@@ -62,7 +62,7 @@
           "name": "Text",
           "position": [40, 430],
           "width": 264,
-          "collapsed": false,
+          "collapsed": true,
           "params": {
             "position": {
               "type": "Vector2",
