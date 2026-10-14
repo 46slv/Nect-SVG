@@ -61,6 +61,11 @@ import {
   setCharacterOffsets,
   resetCharacterOffsets,
   reconcileCharacterEdit,
+  transformHandleGeometry,
+  scaleFromHandle,
+  rotationHandleAngle,
+  rotationHandleDelta,
+  rotationFromHandle,
 } from './core.js';
 const app = document.querySelector('#app');
 let history = new History(newDocument()),
@@ -393,7 +398,7 @@ function render(resetView = false) {
     .map(([x, r]) => layerShape(x, r.path))
     .join(
       '',
-    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint">${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : n ? `Editing ${esc(n.name)}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select a generator to edit its original parameters'}</div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head"><strong>Node graph</strong><span class="muted">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
+    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint">${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : n ? `Editing ${esc(n.name)}${n.type === 'Transform' ? ' · Selected Transform output (before downstream nodes)' : ''}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select a generator to edit its original parameters'}</div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head"><strong>Node graph</strong><span class="muted">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
     definitions,
   )
     .filter((x) => !['Output', 'Image Output', 'Image'].includes(x))
@@ -579,7 +584,7 @@ function guidesOverlay() {
 }
 function transformControls(n) {
   return n.type === 'Transform'
-    ? '<p class="font-note">Shared parent: connect child paths through Join Geometry, then this Transform, then Fill / Stroke. Anchor is the scale/rotation pivot in input coordinates; offset moves the result. Select this Transform to drag the whole group. Child parameters stay unchanged.</p>'
+    ? '<p class="font-note">Shared parent: connect child paths through Join Geometry, then this Transform, then Fill / Stroke. Anchor is the scale/rotation pivot in input coordinates; offset moves the result. Select only this Transform: drag its square to scale uniformly, circle to rotate (Shift: 15°), or canvas to move the group. Pivot stays Anchor + Offset; child parameters stay unchanged. The dashed outline and controls edit this selected Transform output, before downstream nodes. They may differ from final artwork. Gray controls are read-only.</p>'
     : '';
 }
 function positionControllerControls(n) {
@@ -812,6 +817,37 @@ function selectOverlappingCharacters(hits, additive) {
   dialog.showModal();
 }
 
+function transformContext(n, result) {
+  if (n?.type !== 'Transform' || selection.size !== 1 || !selection.has(n.id)) return null;
+  const state = result.transformState(n.id);
+  if (!state.input?.contours.some((c) => c.points.length)) return null;
+  return {
+    state,
+    geometry: transformHandleGeometry(state, pathBounds(state.input), canvasScale()),
+  };
+}
+function transformOverlay(n, result) {
+  let context;
+  try {
+    context = transformContext(n, result);
+  } catch {
+    return '';
+  }
+  if (!context) return '';
+  const { geometry: g } = context;
+  const size = 1 / canvasScale();
+  return `<g class="transform-overlay" data-transform-stage="${n.id}" aria-label="Selected Transform output before downstream nodes"><line x1="${g.pivot[0]}" y1="${g.pivot[1]}" x2="${g.rotation[0]}" y2="${g.rotation[1]}"/><g transform="translate(${g.pivot.join(' ')})"><g transform="scale(${size})"><path class="transform-pivot" d="M-7 0H7 M0-7V7"/><circle class="transform-pivot" r="3"/><text x="10" y="-12">Selected Transform output</text></g></g>${[
+    'scale',
+    'rotation',
+  ]
+    .map((key) => {
+      const q = n.params[key],
+        readonly = current().locked || q.locked || q.source || q.expression;
+      return `<g class="transform-control ${readonly ? 'readonly' : ''}" data-transform-handle="${key}" data-transform-node="${n.id}" transform="translate(${g[key].join(' ')})" aria-label="${esc(n.name)} ${key}${readonly ? ' (read-only)' : ''}"><title>${key === 'scale' ? 'Uniform scale · drag along pivot ray' : 'Rotation · Shift snaps to 15°'}${readonly ? ' · Locked or driven by an input' : ''}</title><g class="transform-marker-size" transform="scale(${size})">${key === 'scale' ? '<rect x="-6" y="-6" width="12" height="12"/>' : '<circle r="7"/>'}<text x="11" y="4">${key === 'scale' ? 'Scale' : 'Rotate'}</text></g></g>`;
+    })
+    .join('')}</g>`;
+}
+
 function canvasOverlay(n, result) {
   if (characterEdit) return characterOverlay(result);
   if (!n || !layerShown(current())) return '';
@@ -840,6 +876,7 @@ function canvasOverlay(n, result) {
       }
       out += `<circle class="vertex" data-point="${pt.id}" cx="${pt.position[0]}" cy="${pt.position[1]}" r="5"/>`;
     }
+  if (n.type === 'Transform') out += transformOverlay(n, result);
   return out;
 }
 let canvasFrame = null;
@@ -886,6 +923,7 @@ function fitCanvas() {
   svg.style.transform = `translate(${pan[0]}px,${pan[1]}px)`;
   sizePositionHandle();
   positionCharacterFloating();
+  if (selectedNode()?.type === 'Transform') updateCanvas();
 }
 function drawWires() {
   let graph = document.querySelector('.graph'),
@@ -2388,6 +2426,49 @@ app.addEventListener('pointerdown', (e) => {
     if (nn.points.length === 1) revealNode(nn.id);
     return;
   }
+  const transformHandle = e.target.closest('[data-transform-handle]');
+  if (transformHandle && n?.type === 'Transform') {
+    e.preventDefault();
+    if (
+      selection.size !== 1 ||
+      !selection.has(n.id) ||
+      transformHandle.dataset.transformNode !== n.id
+    )
+      return;
+    // Commit any focused numeric draft before capturing the gesture state.
+    stage.focus({ preventScroll: true });
+    n = selectedNode();
+    const key = transformHandle.dataset.transformHandle,
+      q = n?.params[key];
+    if (!['scale', 'rotation'].includes(key) || !q || q.locked || q.source || q.expression) {
+      notify(`${key} is locked or driven by an input`, true);
+      return;
+    }
+    try {
+      const context = transformContext(n, evaluate(current(), fonts, history.doc.imageAssets));
+      if (!context) return;
+      const start = canvasPoint(e);
+      drag = {
+        type: 'transform',
+        key,
+        nodeId: n.id,
+        geometry: context.geometry,
+        start,
+        startClient: [e.clientX, e.clientY],
+        original: q.value,
+        angle: rotationHandleAngle(context.geometry.pivot, start),
+        angleDelta: 0,
+        before: cloneDocument(history.doc),
+        pointerId: e.pointerId,
+        capture: stage,
+        started: false,
+      };
+      stage.setPointerCapture?.(e.pointerId);
+    } catch (err) {
+      notify(err.message, true);
+    }
+    return;
+  }
   const controller = positionController(n);
   if (controller) {
     // A dedicated point target never turns a click elsewhere into a controller move.
@@ -2554,6 +2635,48 @@ document.addEventListener('pointermove', (e) => {
     return;
   }
   if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
+  if (drag.type === 'transform') {
+    const n = selectedNode(),
+      q = n?.params[drag.key];
+    if (
+      n?.id !== drag.nodeId ||
+      selection.size !== 1 ||
+      current().locked ||
+      !layerShown(current()) ||
+      !q ||
+      q.locked ||
+      q.source ||
+      q.expression
+    ) {
+      cancelInteraction();
+      return;
+    }
+    if (
+      !drag.started &&
+      Math.hypot(e.clientX - drag.startClient[0], e.clientY - drag.startClient[1]) < 3
+    )
+      return;
+    const pos = canvasPoint(e);
+    let next;
+    if (drag.key === 'scale')
+      next = scaleFromHandle(
+        drag.original,
+        drag.geometry,
+        pos.map((v, i) => v - drag.start[i]),
+      );
+    else {
+      const angle = rotationHandleAngle(drag.geometry.pivot, pos, 4 / canvasScale());
+      if (angle === null) return;
+      if (drag.angle !== null) drag.angleDelta += rotationHandleDelta(drag.angle, angle);
+      drag.angle = angle;
+      next = rotationFromHandle(drag.original, drag.angleDelta, e.shiftKey);
+    }
+    if (!Number.isFinite(next)) return;
+    q.value = next;
+    drag.started = true;
+    updateCanvas();
+    return;
+  }
   if (drag.type === 'position-controller') {
     const n = selectedNode(),
       q = n?.params[drag.key];
@@ -2851,9 +2974,19 @@ document.addEventListener('keydown', (e) => {
     cancelInteraction();
     return;
   }
-  if (['character', 'position-controller'].includes(drag?.type) && e.key === 'Escape') {
+  if (
+    ['character', 'position-controller', 'transform'].includes(drag?.type) &&
+    e.key === 'Escape'
+  ) {
     e.preventDefault();
     cancelInteraction();
+    return;
+  }
+  if (drag?.type === 'transform') {
+    // A pending direct manipulation owns its document snapshot. Do not let
+    // Delete, history or tool shortcuts interleave a second document action.
+    e.preventDefault();
+    e.stopImmediatePropagation();
     return;
   }
   if (editingControl(e.target)) return;

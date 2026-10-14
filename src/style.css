@@ -966,3 +966,41 @@ input[data-scrub-step].scrubbing {
   paint-order: stroke;
   pointer-events: none;
 }
+
+.transform-overlay {
+  color: #a44f1d;
+}
+.transform-overlay > line,
+.transform-pivot {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.transform-overlay > line {
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+}
+.transform-control {
+  cursor: grab;
+}
+.transform-control rect,
+.transform-control circle {
+  fill: #fff;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.transform-control.readonly {
+  color: #697683;
+  cursor: not-allowed;
+}
+.transform-overlay text {
+  font:
+    11px system-ui,
+    sans-serif;
+  fill: currentColor;
+  stroke: #fff;
+  stroke-width: 3;
+  paint-order: stroke;
+  pointer-events: none;
+}

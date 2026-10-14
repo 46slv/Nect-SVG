@@ -297,3 +297,11 @@ Text は既存の Path 出力を保ち、Vector2 の Position 出力を追加す
 - 1 gesture = 1 Undo。クリックの微小揺れ・元座標へ戻る操作は精度と履歴を保ち、Escape / pointercancel / lost capture / blur は全変更を戻す。Space / middle pan は優先し、数値の未確定入力は独立して確定する。
 - 表示設定は保存・再読込・複製・Undo/Redoで保持する。SVG/PNGにはマーカーを含めない。`examples/vector-position-reuse.json` と Null 版は同じレイアウトを使い、専用 Position と汎用 Vector を比較できる。
 - unit/DOM と実 Chrome 用テストを追加し全体suiteへ含める。ソース／ローカル検証と、対応コミットの実 Chrome・Windows packageの合格は別に確認する。詳しい操作と受入範囲は [Vector canvas position handle](vector-position.md)。
+
+## 23. 既存 Transform の等比拡縮・回転ハンドル
+
+- 既存 Transform の単独選択時、Anchor + Offset の固定 pivot、Scale の四角、Rotation の丸を表示する。Scale は既存 Scalar の等比値を維持し、縦横別・複数選択・新 Transform 挿入は行わない。
+- 「Selected Transform output」と明示した選択ノード自身の評価段階を編集する。下流の Transform／Boolean 等を逆算しない。最終表示と異なる場合も、最終境界のハンドルと偽装しない。
+- 既存 anchor／offset、子の位置、文字設定・文字単位offsetを変えず、対象の scale または rotation のみ更新。Shift で回転を15°刻みにスナップ。負scaleは保持し、ゼロ／極小からも操作できる。
+- 接続／式／ロック中の対象パラメーターは読取専用。1gesture=1Undo、全取消経路の復元、クリックと往復の精度保持、pan優先、zoom座標変換、数値draft先行確定に対応する。
+- JSON は既存モデル、SVG／PNG は作品のみ。例は [transform-canvas-handles.json](../examples/transform-canvas-handles.json)、詳細と検証範囲は [Transformハンドル仕様](transform-canvas-handles.md)。Chrome／NSISは対象commitのCIで別確認する。

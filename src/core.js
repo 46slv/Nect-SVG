@@ -18,6 +18,7 @@ import { validateCharacterPositions } from './character-identity.js';
 import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
 export * from './character-identity.js';
 export * from './character-geometry.js';
+export * from './transform-handles.js';
 const scope = new paper.PaperScope();
 scope.setup(new scope.Size(1200, 800));
 export const clone = (x) => structuredClone(x);
@@ -655,6 +656,24 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   // and dependencies, so reading Position never requires font/outline generation.
   const outputKey = (id, port) =>
     byId.get(id)?.type === 'Text' && port === 'position' ? `${id}\0position` : id;
+  function readParameter(n, key) {
+    let q = parameter(n, key);
+    if (!q) throw Error(`Missing parameter ${key}`);
+    if (q.type === 'Color' && q.expression) throw Error('Color expressions are not supported');
+    let value = q.source
+      ? run(q.source, q.sourcePort)
+      : q.expression
+        ? q.type === 'Vector2'
+          ? q.expression.split(';').map(expression)
+          : expression(q.expression)
+        : n.type === 'Fill' && key === 'color' && q.value === null
+          ? { hex: layer.fill, alpha: 1 }
+          : clone(q.value);
+    if (q.source && !socketCompatible(outputType(byId.get(q.source), q.sourcePort), q.type))
+      throw Error('Incompatible socket types');
+    assertValue(q.type, value);
+    return value;
+  }
   function run(id, port) {
     const n = byId.get(id);
     if (!n || !outputType(n, port)) throw Error('Missing output socket');
@@ -723,24 +742,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       }
       const warningStart = warnings.length;
       computed++;
-      function read(key) {
-        let q = parameter(n, key);
-        if (!q) throw Error(`Missing parameter ${key}`);
-        if (q.type === 'Color' && q.expression) throw Error('Color expressions are not supported');
-        let value = q.source
-          ? run(q.source, q.sourcePort)
-          : q.expression
-            ? q.type === 'Vector2'
-              ? q.expression.split(';').map(expression)
-              : expression(q.expression)
-            : n.type === 'Fill' && key === 'color' && q.value === null
-              ? { hex: layer.fill, alpha: 1 }
-              : clone(q.value);
-        if (q.source && !socketCompatible(outputType(byId.get(q.source), q.sourcePort), q.type))
-          throw Error('Incompatible socket types');
-        assertValue(q.type, value);
-        return value;
-      }
+      const read = (key) => readParameter(n, key);
       let result;
       if (positionOutput || n.type === 'Null') result = read('position');
       else if (['Value', 'Vector', 'Expression', 'Toggle', 'Color'].includes(n.type))
@@ -1102,6 +1104,18 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     warnings,
     values,
     run,
+    transformState(id) {
+      const n = byId.get(id);
+      if (n?.type !== 'Transform') throw Error('Select a Transform');
+      run(id);
+      return {
+        anchor: n.params.anchor ? readParameter(n, 'anchor') : [0, 0],
+        offset: readParameter(n, 'offset'),
+        scale: readParameter(n, 'scale'),
+        rotation: readParameter(n, 'rotation'),
+        input: readParameter(n, 'path'),
+      };
+    },
     textLayout(id) {
       run(id);
       return textLayouts.get(id);
