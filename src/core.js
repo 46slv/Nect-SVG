@@ -67,9 +67,11 @@ export const definitions = {
   },
   Value: { value: p('Scalar', 100) },
   Toggle: { value: p('Boolean', true) },
+  Color: { value: p('Color', { hex: '#36434e', alpha: 1 }) },
   Vector: { value: p('Vector2', [300, 250]) },
   Expression: { value: p('Scalar', 100) },
-  Output: { path: p('Path', null) },
+  // null fill keeps the live layer color as the legacy fallback.
+  Output: { path: p('Path', null), fill: p('Color', null) },
   Text: {
     position: p('Vector2', [200, 300]),
     size: p('Scalar', 100),
@@ -138,6 +140,7 @@ export function document() {
   };
 }
 export function outputType(n) {
+  if (n.type === 'Color') return 'Color';
   if (n.type === 'Image' || n.type === 'Image Output') return 'Image';
   return n.type === 'Value' || n.type === 'Expression'
     ? 'Scalar'
@@ -262,6 +265,19 @@ export function expression(source) {
   return result;
 }
 function assertValue(type, value) {
+  if (
+    type === 'Color' &&
+    (!value ||
+      typeof value !== 'object' ||
+      Array.isArray(value) ||
+      Object.keys(value).length !== 2 ||
+      typeof value.hex !== 'string' ||
+      !/^#[0-9a-fA-F]{6}$/.test(value.hex) ||
+      !Number.isFinite(value.alpha) ||
+      value.alpha < 0 ||
+      value.alpha > 1)
+  )
+    throw Error('Expected Color with hex #RRGGBB and alpha from 0 to 1');
   if (type === 'Scalar' && !Number.isFinite(value)) throw Error('Expected finite Scalar');
   if (
     type === 'Vector2' &&
@@ -378,6 +394,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     const cacheKey = JSON.stringify([
       n.type,
       n.params,
+      n.type === 'Output' ? layer.fill : null,
       n.points,
       n.operation,
       n.edits,
@@ -406,20 +423,24 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     function read(key) {
       let q = parameter(n, key);
       if (!q) throw Error(`Missing parameter ${key}`);
+      if (q.type === 'Color' && q.expression) throw Error('Color expressions are not supported');
       let value = q.source
         ? run(q.source)
         : q.expression
           ? q.type === 'Vector2'
             ? q.expression.split(';').map(expression)
             : expression(q.expression)
-          : clone(q.value);
+          : n.type === 'Output' && key === 'fill' && q.value === null
+            ? { hex: layer.fill, alpha: 1 }
+            : clone(q.value);
       if (q.source && outputType(byId.get(q.source)) !== q.type)
         throw Error('Incompatible socket types');
       assertValue(q.type, value);
       return value;
     }
     let result;
-    if (['Value', 'Vector', 'Expression', 'Toggle'].includes(n.type)) result = read('value');
+    if (['Value', 'Vector', 'Expression', 'Toggle', 'Color'].includes(n.type))
+      result = read('value');
     else if (n.type === 'Circle' || n.type === 'Ellipse' || n.type === 'Rectangle') {
       const center = read('center');
       let item;
@@ -511,6 +532,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       result = read('path');
       if (!result) throw Error(`Connect a ${n.params.path.type} input`);
       result = clone(result);
+      if (n.type === 'Output')
+        result.fill = n.params.fill ? read('fill') : { hex: layer.fill, alpha: 1 };
       if (n.type === 'Path Remap') {
         let offset = read('offset');
         for (const contour of result.contours)
@@ -614,12 +637,13 @@ export function validate(doc) {
   function vec(value) {
     assertValue('Vector2', value);
   }
-  function param(q, type) {
+  function param(q, type, layerFillFallback = false) {
     if (!q || q.type !== type) throw Error('Invalid parameter type');
-    assertValue(type, q.value);
+    if (!(layerFillFallback && q.value === null)) assertValue(type, q.value);
     if (['Path', 'Image'].includes(type) && q.value !== null)
       throw Error('Path fallback must be null');
     text(q.expression);
+    if (type === 'Color' && q.expression) throw Error('Color expressions are not supported');
     if (typeof q.locked !== 'boolean') throw Error('Invalid lock state');
     if (q.source !== undefined && (typeof q.source !== 'string' || !idPattern.test(q.source)))
       throw Error('Invalid source ID');
@@ -681,9 +705,12 @@ export function validate(doc) {
       if (n.type === 'Text')
         for (const key of ['letterSpacing', 'lineSpacing'])
           if (!Object.hasOwn(n.params, key)) n.params[key] = clone(definitions.Text[key]);
+      if (n.type === 'Output' && !Object.hasOwn(n.params, 'fill'))
+        n.params.fill = clone(definitions.Output.fill);
       if (Object.keys(n.params).length !== Object.keys(definitions[n.type]).length)
         throw Error('Unexpected parameter');
-      for (const [key, def] of Object.entries(definitions[n.type])) param(n.params[key], def.type);
+      for (const [key, def] of Object.entries(definitions[n.type]))
+        param(n.params[key], def.type, n.type === 'Output' && key === 'fill');
       if (n.points.length > 10000 || n.edits.length > 10000) throw Error('Too many vertices');
       for (const pt of n.points) {
         id(pt.id);
@@ -734,7 +761,9 @@ export function renderElement(value, l, assets = {}, attributes = '') {
     if (!asset) throw Error('Missing image asset');
     return `<image ${attributes} data-layer="${escape(l.name)}" x="${value.position[0]}" y="${value.position[1]}" width="${value.size[0]}" height="${value.size[1]}" preserveAspectRatio="none" href="${imageURL(asset)}"/>`;
   }
-  return `<path ${attributes} data-layer="${escape(l.name)}" d="${escape(pathData(value))}" fill="${escape(l.fill)}" fill-rule="nonzero"/>`;
+  const fill = value.fill || { hex: l.fill, alpha: 1 };
+  assertValue('Color', fill);
+  return `<path ${attributes} data-layer="${escape(l.name)}" d="${escape(pathData(value))}" fill="${escape(fill.hex)}" fill-opacity="${fill.alpha}" fill-rule="nonzero"/>`;
 }
 export function exportScene(doc, fonts = {}) {
   validate(doc);

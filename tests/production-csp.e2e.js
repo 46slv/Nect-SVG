@@ -71,6 +71,35 @@ try {
   assert.deepEqual(errors, []);
   assert.deepEqual(await page.evaluate(() => window.cspViolations), []);
 
+  // Exercise the new typed Color path in the actual production bundle too.
+  await page.locator('#add-node').selectOption('Color');
+  const colorId = await page.evaluate(() => window.nect.document.layers[0].nodes.at(-1).id);
+  await page.locator('.inspector-body [data-color="hex"]').evaluate((el) => {
+    el.value = '#ff8000';
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () => window.nect.document.layers[0].nodes.at(-1).params.value.value.hex === '#ff8000',
+  );
+  await page.locator('.inspector-body [data-color="alpha"]').fill('0.5');
+  await page.locator('.inspector-body [data-color="alpha"]').press('Tab');
+  const outputId = await page.evaluate(() => window.nect.document.layers[0].output);
+  await page.locator(`.graph .node[data-id="${outputId}"] .node-head strong`).click();
+  await page.locator('.inspector-body [data-key="fill"] [data-connect-menu]').click();
+  await page.locator('dialog select').selectOption(colorId);
+  await page.locator('dialog [data-confirm]').click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.shape')?.getAttribute('fill') === '#ff8000' &&
+      document.querySelector('.shape')?.getAttribute('fill-opacity') === '0.5',
+  );
+  assert.match(
+    await page.evaluate(() => window.nect.export()),
+    /fill="#ff8000" fill-opacity="0.5"/,
+  );
+  assert.deepEqual(errors, []);
+  assert.deepEqual(await page.evaluate(() => window.cspViolations), []);
+
   // A same-origin script proves Chromium really enforces the eval restriction.
   await page.addScriptTag({ url: '/csp-probe.js' });
   assert.equal(await page.locator('body').getAttribute('data-eval-probe'), 'EvalError');
@@ -79,7 +108,13 @@ try {
   await writeFile(
     'test-results/workflow-production-csp.json',
     JSON.stringify(
-      { csp, startup: 'rendered', pageErrors: errors, evalProbe: 'EvalError' },
+      {
+        csp,
+        startup: 'rendered',
+        color: 'typed source with alpha rendered and exported',
+        pageErrors: errors,
+        evalProbe: 'EvalError',
+      },
       null,
       2,
     ),

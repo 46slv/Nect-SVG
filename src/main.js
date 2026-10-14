@@ -174,7 +174,10 @@ function field(n, key, q) {
           `<option value="${x.id}" ${q.source === x.id ? 'selected' : ''}>${esc(x.name)} · ${x.id.slice(-4)}</option>`,
       )
       .join('')}</select>`;
-  else if (q.type === 'Boolean')
+  else if (q.type === 'Color') {
+    const color = displayed || { hex: current().fill, alpha: 1 };
+    control = `<input type="color" data-color="hex" aria-label="${esc(n.name + ' ' + name)} color" value="${esc(color.hex)}" ${locked ? 'disabled' : ''}><input type="number" data-color="alpha" aria-label="${esc(n.name + ' ' + name)} alpha" title="Alpha: 0 transparent, 1 opaque" min="0" max="1" step="0.01" value="${color.alpha}" ${locked ? 'disabled' : ''}>`;
+  } else if (q.type === 'Boolean')
     control = `<input aria-label="${esc(name)}" data-value type="checkbox" ${displayed ? 'checked' : ''} ${locked ? 'disabled' : ''}>`;
   else if (q.expression && !q.source)
     control = `<input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${q.locked ? 'disabled' : ''}>`;
@@ -185,7 +188,7 @@ function field(n, key, q) {
           `<input type="number" step="any" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(v.toFixed?.(3) ?? v)}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
-  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}</label><div class="field-tools">${!['Path', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name)} · connected value</span>` : ''}</div>`;
+  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}</label><div class="field-tools">${!['Path', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name)} · connected value</span>` : ''}${n.type === 'Output' && key === 'fill' ? `<span class="color-fallback">${q.value === null ? 'Fallback: layer fill · alpha 1' : 'Saved output fallback'}${q.value !== null ? ` <button class="mini" data-color-layer ${locked ? 'disabled' : ''}>Use layer fill</button>` : ''}</span>` : ''}</div>`;
 }
 function remapFields(n, result) {
   let input;
@@ -909,6 +912,17 @@ app.addEventListener('click', async (e) => {
     render();
     return;
   }
+  if (d.colorLayer !== undefined) {
+    const f = b.closest('.field');
+    change(() => {
+      const n = current().nodes.find((x) => x.id === f.dataset.node),
+        q = parameter(n, f.dataset.key);
+      if (q.locked || q.source)
+        throw Error('Disconnect and unlock input before editing its fallback');
+      q.value = null;
+    }, 'Output uses layer fill');
+    return;
+  }
   if (d.connectMenu !== undefined) {
     let f = b.closest('.field'),
       nn = current().nodes.find((x) => x.id === f.dataset.node),
@@ -1247,6 +1261,19 @@ app.addEventListener('change', async (e) => {
         if (d.pathSource !== undefined) {
           if (el.value) connect(current(), el.value, nn.id, f.dataset.key);
           else disconnect(nn, f.dataset.key);
+        } else if (d.color !== undefined) {
+          if (q.source) throw Error('Disconnect input before editing its fallback');
+          const color = { ...(q.value || { hex: current().fill, alpha: 1 }) };
+          if (d.color === 'alpha') {
+            const alpha = Number(el.value);
+            if (el.value === '' || !Number.isFinite(alpha) || alpha < 0 || alpha > 1)
+              throw Error('Alpha must be from 0 to 1');
+            color.alpha = alpha;
+          } else {
+            if (!/^#[0-9a-fA-F]{6}$/.test(el.value)) throw Error('Expected color #RRGGBB');
+            color.hex = el.value;
+          }
+          q.value = color;
         } else if (d.expression !== undefined) q.expression = el.value;
         else if (d.value !== undefined) {
           if (q.source) throw Error('Disconnect input before editing its fallback');

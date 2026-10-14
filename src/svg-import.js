@@ -13,7 +13,7 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
     if (!allowed.has(el.localName)) throw Error(`Unsupported SVG element: ${el.localName}`);
     if (el !== root && el.localName === 'svg')
       throw Error('Nested SVG viewports are not supported');
-    const common = ['id', 'fill', 'fill-rule', 'stroke'];
+    const common = ['id', 'fill', 'fill-opacity', 'fill-rule', 'stroke'];
     const attrs = {
       svg: ['xmlns', 'width', 'height', 'viewBox'],
       g: [],
@@ -27,6 +27,11 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
     for (const attr of el.attributes)
       if (![...common, ...attrs[el.localName]].includes(attr.name))
         throw Error(`Unsupported SVG attribute: ${attr.name}`);
+    if (el.hasAttribute('fill-opacity')) {
+      const raw = el.getAttribute('fill-opacity');
+      if (!/^(?:\d*\.)?\d+(?:e[+-]?\d+)?$/i.test(raw) || Number(raw) < 0 || Number(raw) > 1)
+        throw Error('SVG fill-opacity must be a number from 0 to 1');
+    }
     if (el.hasAttribute('stroke') && el.getAttribute('stroke') !== 'none')
       throw Error('SVG strokes are not supported yet');
     if (el.hasAttribute('fill-rule') && el.getAttribute('fill-rule') !== 'nonzero')
@@ -66,6 +71,13 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
       fill = parent.getAttribute('fill');
       parent = parent.parentElement;
     }
+    let alpha = null,
+      ancestor = el;
+    while (alpha === null && ancestor) {
+      alpha = ancestor.getAttribute('fill-opacity');
+      ancestor = ancestor.parentElement;
+    }
+    alpha = alpha === null ? 1 : Number(alpha);
     fill ??= '#000000';
     if (fill === 'none') continue;
     if (/^#[0-9a-f]{3}$/i.test(fill)) fill = '#' + [...fill.slice(1)].map((x) => x + x).join('');
@@ -116,6 +128,7 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
     l.nodes = [n, remap, out];
     l.output = out.id;
     l.fill = fill;
+    if (alpha !== 1) out.params.fill.value = { hex: fill, alpha };
     result.layers.push(l);
   }
   if (!result.layers.length) throw Error('SVG contains no supported filled shapes');

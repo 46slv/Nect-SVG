@@ -55,9 +55,9 @@ An evaluation failure reports an error instead of overwriting stored source data
 
 ## SVG import scope
 
-Supported: zero-origin viewBox, pixel/unitless dimensions, nested groups with solid inherited fills, nonzero compound paths, circles, ellipses, unrounded rectangles. Each imported graphic becomes its own composition with Remap and Output. Imported path geometry is retained as immutable source path data, with secondary editing through Remap. Own exported SVG metadata preserves layer names.
+Supported: zero-origin viewBox, pixel/unitless dimensions, nested groups with solid inherited fills and numeric fill-opacity (0–1), nonzero compound paths, circles, ellipses, unrounded rectangles. Each imported graphic becomes its own composition with Remap and Output. Imported path geometry is retained as immutable source path data, with secondary editing through Remap. Own exported SVG metadata preserves layer names.
 
-Rejected: scripts, external references, declarations/entities, styles/CSS/classes, transformations, nested viewports, clipping/masks/filters, opacity, strokes, even-odd fill and rounded rectangles. Rejection preserves the currently open project. This is intentionally a subset, not arbitrary SVG fidelity.
+Rejected: scripts, external references, declarations/entities, styles/CSS/classes, transformations, nested viewports, clipping/masks/filters, group/object opacity, strokes, even-odd fill and rounded rectangles. Rejection preserves the currently open project. This is intentionally a subset, not arbitrary SVG fidelity.
 
 ## Individual Remap controls and graph layout
 
@@ -66,3 +66,9 @@ Rejected: scripts, external references, declarations/entities, styles/CSS/classe
 Node width (optional, 220–550 px) and position are editor state excluded from geometry cache signatures. New-card placement uses measured card bounds with a gap; graph bounds expand to keep tall Curve/Remap controls scrollable. Field tools have their own row above full-width Vector2 controls. No idle animation or continuous render loop is introduced.
 
 `translateRemapPoints(node, inputPath, pointIds, delta)` applies a Vector2 translation to selected point deltas atomically. It prepares edits on a clone and commits only when every target exists and every position is undriven, unlocked and not suspended. Duplicate IDs apply once. It preserves handles, all other parameters and the upstream geometry. The editor wraps one application in one history transaction. Batch selection and the pending delta are transient editor state, not saved geometry.
+
+## Typed Color values
+
+Color is a separate socket type with a serializable `{hex: "#RRGGBB", alpha: 0..1}` value. The Color node accepts a direct fallback or another Color source; numeric expressions are intentionally unsupported. Output has independent Path and Color (`fill`) inputs. Source takes precedence over the saved fallback. Only Output.fill accepts `null`, meaning live layer fill with alpha 1. Older v1 documents missing Output.fill migrate to this null fallback without changing their appearance. Color inputs reject Path, Vector2, Scalar, Boolean and Image connections; the existing cycle and lock rules apply.
+
+Evaluated Output paths carry a `fill` Color object, used by both the canvas and SVG exporter. SVG writes `fill` plus `fill-opacity`; PNG uses the same SVG scene. Solid SVG fill-opacity inheritance and explicit child overrides import into Output fallback values without multiplying ancestor values. General/group opacity remains rejected. JSON retains graph connections, fallbacks, alpha, locks and collapsed state. Gradients, mixing, strokes and color-management conversions are outside this bounded implementation.
