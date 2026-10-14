@@ -253,7 +253,7 @@ function compactFields(n) {
 }
 function textControls(n) {
   if (n.type !== 'Text') return '';
-  return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><div class="field"><label>Font</label><select data-font="${n.id}" aria-label="Text font"><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
+  return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><div class="field"><label>Font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
     history.doc.fontAssets || {},
   )
     .map(
@@ -262,7 +262,7 @@ function textControls(n) {
     )
     .join(
       '',
-    )}</select></div>${desktop ? `<div class="field"><label>Windows font</label><select data-system-font="${n.id}" aria-label="Installed Windows font"><option value="">Select installed font…</option>${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</select></div><p class="font-note">${esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p><div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><p class="font-note">letterSpacing: extra px per glyph. lineSpacing: × text size. Enter starts a new line or column. Vertical position is the first column center/top.</p></div>`;
+    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p><div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><p class="font-note">letterSpacing: extra px per glyph. lineSpacing: × text size. Enter starts a new line or column. Vertical position is the first column center/top.</p></div>`;
 }
 function operationControls(n) {
   const options = operationOptions[n.type];
@@ -1156,6 +1156,8 @@ async function loadInstalledFont(id, nodeId) {
     node: nodeId,
     before: serialize(history.doc),
   });
+  notify(`Loading ${entry[1]}…`);
+  render();
   try {
     const bytes = await readSystemFont(id);
     commitFont(bytes, entry[1], request);
@@ -1163,7 +1165,10 @@ async function loadInstalledFont(id, nodeId) {
     if (fontRequest?.id === request.id)
       notify(`Font rejected; current document preserved: ${err.message || err}`, true);
   } finally {
-    if (fontRequest?.id === request.id) fontRequest = null;
+    if (fontRequest?.id === request.id) {
+      fontRequest = null;
+      render();
+    }
   }
 }
 app.addEventListener('change', async (e) => {
@@ -1235,8 +1240,8 @@ app.addEventListener('change', async (e) => {
     }
     return;
   }
-  if (el.dataset.systemFont) {
-    await loadInstalledFont(el.value, el.dataset.systemFont);
+  if (d.font && el.value.startsWith('system-')) {
+    await loadInstalledFont(el.value, d.font);
     return;
   }
   if (el.id === 'font-file') {
@@ -1252,6 +1257,7 @@ app.addEventListener('change', async (e) => {
       notify(`Font rejected; current document preserved: ${err.message}`, true);
     }
     if (fontRequest?.id === request.id) fontRequest = null;
+    render();
     return;
   }
   if (el.id === 'open-file' || el.id === 'import-svg-file') {
