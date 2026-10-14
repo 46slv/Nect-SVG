@@ -97,6 +97,7 @@ try {
   assert.equal(await snapshot(), before);
   await page.locator('[data-action="redo"]').click();
   await page.waitForSelector('image.shape');
+  await page.locator(`[data-select-layer="${imageId}"]`).click();
   await value('Image position X', 160);
   await value('Image position Y', 50);
   await value('Image size X', 120);
