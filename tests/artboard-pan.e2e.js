@@ -9,7 +9,8 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document));
-const view = () => page.locator('.artboard').evaluate((el) => el.style.transform);
+const view = () =>
+  page.locator('.artboard').evaluate((el) => el.style.transform.replace(/\s+/g, ''));
 const selection = () =>
   page.locator('.node.selected').evaluateAll((els) => els.map((el) => el.dataset.id));
 const point = (x, y) =>
