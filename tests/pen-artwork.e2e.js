@@ -353,23 +353,107 @@ try {
     await page.locator('[data-pen-cancel]').click();
   }
 
+  // Bounded failure evidence distinguishes delivered pointer coordinates from
+  // model translation. This observes events only; it never changes app state.
+  const beginCurveTrace = () =>
+    page.evaluate(() => {
+      window.curvePointerTrace = [];
+      window.curveRequestedInput = {};
+      if (window.curveTraceInstalled) return;
+      window.curveTraceInstalled = true;
+      for (const capture of [true, false])
+        for (const type of ['pointerdown', 'pointermove', 'pointerup'])
+          document.addEventListener(
+            type,
+            (e) => {
+              if (!window.curvePointerTrace) return;
+              const matrix = document.querySelector('.artboard')?.getScreenCTM();
+              const world =
+                matrix && new DOMPoint(e.clientX, e.clientY).matrixTransform(matrix.inverse());
+              window.curvePointerTrace.push({
+                type,
+                capture,
+                x: e.clientX,
+                y: e.clientY,
+                buttons: e.buttons,
+                pointerId: e.pointerId,
+                altKey: e.altKey,
+                shiftKey: e.shiftKey,
+                ctrlKey: e.ctrlKey,
+                metaKey: e.metaKey,
+                world: world && [world.x, world.y],
+                matrix: matrix && [matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f],
+              });
+              if (window.curvePointerTrace.length > 80) window.curvePointerTrace.shift();
+            },
+            capture,
+          );
+    });
   const proveRigidPlacement = async (before, delta) => {
     const after = JSON.parse(await snapshot()),
       original = before.layers.at(-1).nodes[0].points,
       points = after.layers.at(-1).nodes[0].points;
+    const actual = points.map((p, i) =>
+      p.position.value.map((v, axis) => v - original[i].position.value[axis]),
+    );
+    if (actual.some((xy) => xy.some((v, axis) => Math.abs(v - delta[axis]) >= 0.00001))) {
+      const evidence = await page.evaluate(() => ({
+        trace: window.curvePointerTrace || [],
+        requestedInput: window.curveRequestedInput || {},
+      }));
+      console.error(
+        'Curve placement mismatch',
+        JSON.stringify({
+          expectedDelta: delta,
+          firstActualDelta: actual[0],
+          deltaRange: [0, 1].map((axis) => [
+            Math.min(...actual.map((v) => v[axis])),
+            Math.max(...actual.map((v) => v[axis])),
+          ]),
+        }),
+      );
+      await fs.writeFile(
+        'test-results/workflow-curve-placement-failure.json',
+        JSON.stringify(
+          { expectedDelta: delta, actualDeltas: actual, ...evidence, before, after },
+          null,
+          2,
+        ),
+      );
+      await page.screenshot({ path: 'test-results/pen-placement-failure.png', fullPage: true });
+    } else if (delta[0] === 17.5 && delta[1] === -12.25) {
+      const evidence = await page.evaluate(() => ({
+        trace: window.curvePointerTrace || [],
+        requestedInput: window.curveRequestedInput || {},
+      }));
+      const label = before.layers.at(-1).nodes[0].params.closed.value ? 'closed' : 'open';
+      await fs.writeFile(
+        `test-results/workflow-curve-placement-input-${label}.json`,
+        JSON.stringify(
+          { expectedDelta: delta, actualDeltas: actual, ...evidence, before, after },
+          null,
+          2,
+        ),
+      );
+    }
     for (let i = 0; i < points.length; i++) {
       for (let axis = 0; axis < 2; axis++)
         assert.ok(
           Math.abs(
             points[i].position.value[axis] - original[i].position.value[axis] - delta[axis],
           ) < 0.00001,
+          `anchor ${i} axis ${axis}: actual delta ${actual[i][axis]}, expected ${delta[axis]}`,
         );
       points[i].position.value = [...original[i].position.value];
     }
     assert.deepEqual(after, before, 'only authored Positions may change');
   };
   const hitCurve = async (id) => {
+    await beginCurveTrace();
     const p = await xy([420, 210]);
+    await page.evaluate((screen) => {
+      window.curveRequestedInput.start = { artboard: [420, 210], screen };
+    }, p);
     assert.equal(
       await page.evaluate(
         ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-layer]')?.dataset.layer,
@@ -412,7 +496,11 @@ try {
     assert.equal(await snapshot(), beforeJSON);
     await page.keyboard.down('Alt');
     await hitCurve(id);
-    await page.mouse.move(...(await xy([437.5, 197.75])), { steps: 5 });
+    const end = await xy([437.5, 197.75]);
+    await page.evaluate((screen) => {
+      window.curveRequestedInput.end = { artboard: [437.5, 197.75], screen };
+    }, end);
+    await page.mouse.move(...end, { steps: 5 });
     await page.mouse.up();
     await page.keyboard.up('Alt');
     await proveRigidPlacement(before, [17.5, -12.25]);
