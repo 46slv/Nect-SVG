@@ -22,6 +22,7 @@ test('synthetic font UI preserves cancellation/errors/stale edits and commits re
     'core',
     'artwork-creation',
     'artwork-move-target',
+    'artwork-deletion',
     'focus',
     'layout',
     'svg-import',

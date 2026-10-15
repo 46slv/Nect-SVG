@@ -13,6 +13,10 @@ The left toolbar’s **Circle, Rectangle, Polygon, Star and Text** buttons add a
 - Click empty artboard space to clear selection. Dragging empty space never moves the previously selected generator or artwork. Space/middle drag remains view navigation.
 - Selection, view changes and editor overlays do not change JSON or exported artwork. Undo/Redo restores the selection associated with independent artwork creation.
 
+## Whole-artwork deletion
+
+Use **Delete layer** in a Layers row, or select artwork and press **Delete** with the artboard focused. One Undo restores the entire layer, graph, paint order and selection. Locked layers reject; hidden, guide and empty layers can use the explicit row action. Surviving layers, settings and assets are retained. The final layer becomes an intentional empty Output, preserving the document. Live Pen drafts and active edits disable deletion. [Deletion and focus contract](artwork-layer-deletion.md).
+
 ## Supported whole-artwork movement
 
 Artwork drag and focused-artboard Arrow keys use the same conservative resolver. The supported graph is one Circle/Ellipse/Rectangle/Polygon/Star or unattached Text → solid Fill → Output, optionally with one existing Transform immediately before Fill. Direct Curve → solid Fill → Output and Image → Image Output are also supported. Disconnected nodes do not affect target choice.

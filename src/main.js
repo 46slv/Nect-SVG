@@ -9,6 +9,7 @@ import {
   appendBlankComposition,
 } from './artwork-creation.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
+import { removeArtworkLayer } from './artwork-deletion.js';
 import {
   findFreeNodePosition,
   fitScale,
@@ -150,16 +151,36 @@ let savedSnapshot = serialize(history.doc),
 let selection = new Set([selected]);
 const detailsState = new Map();
 const selectionHistory = new WeakMap();
-function selectionSnapshot() {
-  return { activeLayer, selected, artworkTarget, selection: new Set(selection) };
+function selectionSnapshot(withEditSelection = false) {
+  return {
+    activeLayer,
+    selected,
+    artworkTarget,
+    selection: new Set(selection),
+    ...(withEditSelection
+      ? {
+          restoreEditSelection: true,
+          characterEdit: characterEdit ? structuredClone(characterEdit) : null,
+          selectedGuide,
+          remapBatches: structuredClone(remapBatches),
+        }
+      : {}),
+  };
 }
 function stepHistory(redo = false) {
-  selectionHistory.set(history.doc, selectionSnapshot());
+  const priorUI = selectionSnapshot(selectionHistory.get(history.doc)?.restoreEditSelection);
+  resetTransient();
+  selectionHistory.set(history.doc, priorUI);
   redo ? history.redo() : history.undo();
   const state = selectionHistory.get(history.doc);
   if (state) {
     ({ activeLayer, selected, artworkTarget } = state);
     selection = new Set(state.selection);
+    characterEdit = state.characterEdit ? structuredClone(state.characterEdit) : null;
+    if (state.restoreEditSelection) {
+      selectedGuide = state.selectedGuide;
+      for (const [id, batch] of structuredClone(state.remapBatches)) remapBatches.set(id, batch);
+    }
   }
 }
 const remapBatches = new Map();
@@ -937,7 +958,7 @@ function render(resetView = false, artworkResolution = null) {
     .reverse()
     .map(
       (x) =>
-        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${x.id === l.id ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" title="Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><button data-up-layer="${x.id}" title="Move layer up">↑</button></div>`,
+        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${x.id === l.id ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" title="Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><button data-up-layer="${x.id}" title="Move layer up">↑</button><button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div>`,
     )
     .join(
       '',
@@ -1724,6 +1745,7 @@ function zoomLabel(scale) {
   return `${Number((scale * 100).toFixed(scale < 0.01 ? 3 : scale < 0.1 ? 1 : 0))}%`;
 }
 function updateNavigation() {
+  updateLayerDeletionControls();
   for (const [view, value, limits, prefix] of [
     ['canvas', zoom, CANVAS_LIMITS, ''],
     ['graph', graphZoom, GRAPH_LIMITS, 'graph-'],
@@ -1895,6 +1917,50 @@ function addNode(type) {
   }, `Added ${type}`);
   if (selected) revealNode(selected);
 }
+function deletionBusy() {
+  return !!(penDraft || navigationBusy() || nameEdit || document.querySelector('dialog[open]'));
+}
+function updateLayerDeletionControls() {
+  const busy = deletionBusy();
+  for (const button of document.querySelectorAll('[data-delete-layer]')) {
+    const target = history.doc.layers.find((layer) => layer.id === button.dataset.deleteLayer);
+    button.disabled = busy || !target || target.locked;
+    button.title = busy
+      ? 'Finish or cancel the current edit before deleting a layer'
+      : target?.locked
+        ? 'Unlock this layer before deleting it'
+        : 'Delete this entire layer and its graph (Undo available)';
+  }
+}
+function deleteArtwork(layerId) {
+  // Reject before taking a history snapshot or touching any detached draft.
+  if (deletionBusy()) return;
+  try {
+    const target = history.doc.layers.find((layer) => layer.id === layerId);
+    if (!target) throw Error('Layer is unavailable; select it again');
+    if (target.locked) throw Error('Composition is locked');
+    const priorUI = selectionSnapshot(true);
+    let deleted;
+    history.apply((doc) => {
+      deleted = removeArtworkLayer(doc, layerId);
+    });
+    resetTransient();
+    activeLayer = deleted.nextLayerId;
+    selected = null;
+    artworkTarget = null;
+    selection = new Set();
+    tool = 'select';
+    selectionHistory.set(history.past.at(-1), priorUI);
+    selectionHistory.set(history.doc, selectionSnapshot(true));
+    notify(
+      deleted.replacedLastLayer ? 'Layer deleted · empty composition retained' : 'Layer deleted',
+    );
+    render();
+    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+  } catch (error) {
+    notify(error.message, true);
+  }
+}
 function createArtwork(type) {
   try {
     let created;
@@ -1993,6 +2059,11 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  // Layer deletion must never auto-finish a Pen draft or cancel a live gesture.
+  if (d.deleteLayer !== undefined) {
+    deleteArtwork(d.deleteLayer);
+    return;
+  }
   // A cancelled New must not finish, discard or otherwise mutate a live Pen draft.
   if (
     d.action === 'new' &&
@@ -2247,12 +2318,10 @@ app.addEventListener('click', async (e) => {
     try {
       switch (d.action) {
         case 'undo':
-          resetTransient();
           stepHistory();
           render();
           break;
         case 'redo':
-          resetTransient();
           stepHistory(true);
           render();
           break;
@@ -3427,6 +3496,7 @@ app.addEventListener(
   'compositionend',
   () => {
     composing = false;
+    updateLayerDeletionControls();
     if (needsRender) scheduleRender();
   },
   true,
@@ -4916,7 +4986,7 @@ document.addEventListener('keydown', (e) => {
     document.querySelector('.canvas-stage').focus({ preventScroll: true });
     return;
   }
-  if (penDraft && e.key === 'Delete') {
+  if (e.key === 'Delete' && deletionBusy()) {
     e.preventDefault();
     return;
   }
@@ -4999,7 +5069,6 @@ document.addEventListener('keydown', (e) => {
   }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
     e.preventDefault();
-    resetTransient();
     stepHistory(e.shiftKey);
     render();
   }
@@ -5011,6 +5080,15 @@ document.addEventListener('keydown', (e) => {
       a.guides = a.guides.filter((g) => g.id !== selectedGuide);
       selectedGuide = null;
     });
+    return;
+  }
+  if (e.key === 'Delete' && artworkTarget) {
+    // Whole-artwork deletion is explicit, focused and independent of move support.
+    // Clearing selection after success prevents a held/repeated Delete cascading.
+    if (e.target.matches?.('.canvas-stage') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      if (!e.repeat) deleteArtwork(artworkTarget);
+    }
     return;
   }
   if (e.key === 'Delete' && !['Output', 'Image Output'].includes(selectedNode()?.type))
@@ -5090,6 +5168,18 @@ fetch('/fonts/DejaVuSans.ttf')
     render();
   })
   .catch((e) => notify(e.message, true));
+// Refresh actual disabled state after gesture handlers have established/released ownership.
+app.addEventListener('pointerdown', updateLayerDeletionControls);
+// Bubble after text/rename handlers have cleared their own composition state.
+app.addEventListener('compositionend', updateLayerDeletionControls);
+document.addEventListener('pointerup', updateLayerDeletionControls);
+document.addEventListener('pointercancel', updateLayerDeletionControls);
+new window.MutationObserver(updateLayerDeletionControls).observe(document.body, {
+  childList: true,
+  subtree: true,
+  attributes: true,
+  attributeFilter: ['open'],
+});
 // Explicit test/debug API; same model and mutations as the UI.
 window.nect = {
   get document() {

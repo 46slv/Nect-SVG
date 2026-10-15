@@ -42,6 +42,10 @@ test('Numeric scrubbing preserves transactions, bounds and protected inputs', as
       "from './artwork-move-target.js'",
       `from '${new URL('../src/artwork-move-target.js', import.meta.url)}'`,
     )
+    .replace(
+      "from './artwork-deletion.js'",
+      `from '${new URL('../src/artwork-deletion.js', import.meta.url)}'`,
+    )
     .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
