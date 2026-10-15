@@ -314,7 +314,7 @@ function textNumericState(d) {
   if (d.textKind === 'kerning') {
     const pair = pairContext(context);
     return context?.n.id === d.nodeId && n.text === d.targetText && pair?.key === d.pairKey
-      ? { n, values: [pair.value] }
+      ? { n, values: [pair.value], manual: pair.manual }
       : null;
   }
   if (
@@ -362,7 +362,9 @@ function moveTextNumeric(d, event, dx) {
     d.sourceText = state.n.text;
     d.originalValues = state.values;
     d.originalRows = state.rows;
-    d.originalInput = mixedNumericDisplay(state.values);
+    d.originalManual = state.manual;
+    d.originalInput =
+      d.textKind === 'kerning' && !state.manual ? '' : mixedNumericDisplay(state.values);
     d.started = true;
     d.capture.setPointerCapture?.(event.pointerId);
     d.capture.classList.add('scrubbing');
@@ -459,7 +461,10 @@ function moveTextNumeric(d, event, dx) {
     notify(error.message, true);
     return;
   }
-  d.capture.value = mixedNumericDisplay(values);
+  d.capture.value =
+    d.textKind === 'kerning' && !d.originalManual && values[0] === d.originalValues[0]
+      ? ''
+      : mixedNumericDisplay(values);
   updateCanvas();
 }
 function mixedNumericDisplay(values) {
@@ -1128,7 +1133,7 @@ function pairKerningControls(context) {
   const shown = pair
     ? pair.rows.map((g) => (g.whitespace ? '[space]' : esc(g.text))).join(' | ')
     : 'Select exactly two adjacent characters';
-  return `<section class="pair-kerning" aria-label="Pair kerning"><h4>Pair kerning</h4><p>${shown}${pair ? ` · source ${pair.rows.map((g) => g.sourceIndex + 1).join(', ')} · ${pair.manual ? 'Manual' : 'Inherited'}` : ''}</p><label>Pair kerning (1/1000 em)<input type="number" min="-100000" max="100000" step="any" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-character-kerning="${pair?.key || ''}" data-kerning-node="${esc(context.n.id)}" data-kerning-text="${esc(JSON.stringify(context.n.text))}" aria-label="Pair kerning (1/1000 em)" value="${pair ? pair.value : ''}" ${disabled ? 'disabled' : ''}></label><button data-character-kerning-inherit ${disabled || !pair?.manual ? 'disabled' : ''}>Inherit pair</button>${pair?.dormant ? '<p class="font-note">At a wrap break; applies when these characters share a line.</p>' : ''}<p class="font-note">${pair ? `${Number(pair.pixels.toFixed(5))} px. ` : ''}Manual values replace this pair’s font kerning; 0 explicitly removes it. Tracking remains additive. The left character’s font size and inline scale determine the em distance. Use Kerning at cursor above or select exactly two adjacent characters.</p></section>`;
+  return `<section class="pair-kerning" aria-label="Pair kerning"><h4>Pair kerning</h4><p>${shown}${pair ? ` · source ${pair.rows.map((g) => g.sourceIndex + 1).join(', ')} · ${pair.manual ? 'Manual' : 'Inherited'}` : ''}</p><label>Pair kerning (1/1000 em)<input type="number" min="-100000" max="100000" step="any" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-character-kerning="${pair?.key || ''}" data-kerning-node="${esc(context.n.id)}" data-kerning-text="${esc(JSON.stringify(context.n.text))}" aria-label="Pair kerning (1/1000 em)" placeholder="${pair && !pair.manual ? `Inherited (${pair.value})` : ''}" value="${pair?.manual ? pair.value : ''}" ${disabled ? 'disabled' : ''}></label><button data-character-kerning-inherit ${disabled || !pair?.manual ? 'disabled' : ''}>Inherit pair</button>${pair?.dormant ? '<p class="font-note">At a wrap break; applies when these characters share a line.</p>' : ''}<p class="font-note">${pair ? `${Number(pair.value.toFixed(5))} units / ${Number(pair.pixels.toFixed(5))} px. ` : ''}Manual values replace this pair’s font kerning; 0 explicitly removes it. Tracking remains additive. The left character’s font size and inline scale determine the em distance. Use Kerning at cursor above or select exactly two adjacent characters.</p></section>`;
 }
 function updatePairKerning(target, key, value) {
   const next = setCharacterKerningPairs(target.text, target.characterPositions, { [key]: value });
@@ -4056,7 +4061,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape' && e.target.dataset?.characterKerning !== undefined) {
     const pair = pairContext();
-    e.target.value = pair ? String(pair.value) : '';
+    e.target.value = pair?.manual ? String(pair.value) : '';
     e.preventDefault();
     return;
   }

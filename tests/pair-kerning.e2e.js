@@ -107,12 +107,17 @@ try {
   assert.equal(await saved(), initial);
   await empty();
   assert.match(await page.locator('.pair-kerning').textContent(), /A \| V/);
+  assert.equal(await input().inputValue(), '');
+  assert.equal(await input().getAttribute('placeholder'), 'Inherited (0)');
   await edit(0);
   assert.deepEqual(await pairs(), { 'c1:c2': 0 });
+  assert.equal(await input().inputValue(), '0');
   assert.equal(await page.evaluate(() => window.nect.document.schemaVersion), 9);
   const zero = await saved();
   await undo();
   assert.equal(await saved(), initial);
+  await range(1);
+  assert.equal(await input().inputValue(), '');
   await empty();
   await page.locator('[data-action="redo"]').click();
   assert.equal(await saved(), zero);
@@ -161,6 +166,7 @@ try {
       }, cancel);
     await page.mouse.up();
     assert.equal(await saved(), before, cancel);
+    assert.equal(await input().inputValue(), '', cancel);
     await empty();
   }
   await load();
@@ -168,26 +174,34 @@ try {
   before = await saved();
   await scrub(2);
   assert.equal(await saved(), before);
+  assert.equal(await input().inputValue(), '');
   await empty();
   let p = await start();
   await page.mouse.move(p.x + 24, p.y, { steps: 4 });
   await page.mouse.move(p.x, p.y);
   await page.mouse.up();
   assert.equal(await saved(), before);
+  assert.equal(await input().inputValue(), '');
   await empty();
   await scrub(14);
   assert.deepEqual(await pairs(), { 'c1:c2': 10 });
   await undo();
   assert.equal(await saved(), before);
+  await range(1);
+  assert.equal(await input().inputValue(), '');
   await empty();
   await range(1);
-  await input().fill('30');
+  await input().fill('0');
   await scrub(14);
-  assert.deepEqual(await pairs(), { 'c1:c2': 40 });
+  assert.deepEqual(await pairs(), { 'c1:c2': 10 });
   await undo();
-  assert.deepEqual(await pairs(), { 'c1:c2': 30 });
+  assert.deepEqual(await pairs(), { 'c1:c2': 0 });
+  await range(1);
+  assert.equal(await input().inputValue(), '0');
   await undo();
   assert.equal(await saved(), before);
+  await range(1);
+  assert.equal(await input().inputValue(), '');
   await empty();
   // Native spinner uses fractional step=any browser semantics; direct typing stays available.
   await range(1);
@@ -219,7 +233,7 @@ try {
   await input().fill('123');
   await page.locator('.inspector-body [data-kern-text-cursor]').click();
   assert.equal(await input().getAttribute('data-character-kerning'), 'c2:c3');
-  assert.equal(await input().inputValue(), '0');
+  assert.equal(await input().inputValue(), '');
   assert.equal(await pairs(), undefined);
   await empty();
   // Draft commit, IME refusal, stale text and exact stable target are exercised in the live DOM.
@@ -249,10 +263,11 @@ try {
   before = await saved();
   await edit(-100000);
   assert.equal(await saved(), before);
+  assert.equal(await input().inputValue(), '');
   await empty();
   await input().fill('-100000');
   await input().press('Escape');
-  assert.equal(await input().inputValue(), '0');
+  assert.equal(await input().inputValue(), '');
   const pathDrag = await start();
   await page.mouse.move(pathDrag.x + 14, pathDrag.y, { steps: 4 });
   assert.deepEqual(await pairs(), { 'c1:c2': 10 });
@@ -264,6 +279,7 @@ try {
   await page.keyboard.press('Escape');
   await page.mouse.up();
   assert.equal(await saved(), before);
+  assert.equal(await input().inputValue(), '');
   await empty();
   await edit(-100);
   assert.deepEqual(await pairs(), { 'c1:c2': -100 });
