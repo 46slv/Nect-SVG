@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
-import { document as newDocument, node, serialize } from '../src/core.js';
+import { document as newDocument, node, serialize, setCharacterStyles } from '../src/core.js';
 const buffer = async (path) => {
   const b = await fs.readFile(new URL(path, import.meta.url));
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
@@ -237,10 +237,109 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   assert.equal(get().font, 'default');
   assert.equal(get().characterPositions.styles.c1, undefined);
   assert.ok(get().characterPositions.styles.c2.font.startsWith('font-'));
+  // Independent spacing controls, mixed values, inheritance, cancellation and one-step history.
+  win.nect.load(beforeStale);
+  range(0, 2);
+  await edit('tracking', -7);
+  await edit('baselineShift', 14);
+  await edit('height', 135);
+  assert.equal(win.nect.document.schemaVersion, 6);
+  assert.equal(get().characterPositions.version, 4);
+  for (const id of ['c1', 'c2']) {
+    assert.equal(get().characterPositions.styles[id].tracking, -7);
+    assert.equal(get().characterPositions.styles[id].baselineShift, 14);
+    assert.equal(get().characterPositions.styles[id].height, 1.35);
+  }
+  const spaced = saved();
+  await edit('height', 0);
+  await edit('baselineShift', 100001);
+  assert.equal(saved(), spaced);
+  const height = field('height');
+  height.value = '220';
+  height.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(height.value, '135');
+  choose('c2', 'c3');
+  assert.equal(field('tracking').placeholder, 'Mixed');
+  document.querySelector('[data-character-style-inherit="tracking"]').click();
+  assert.equal(get().characterPositions.styles.c2.tracking, undefined);
+  assert.equal(get().characterPositions.styles.c1.tracking, -7);
+  undo();
+  assert.equal(saved(), spaced);
+  const leading = async (mode) => {
+    const el = document.querySelector('.inspector-body [data-text-leading]');
+    el.value = mode;
+    el.dispatchEvent(new win.Event('change', { bubbles: true }));
+    await tick();
+  };
+  await leading('auto');
+  assert.deepEqual(get().leading, { mode: 'auto' });
+  await leading('manual');
+  const distance = () => document.querySelector('.inspector-body [data-text-leading-value]');
+  distance().value = '75';
+  distance().dispatchEvent(new win.Event('change', { bubbles: true }));
+  await tick();
+  assert.deepEqual(get().leading, { mode: 'manual', value: 75 });
+  const manual = saved();
+  distance().value = '90';
+  distance().dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(distance().value, '75');
+  distance().value = '0';
+  distance().dispatchEvent(new win.Event('change', { bubbles: true }));
+  await tick();
+  assert.equal(saved(), manual);
+  await leading('legacy');
+  assert.equal(get().leading, undefined);
+  undo();
+  assert.equal(saved(), manual);
+  redo();
+  assert.equal(get().leading, undefined);
+  range(0, 1);
+  document.querySelector('[data-character-style-reset]').click();
+  assert.equal(get().characterPositions.styles.c1, undefined);
+  assert.equal(get().characterPositions.styles.c2.height, 1.35);
+  // Manual starts at the evaluated gap, including driven spacing and rich auto metrics.
+  for (const source of [
+    'expression',
+    'connection',
+    'large-character',
+    'blank-first',
+    'shifted-first',
+  ]) {
+    const driven = structuredClone(doc),
+      target = driven.layers[0].nodes[0];
+    target.text = source === 'blank-first' ? '\nA\nB' : 'A\nB';
+    driven.schemaVersion = 6;
+    target.leading = { mode: 'auto' };
+    if (source === 'expression') target.params.lineSpacing.expression = '3';
+    else if (source === 'connection') {
+      const value = node('Value');
+      value.params.value.value = 3;
+      driven.layers[0].nodes.push(value);
+      target.params.lineSpacing.source = value.id;
+    } else
+      target.characterPositions = setCharacterStyles(target.text, undefined, {
+        [source === 'blank-first' ? 'c2' : 'c1']: {
+          size: 150,
+          ...(source === 'shifted-first' ? { baselineShift: 45 } : {}),
+        },
+      });
+    win.nect.load(JSON.stringify(driven));
+    const positions = () =>
+      win.nect
+        .evaluate()
+        .textLayout(target.id)
+        .characters.map((c) => c.base);
+    const before = positions(),
+      distanceBefore = win.nect.evaluate().textLayout(target.id).lineOffsets[1];
+    await leading('manual');
+    assert.deepEqual(positions(), before, source);
+    assert.equal(get().leading.value, distanceBefore, source);
+  }
   const locked = structuredClone(win.nect.document);
   locked.layers[0].locked = true;
   win.nect.load(JSON.stringify(locked));
   assert.equal(document.querySelector('.inspector-body [data-style-text-range]').disabled, true);
   assert.equal(document.querySelector('[data-character-mode]').disabled, true);
+  assert.equal(document.querySelector('.inspector-body [data-text-leading]').disabled, true);
   await win.happyDOM.close();
 });

@@ -7,7 +7,7 @@ import {
 import { characterTransform, transformCharacterPoint } from './character-geometry.js';
 
 const rotatePunctuation = new Set([
-  ...'ーｰ―—‐‑–−〜～…‥「」『』（）〔〕［］｛｝〈〉《》【】〖〗〘〙〚〛＝',
+  ...'ーｰ―��‐‑–−〜～…‥「」『』（）〔〕［］｛｝〈〉《》【】〖〗〘〙〚〛＝',
 ]);
 const cornerPunctuation = new Set([...'、。，．']);
 const smallKana = new Set([...'ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ']);
@@ -70,6 +70,22 @@ function transformed(path, transform) {
   });
   return result;
 }
+/** Explicit leading is optional: absence preserves the pre-schema6 spacing contract. */
+export function validateLeading(leading) {
+  if (leading === undefined) return;
+  if (
+    !leading ||
+    typeof leading !== 'object' ||
+    Array.isArray(leading) ||
+    !['auto', 'manual'].includes(leading.mode) ||
+    Object.keys(leading).some(
+      (key) => !(leading.mode === 'manual' ? ['mode', 'value'] : ['mode']).includes(key),
+    ) ||
+    (leading.mode === 'manual' &&
+      (!Number.isFinite(leading.value) || leading.value <= 0 || leading.value > 100000))
+  )
+    throw Error('Leading must be auto or manual with a positive distance of at most 100000 px');
+}
 /** Deterministic bounded Japanese/Latin layout, shared by browser and headless. */
 export function layoutText(
   font,
@@ -80,6 +96,7 @@ export function layoutText(
     writingMode = 'horizontal-tb',
     letterSpacing = 0,
     lineSpacing = 1.2,
+    leading,
     alignment = 'start',
     kerning = true,
     referenceBounds = 'advance',
@@ -89,6 +106,7 @@ export function layoutText(
     fontId = 'default',
   },
 ) {
+  validateLeading(leading);
   if (!['start', 'center', 'end'].includes(alignment)) throw Error('Invalid text alignment');
   if (!['visible', 'advance'].includes(referenceBounds))
     throw Error('Invalid text reference bounds');
@@ -132,6 +150,9 @@ export function layoutText(
       fontId: style.font || fontId,
       size: style.size ?? size,
       width: style.width ?? 1,
+      height: style.height ?? 1,
+      tracking: style.tracking ?? letterSpacing,
+      baselineShift: style.baselineShift ?? 0,
     };
   });
   const path = new opentype.Path(),
@@ -146,21 +167,39 @@ export function layoutText(
   // Legacy text retains its exact fixed baseline spacing. Rich text uses the largest
   // adjacent line metrics, so a larger selected character does not collide with the next line.
   const lineOffsets = [0];
-  if (Object.keys(styles).length) {
+  if (leading?.mode === 'manual') {
+    for (let i = 1; i < lines.length; i++) lineOffsets[i] = i * leading.value;
+  } else if (leading?.mode === 'auto' || Object.keys(styles).length) {
     let index = 0;
     const metrics = lines.map((content) => {
       const count = [...content].length;
-      const entries = count ? resolved.slice(index, index + count) : [{ font, size, width: 1 }];
+      const entries = count
+        ? resolved.slice(index, index + count)
+        : [{ font, size, width: 1, height: 1, baselineShift: 0 }];
       index += count + 1;
       return {
-        em: Math.max(size, ...entries.map((entry) => entry.size)),
+        em: Math.max(size, ...entries.map((entry) => entry.size * entry.height)),
         ascent: Math.max(
-          ...entries.map((entry) => (entry.font.ascender / entry.font.unitsPerEm) * entry.size),
+          ...entries.map(
+            (entry) =>
+              (entry.font.ascender / entry.font.unitsPerEm) * entry.size * entry.height +
+              entry.baselineShift,
+          ),
         ),
         descent: Math.max(
-          ...entries.map((entry) => (-entry.font.descender / entry.font.unitsPerEm) * entry.size),
+          ...entries.map(
+            (entry) =>
+              (-entry.font.descender / entry.font.unitsPerEm) * entry.size * entry.height -
+              entry.baselineShift,
+          ),
         ),
         cross: Math.max(size, ...entries.map((entry) => entry.size * entry.width)),
+        left: Math.max(
+          ...entries.map((entry) => (entry.size * entry.width) / 2 - entry.baselineShift),
+        ),
+        right: Math.max(
+          ...entries.map((entry) => (entry.size * entry.width) / 2 + entry.baselineShift),
+        ),
       };
     });
     for (let i = 1; i < lines.length; i++) {
@@ -172,7 +211,10 @@ export function layoutText(
               Math.max(previous.em, current.em) * lineSpacing,
               previous.descent + current.ascent,
             )
-          : Math.max(previous.cross, current.cross) * Math.max(1, lineSpacing);
+          : Math.max(
+              Math.max(previous.cross, current.cross) * Math.max(1, lineSpacing),
+              previous.left + current.right,
+            );
       lineOffsets[i] = lineOffsets[i - 1] + distance;
     }
   } else for (let i = 1; i < lines.length; i++) lineOffsets[i] = i * size * lineSpacing;
@@ -220,7 +262,8 @@ export function layoutText(
           to++;
         let originalX = end,
           cursor = end,
-          previousWidth = 1;
+          previousWidth = 1,
+          previousTracking = letterSpacing;
         const runGlyphs = [],
           runStart = end;
         const runEnd = style.font.forEachGlyph(
@@ -231,16 +274,21 @@ export function layoutText(
           { letterSpacing: letterSpacing / style.size, kerning },
           (glyph, x, y) => {
             if (runGlyphs.length)
-              cursor += (x - originalX - letterSpacing) * previousWidth + letterSpacing;
+              cursor += (x - originalX - letterSpacing) * previousWidth + previousTracking;
             const index = from + runGlyphs.length,
               characterStyle = resolved[lineSourceStart + index] || style,
               width = characterStyle.width,
+              height = characterStyle.height,
+              baseline = y - characterStyle.baselineShift,
               start = path.commands.length;
-            const raw = glyph.getPath(cursor, y, style.size);
+            const raw = glyph.getPath(cursor, baseline, style.size);
             append(
-              width === 1
+              width === 1 && height === 1
                 ? raw
-                : transformed(raw, (gx, gy) => [cursor + (gx - cursor) * width, gy]),
+                : transformed(raw, (gx, gy) => [
+                    cursor + (gx - cursor) * width,
+                    baseline + (gy - baseline) * height,
+                  ]),
             );
             const info = {
               id: glyph.index,
@@ -248,7 +296,7 @@ export function layoutText(
               sourceIndex: lineSourceStart + index,
               line,
               x: cursor,
-              y,
+              y: baseline,
               rotation: 0,
               advance:
                 (((glyph.advanceWidth || style.font.unitsPerEm) * style.size) /
@@ -257,8 +305,11 @@ export function layoutText(
               fontId: characterStyle.fontId,
               size: style.size,
               width,
+              height,
+              tracking: characterStyle.tracking,
+              baselineShift: characterStyle.baselineShift,
               metricCenter:
-                ((style.font.ascender + style.font.descender) * style.size) /
+                ((style.font.ascender + style.font.descender) * style.size * height) /
                 style.font.unitsPerEm /
                 2,
               commandStart: start,
@@ -268,10 +319,11 @@ export function layoutText(
             runGlyphs.push(info);
             originalX = x;
             previousWidth = width;
+            previousTracking = characterStyle.tracking;
           },
         );
         end = runGlyphs.length
-          ? cursor + (runEnd - originalX - letterSpacing) * previousWidth + letterSpacing
+          ? cursor + (runEnd - originalX - letterSpacing) * previousWidth + previousTracking
           : runEnd;
         if (
           runGlyphs.length !== to - from ||
@@ -289,7 +341,7 @@ export function layoutText(
             'This shaped run has no verified one-to-one Japanese/Latin character mapping';
         from = to;
       }
-      align(end - position[0] - (glyphs.length > glyphStart ? letterSpacing : 0));
+      align(end - position[0] - (glyphs.length > glyphStart ? glyphs.at(-1).tracking : 0));
       continue;
     }
     const x = position[0] - lineOffsets[line];
@@ -337,11 +389,14 @@ export function layoutText(
           'Font lacks some vertical alternates; brackets/long marks rotate geometrically.',
         );
       const start = path.commands.length;
-      // Horizontal width scales screen X in vertical text; vertical advances are unchanged.
+      // Physical X/Y scales are independent; only inline (screen Y) scale affects advance.
       append(
-        style.width === 1
+        style.width === 1 && style.height === 1 && style.baselineShift === 0
           ? outline
-          : transformed(outline, (gx, gy) => [x + (gx - x) * style.width, gy]),
+          : transformed(outline, (gx, gy) => [
+              x + (gx - x) * style.width + style.baselineShift,
+              y + (gy - y) * style.height,
+            ]),
       );
       glyphs.push({
         sourceIndex: lineSourceStart + glyphs.length - glyphStart,
@@ -351,19 +406,22 @@ export function layoutText(
         id: glyph.index,
         originalId: original.index,
         line,
-        x,
+        x: x + style.baselineShift,
         y,
         rotation: sideways ? 90 : 0,
         substituted,
         fontId: style.fontId,
         size: activeSize,
         width: style.width,
+        height: style.height,
+        tracking: style.tracking,
+        baselineShift: style.baselineShift,
         metricCenter: ((activeFont.ascender + activeFont.descender) * localScale) / 2,
-        advance,
+        advance: advance * style.height,
       });
-      y += advance + letterSpacing;
+      y += advance * style.height + style.tracking;
     }
-    align(y - position[1] - (glyphs.length > glyphStart ? letterSpacing : 0));
+    align(y - position[1] - (glyphs.length > glyphStart ? glyphs.at(-1).tracking : 0));
   }
   if (mappingReason && Object.keys(styles).length) {
     // Never attach a logical character's width/font/size to an unverified shaped glyph.
@@ -374,6 +432,7 @@ export function layoutText(
       writingMode,
       letterSpacing,
       lineSpacing,
+      leading,
       alignment,
       kerning,
       referenceBounds,
@@ -454,12 +513,17 @@ export function layoutText(
         const size = glyph.size;
         const cell =
           writingMode === 'horizontal-tb'
-            ? [x, y - size * 0.8, x + Math.max(glyph.advance, size * 0.2), y + size * 0.2]
+            ? [
+                x,
+                y - size * glyph.height * 0.8,
+                x + Math.max(glyph.advance, size * 0.2),
+                y + size * glyph.height * 0.2,
+              ]
             : [
                 x - size * glyph.width * 0.5,
                 y,
                 x + size * glyph.width * 0.5,
-                y + Math.max(glyph.advance, size * 0.2),
+                y + Math.max(glyph.advance, size * glyph.height * 0.2),
               ];
         const corners = [
           [cell[0], cell[1]],
@@ -480,6 +544,9 @@ export function layoutText(
         font: glyph.fontId,
         size: glyph.size,
         width: glyph.width,
+        height: glyph.height,
+        tracking: glyph.tracking,
+        baselineShift: glyph.baselineShift,
         sourceIndex: glyph.sourceIndex,
         bounds,
         base,
@@ -500,6 +567,7 @@ export function layoutText(
     path,
     glyphs,
     advances,
+    lineOffsets,
     warnings: [...warnings],
     characters,
     characterReason: reason,

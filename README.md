@@ -4,7 +4,7 @@ A node-authored vector editor, designed for a **Windows desktop app**, with a re
 
 ## Rich text
 
-Select one character or a range to change its font, font size, or horizontal width with real text reflow. Use **Style selected text** below Text, or select characters on the canvas. [Editing guide, semantics and limits](docs/rich-text.md) · [Editable sample](examples/rich-text-range.json).
+Select one character or a range to change its font, font size, horizontal width, vertical scale, tracking or baseline shift with real text reflow. Text-level Auto/Manual leading controls baseline or column distance. Use **Style selected text** below Text, or select characters on the canvas. [Editing guide, semantics and limits](docs/rich-text.md) · [Editable sample](examples/rich-text-range.json) · [Spacing/leading sample](examples/typography-spacing.json).
 
 ## Run the editor
 

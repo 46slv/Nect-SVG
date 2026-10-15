@@ -1054,9 +1054,38 @@ input[data-scrub-step].scrubbing {
   flex-direction: column;
   gap: 4px;
 }
-.character-typography .character-values {
-  flex-wrap: wrap;
-  margin: 8px 0;
+.typography-fields {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+.typography-field {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto;
+  align-items: end;
+  gap: 6px;
+}
+.typography-field label,
+.text-leading-controls > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+}
+.typography-field input,
+.text-leading-controls input,
+.text-leading-controls select {
+  width: 100%;
+  min-width: 0;
+}
+.typography-field button {
+  font-size: 11px;
+}
+.text-leading-controls {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
 }
 .character-typography select {
   width: 100%;

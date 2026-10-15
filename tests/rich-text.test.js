@@ -75,7 +75,7 @@ test('rich typography patches are sparse, atomic, bounded, inheritable and indep
     { width: 0 },
     { width: 10.01 },
     { width: NaN },
-    { tracking: 5 },
+    { kerning: 5 },
   ])
     assert.throws(() => setCharacterStyles('ABA', record, { c1: { size: 55 }, c2: patch }));
   assert.equal(record.styles.c1, undefined);

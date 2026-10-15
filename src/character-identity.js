@@ -4,6 +4,15 @@ export const MAX_CHARACTER_TEXT_LENGTH = 10000;
 export const MAX_CHARACTER_OFFSET = 100000;
 export const CHARACTER_TRANSFORM_VERSION = 2;
 export const CHARACTER_STYLE_VERSION = 3;
+export const CHARACTER_SPACING_VERSION = 4;
+export const CHARACTER_STYLE_KEYS = [
+  'font',
+  'size',
+  'width',
+  'height',
+  'tracking',
+  'baselineShift',
+];
 export const MIN_CHARACTER_SCALE = 0.01;
 export const MAX_CHARACTER_SCALE = 100;
 export const MAX_CHARACTER_ROTATION = 36000;
@@ -75,9 +84,12 @@ export function validateCharacterPositions(record) {
           ...(record.version >= 3 ? ['styles'] : []),
         ].includes(key),
     ) ||
-    ![CHARACTER_POSITION_VERSION, CHARACTER_TRANSFORM_VERSION, CHARACTER_STYLE_VERSION].includes(
-      record.version,
-    ) ||
+    ![
+      CHARACTER_POSITION_VERSION,
+      CHARACTER_TRANSFORM_VERSION,
+      CHARACTER_STYLE_VERSION,
+      CHARACTER_SPACING_VERSION,
+    ].includes(record.version) ||
     (record.version >= CHARACTER_TRANSFORM_VERSION && !plainObject(record.transforms)) ||
     (record.version >= CHARACTER_STYLE_VERSION && !plainObject(record.styles)) ||
     !Number.isSafeInteger(record.nextId) ||
@@ -123,14 +135,16 @@ export function validateCharacterPositions(record) {
     if (!ids.has(id) || ids.get(id) === '\n')
       throw Error('Character style must reference a known non-newline unit');
     validateCharacterStyle(style);
+    if (
+      record.version < CHARACTER_SPACING_VERSION &&
+      ['height', 'tracking', 'baselineShift'].some((key) => own(style, key))
+    )
+      throw Error('Character spacing requires characterPositions version 4');
   }
   return record;
 }
 function validateCharacterStyle(style, patch = false) {
-  if (
-    !plainObject(style) ||
-    Object.keys(style).some((key) => !['font', 'size', 'width'].includes(key))
-  )
+  if (!plainObject(style) || Object.keys(style).some((key) => !CHARACTER_STYLE_KEYS.includes(key)))
     throw Error('Invalid character typography style');
   for (const [key, value] of Object.entries(style)) {
     if (patch && value === null) continue;
@@ -141,8 +155,16 @@ function validateCharacterStyle(style, patch = false) {
       throw Error('Invalid character font reference');
     if (key === 'size' && (!Number.isFinite(value) || value <= 0 || value > 100000))
       throw Error('Character font size must be greater than 0 and at most 100000 px');
-    if (key === 'width' && (!Number.isFinite(value) || value < 0.01 || value > 10))
-      throw Error('Character horizontal width must be from 1% to 1000%');
+    if (
+      ['width', 'height'].includes(key) &&
+      (!Number.isFinite(value) || value < 0.01 || value > 10)
+    )
+      throw Error('Character horizontal width and vertical scale must be from 1% to 1000%');
+    if (
+      ['tracking', 'baselineShift'].includes(key) &&
+      (!Number.isFinite(value) || Math.abs(value) > 100000)
+    )
+      throw Error('Character tracking and baseline shift must be from -100000 to 100000 px');
   }
 }
 /** Sparse typography overrides. Null removes a property and restores inheritance. */
@@ -170,7 +192,7 @@ export function setCharacterStyles(raw, record, changes) {
       if (value === null) delete next[key];
       else next[key] = value;
     }
-    if (['font', 'size', 'width'].every((key) => before[key] === next[key])) continue;
+    if (CHARACTER_STYLE_KEYS.every((key) => before[key] === next[key])) continue;
     changed = true;
     if (Object.keys(next).length) styles[id] = next;
     else delete styles[id];
@@ -178,7 +200,14 @@ export function setCharacterStyles(raw, record, changes) {
   return changed
     ? {
         ...current,
-        version: CHARACTER_STYLE_VERSION,
+        version: Math.max(
+          current.version,
+          Object.values(styles).some((style) =>
+            ['height', 'tracking', 'baselineShift'].some((key) => own(style, key)),
+          )
+            ? CHARACTER_SPACING_VERSION
+            : CHARACTER_STYLE_VERSION,
+        ),
         transforms: { ...current.transforms },
         styles,
       }
@@ -193,7 +222,12 @@ export function resetCharacterStyles(raw, record, ids) {
   return setCharacterStyles(
     raw,
     record,
-    Object.fromEntries(selected.map((id) => [id, { font: null, size: null, width: null }])),
+    Object.fromEntries(
+      selected.map((id) => [
+        id,
+        Object.fromEntries(CHARACTER_STYLE_KEYS.map((key) => [key, null])),
+      ]),
+    ),
   );
 }
 /** Map a textarea UTF-16 range only at proven scalar/NFC/newline boundaries. */

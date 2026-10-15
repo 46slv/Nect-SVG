@@ -14,7 +14,7 @@ export {
 // Geometry needs only the core build; keep script-src free of unsafe-eval.
 import paper from 'paper/dist/paper-core.js';
 import { validateFontAssets, resolveFonts, MAX_PROJECT_BYTES, utf8ByteLength } from './fonts.js';
-import { layoutText } from './text-layout.js';
+import { layoutText, validateLeading } from './text-layout.js';
 import { fingerprint } from './fingerprint.js';
 import { validateCharacterPositions } from './character-identity.js';
 import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
@@ -867,6 +867,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               n.crossAlignment,
               n.positionReference,
               n.kerning,
+              n.leading,
               n.strokeCap,
               n.strokeJoin,
               n.strokeDash,
@@ -975,6 +976,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           referenceBounds: n.referenceBounds,
           crossAlignment: n.crossAlignment,
           kerning: n.kerning,
+          leading: n.leading,
           letterSpacing: n.params.letterSpacing ? read('letterSpacing') : 0,
           lineSpacing: n.params.lineSpacing ? read('lineSpacing') : 1.2,
         });
@@ -984,6 +986,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         result = fromPaper(item, n.id);
         textLayouts.set(n.id, {
           characters: layout.characters,
+          lineOffsets: layout.lineOffsets,
           reason: layout.characterReason,
           suspended: layout.characterSuspended,
         });
@@ -1296,7 +1299,15 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     textDefaults(id) {
       const n = byId.get(id);
       if (n?.type !== 'Text') throw Error('Select a Text node');
-      return { font: n.font, size: readParameter(n, 'size'), width: 1 };
+      return {
+        font: n.font,
+        size: readParameter(n, 'size'),
+        width: 1,
+        height: 1,
+        tracking: readParameter(n, 'letterSpacing'),
+        lineSpacing: readParameter(n, 'lineSpacing'),
+        baselineShift: 0,
+      };
     },
     textLayout(id) {
       run(id);
@@ -1403,7 +1414,7 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3, 4, 5].includes(doc.schemaVersion))
+  if (!doc || ![1, 2, 3, 4, 5, 6].includes(doc.schemaVersion))
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   text(doc.name);
@@ -1451,12 +1462,17 @@ export function validate(doc) {
         throw Error('Invalid object Position reference');
       if (n.characterPositions !== undefined && (n.type !== 'Text' || doc.schemaVersion < 3))
         throw Error('Character positions require schemaVersion 3 and a Text node');
+      if (n.leading !== undefined && (n.type !== 'Text' || doc.schemaVersion < 6))
+        throw Error('Explicit leading requires schemaVersion 6 and a Text node');
       if (n.type === 'Text') {
+        validateLeading(n.leading);
         validateCharacterPositions(n.characterPositions);
         if (n.characterPositions?.version >= 2 && doc.schemaVersion < 4)
           throw Error('Character shape transforms require schemaVersion 4');
-        if (n.characterPositions?.version === 3 && doc.schemaVersion < 5)
+        if (n.characterPositions?.version >= 3 && doc.schemaVersion < 5)
           throw Error('Character typography requires schemaVersion 5');
+        if (n.characterPositions?.version >= 4 && doc.schemaVersion < 6)
+          throw Error('Character spacing requires schemaVersion 6');
         for (const style of Object.values(n.characterPositions?.styles || {}))
           if (
             style.font &&

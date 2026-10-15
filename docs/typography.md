@@ -76,6 +76,6 @@ The Inspector's Character position mode keeps one editable Text and applies spar
 
 The same mode now includes per-character rotation and uniform scale, using stable logical identities and a fixed normal-layout cell center. These shape adjustments preserve advance, font size and Text Position; Reset XY and Reset shape are independent. Shape records use schema4 while older XY records remain readable. See [character shape contract](character-transform.md) and [editable example](../examples/character-transform.json).
 
-## Range typography (schema 5)
+## Range typography (schemas 5–6)
 
-Selected characters now support sparse font, size and horizontal-width overrides before shaping/layout. This extends the whole-Text controls and post-layout character transforms; see [Selected-character typography](rich-text.md) for selection, inheritance, vertical semantics, line metrics, schema details and explicit remaining limits.
+Selected characters now support sparse font, size, horizontal-width, vertical-scale, tracking and baseline-shift overrides before shaping/layout. Text-level Auto/Manual leading is also available. This extends the whole-Text controls and post-layout character transforms; see [Selected-character typography](rich-text.md) for selection, inheritance, vertical semantics, line metrics, schema details and explicit remaining limits.

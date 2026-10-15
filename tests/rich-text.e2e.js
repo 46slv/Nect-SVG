@@ -94,6 +94,61 @@ try {
   await page.locator('[data-action="undo"]').click();
   assert.equal(await saved(), wide);
   await range(1, 2);
+  await choose(['c1', 'c2']);
+  await edit('tracking', 12);
+  await edit('baselineShift', 18);
+  await edit('height', 135);
+  assert.equal((await read()).characterPositions.version, 4);
+  assert.equal((await read()).characterPositions.styles.c1.height, 1.35);
+  assert.equal((await read()).characterPositions.styles.c2.tracking, 12);
+  assert.equal((await read()).characterPositions.styles.c3, undefined);
+  const spacing = await saved();
+  await field('height').fill('220');
+  await field('height').press('Escape');
+  await field('height').press('Tab');
+  assert.equal(await field('height').inputValue(), '135');
+  assert.equal(await saved(), spacing);
+  await page.locator('[data-action="undo"]').click();
+  assert.equal((await read()).characterPositions.styles.c1.height, undefined);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(await saved(), spacing);
+  await range(0, 2);
+  const leading = page.locator('.inspector-body [data-text-leading]');
+  await leading.selectOption('auto');
+  assert.equal((await read()).leading.mode, 'auto');
+  await leading.selectOption('manual');
+  const manual = page.locator('.inspector-body [data-text-leading-value]');
+  await manual.fill('90');
+  await manual.press('Tab');
+  assert.deepEqual((await read()).leading, { mode: 'manual', value: 90 });
+  const spacingSaved = await saved();
+  await manual.fill('123');
+  await manual.press('Escape');
+  await manual.press('Tab');
+  assert.equal(await saved(), spacingSaved);
+  // Numerical controls must be readable in the real inspector, not merely present in DOM.
+  for (const viewport of [
+    { width: 1920, height: 1200 },
+    { width: 1280, height: 800 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const widths = await page.locator('.typography-field input').evaluateAll((els) =>
+      els.map((el) => {
+        const rect = el.getBoundingClientRect(),
+          button = el.closest('.typography-field').querySelector('button').getBoundingClientRect();
+        return { width: rect.width, noOverlap: rect.right <= button.left };
+      }),
+    );
+    assert.equal(widths.length, 5);
+    assert.ok(
+      widths.every((value) => value.width >= 100 && value.noOverlap),
+      JSON.stringify(widths),
+    );
+  }
+  await page.setViewportSize({ width: 1920, height: 1200 });
+  await page
+    .locator('.character-typography')
+    .evaluate((el) => el.scrollIntoView({ block: 'start' }));
   // Save/reopen retains exact SVG and feeds the same outlines into the PNG rasterizer.
   const svg = await page.evaluate(() => window.nect.export());
   assert.ok(!svg.includes('<text'));
@@ -118,10 +173,13 @@ try {
   assert.deepEqual([raster.width, raster.height, raster.ink], [960, 540, true]);
   assert.ok(raster.bytes > 100);
   await fs.mkdir('test-results', { recursive: true });
-  await fs.writeFile('test-results/workflow-rich-text.json', wide);
+  await fs.writeFile('test-results/workflow-rich-text.json', spacingSaved);
   await fs.writeFile('test-results/workflow-rich-text.svg', svg);
   await page.screenshot({ path: 'test-results/rich-text-range-controls.png', fullPage: true });
-  await page.evaluate((s) => window.nect.load(s), wide);
+  await page.screenshot({ path: 'test-results/typography-spacing-controls.png', fullPage: true });
+  await manual.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/typography-manual-leading.png', fullPage: true });
+  await page.evaluate((s) => window.nect.load(s), spacingSaved);
   assert.equal(await page.evaluate(() => window.nect.export()), svg);
   // Equal-value paste must commit the replacement identity before range styling.
   await range(1, 2);
@@ -172,7 +230,7 @@ try {
   assert.ok(repaired.characterPositions.styles.c2.font);
   assert.deepEqual(errors, []);
   console.log(
-    'Rich text range font/size/width, real selection, undo, font file load, mixed/inherit, Escape, missing glyph repair, JSON/SVG/PNG passed',
+    'Rich text range font/size/width/height/tracking/baseline, auto/manual leading, readable inspector widths, real selection, undo, font file load, mixed/inherit, Escape, missing glyph repair, JSON/SVG/PNG passed',
   );
 } finally {
   await browser.close();
