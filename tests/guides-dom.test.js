@@ -265,5 +265,41 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   pointer(document, 'pointermove', 52, 250);
   pointer(document, 'pointerup', 52, 250);
   assert.equal(get().layers[0].nodes[0].params.center.value[0], 126);
+  // View-shortcut exclusions must not disable existing guide-edit shortcuts.
+  if (!$('[data-add-guide="x"]')) click('[data-action="guides-panel"]');
+  click('[data-add-guide="x"]');
+  const guideId = get().editor.guides[0].id;
+  click(`[data-select-guide="${guideId}"]`);
+  const guideButton = $(`[data-select-guide="${guideId}"]`);
+  const navKey = new win.KeyboardEvent('keydown', { key: '+', bubbles: true, cancelable: true });
+  guideButton.dispatchEvent(navKey);
+  assert.equal(navKey.defaultPrevented, false);
+  const commands = [];
+  const interceptCommand = (e) => {
+    if (['save', 'open'].includes(e.target.dataset.action)) {
+      commands.push(e.target.dataset.action);
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  };
+  document.addEventListener('click', interceptCommand, true);
+  for (const key of ['s', 'o']) {
+    const event = new win.KeyboardEvent('keydown', {
+      key,
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    guideButton.dispatchEvent(event);
+    assert.equal(event.defaultPrevented, true, 'app command keeps browser shortcut scoped');
+  }
+  document.removeEventListener('click', interceptCommand, true);
+  assert.deepEqual(commands, ['save', 'open']);
+  guideButton.dispatchEvent(
+    new win.KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }),
+  );
+  assert.equal(get().editor.guides.length, 0);
+  click('[data-action="undo"]');
+  assert.equal(get().editor.guides[0].id, guideId);
   win.happyDOM.abort();
 });

@@ -4468,7 +4468,14 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
-  if (navigationExcluded(e.target) || e.isComposing || e.keyCode === 229 || composing) return;
+  if (
+    editingControl(e.target) ||
+    e.target.closest('dialog') ||
+    e.isComposing ||
+    e.keyCode === 229 ||
+    composing
+  )
+    return;
   if (
     characterEdit &&
     e.target.closest('.canvas-stage') &&
@@ -4539,7 +4546,14 @@ document.addEventListener('keydown', (e) => {
     document.querySelector(`[data-delete="${selected}"]`)?.click();
 });
 document.addEventListener('keydown', (e) => {
-  if (navigationExcluded(e.target) || e.isComposing || e.keyCode === 229 || composing || e.repeat)
+  if (
+    editingControl(e.target) ||
+    e.target.closest('dialog') ||
+    e.isComposing ||
+    e.keyCode === 229 ||
+    composing ||
+    e.repeat
+  )
     return;
   if (e.ctrlKey || e.metaKey) {
     if (e.key.toLowerCase() === 's') {
