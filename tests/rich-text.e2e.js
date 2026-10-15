@@ -121,10 +121,21 @@ try {
   await manual.fill('90');
   await manual.press('Tab');
   assert.deepEqual((await read()).leading, { mode: 'manual', value: 90 });
+  // A committed change schedules a structural render. Wait for the new field
+  // before starting a cancellation gesture on it. The value attribute is rendered,
+  // whereas fill() changes only the previous element's value property.
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.inspector-body [data-text-leading-value]')?.getAttribute('value') ===
+      '90',
+  );
   const spacingSaved = await saved();
   await manual.fill('123');
-  await manual.press('Escape');
-  await manual.press('Tab');
+  assert.deepEqual((await read()).leading, { mode: 'manual', value: 90 });
+  await page.keyboard.press('Escape');
+  assert.equal(await manual.inputValue(), '90');
+  assert.equal(await saved(), spacingSaved);
+  await page.keyboard.press('Tab');
   assert.equal(await saved(), spacingSaved);
   // Numerical controls must be readable in the real inspector, not merely present in DOM.
   for (const viewport of [

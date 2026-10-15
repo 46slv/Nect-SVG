@@ -25,7 +25,12 @@ const screen = (p) =>
 const load = async () => {
   await page.evaluate((s) => window.nect.load(s), sample);
   await page.locator('[data-null-handle]').waitFor();
-  await page.locator('.shape[data-layer="layer-snap-text"]').waitFor();
+  // Text may exist before the asynchronously loaded bundled font has outlines.
+  await page.waitForFunction(() => {
+    const shape = document.querySelector('.shape[data-layer="layer-snap-text"]');
+    const bounds = shape?.getBBox();
+    return bounds && bounds.width > 0 && bounds.height > 0;
+  });
 };
 const start = async () => {
   await page.mouse.move(...(await screen(await pos())));
@@ -59,13 +64,20 @@ try {
     assert.equal(await saved(), before);
   }
   // Real font outlines, including their final evaluated bounds, are regular targets.
-  const textBounds = await page.locator('.shape[data-layer="layer-snap-text"]').evaluate((el) => {
-    const b = el.getBBox();
-    return [
-      [b.x, b.x + b.width / 2, b.x + b.width],
-      [b.y, b.y + b.height / 2, b.y + b.height],
-    ];
+  // Resolve the current path and read its bounds atomically: an outstanding
+  // canvas frame after Undo can replace the path between locator calls.
+  const textBoundsHandle = await page.waitForFunction(() => {
+    const shape = document.querySelector('.shape[data-layer="layer-snap-text"]');
+    const b = shape?.getBBox();
+    return b && b.width > 0 && b.height > 0
+      ? [
+          [b.x, b.x + b.width / 2, b.x + b.width],
+          [b.y, b.y + b.height / 2, b.y + b.height],
+        ]
+      : false;
   });
+  const textBounds = await textBoundsHandle.jsonValue();
+  await textBoundsHandle.dispose();
   await drag([textBounds[0][1] - 1, textBounds[1][1] - 1]);
   near(await pos(), [textBounds[0][1], textBounds[1][1]]);
   await undo();
