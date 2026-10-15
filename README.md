@@ -32,6 +32,7 @@ The workspace uses a white/silver interface, lower resizable graph, right Layers
 - Color: a Color node connects to Fill or Stroke → color. Disconnect restores the saved paint fallback. SVG and transparent PNG retain independent fill/stroke alpha. Older JSON projects migrate to explicit Fill nodes when opened, preserving appearance and connections; save explicitly to keep the new version.
 - Windows Text inspectors automatically list faces from standard system/user Fonts folders, including static TTC/OTC faces; selecting a face embeds only that font. Variable/color faces are disabled. Browser/manual file loading remains available.
 - Text supports local static TTF/OTF loading, Japanese outlines, multiline text, horizontal/vertical writing, letter spacing and line/column spacing. Saved JSON embeds the font for later editing; check its license before sharing. See [typography and limits](docs/typography.md).
+- Type on Path: retain one horizontal line on an explicit stable contour, with distance/normalized start, reverse and start/center/end alignment. Typography and local character adjustments stay editable; unsupported modes and overflow reject. [Bounded contract and editable sample](docs/type-on-path.md).
 - JSON saves the current editable model (the Undo/Redo stack is session-only); SVG exports evaluated paths, not the graph.
 - Undo/redo: Ctrl+Z / Ctrl+Shift+Z. Space-drag or middle-drag pans. Fit resets zoom/pan.
 

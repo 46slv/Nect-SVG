@@ -43,7 +43,7 @@ Textarea UTF-16 selections map through verified code-point, NFC and CRLF boundar
 - `tests/rich-text-dom.test.js`: actual controls, selected-only font loading, mixed values, inheritance, Escape, Undo/Redo, stale async selection, typed-text reconciliation, missing-glyph repair, composition and locks.
 - `tests/rich-text.e2e.js`: Chrome selection and file picker, range controls, history, glyph repair, JSON/SVG equality, PNG rasterization and a screenshot. Included in Windows CI.
 
-This is a bounded rich-text implementation, not Illustrator/After Effects parity. Pair-specific kerning overrides, paragraph styles/justification, text boxes/wrapping, tabs, path text, OpenType feature UI, arbitrary grapheme/complex-script shaping, variable/color fonts and text animation remain separate work. Existing limitations on combining marks that do not compose under NFC, selectors, control characters and unsupported shaping remain explicit.
+This is a bounded rich-text implementation, not Illustrator/After Effects parity. Pair-specific kerning overrides, paragraph styles/justification, text boxes/wrapping, tabs, advanced path text beyond the [bounded Type on Path slice](type-on-path.md), OpenType feature UI, arbitrary grapheme/complex-script shaping, variable/color fonts and text animation remain separate work. Existing limitations on combining marks that do not compose under NFC, selectors, control characters and unsupported shaping remain explicit.
 
 `examples/rich-text-range.json` is an editable Latin/Japanese sample with embedded limited Nect JP test fixture data. The fixture's license is [SIL OFL](../tests/fixtures/fonts/OFL.txt); its coverage and origin are documented in [the fixture README](../tests/fixtures/fonts/README.md).
 

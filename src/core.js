@@ -16,6 +16,7 @@ export {
 import paper from 'paper/dist/paper-core.js';
 import { validateFontAssets, resolveFonts, MAX_PROJECT_BYTES, utf8ByteLength } from './fonts.js';
 import { layoutText, validateLeading } from './text-layout.js';
+import { validateTextPathAttachment, validateTextPathMode, projectTextPath } from './text-path.js';
 import { offsetClosedPath, OFFSET_EDITOR_LIMITS, OffsetError } from './closed-offset.js';
 export { OFFSET_EDITOR_LIMITS } from './closed-offset.js';
 import { fingerprint } from './fingerprint.js';
@@ -354,6 +355,7 @@ export function nodeDependencies(n, activeOnly = false) {
     .map(([, q]) => q);
   const reference = referenceDependency(n);
   if (reference) deps.push(reference);
+  if (n.type === 'Text' && n.pathAttachment) deps.push({ source: n.pathAttachment.nodeId });
   return deps;
 }
 export function referenceTarget(layer, n) {
@@ -443,6 +445,39 @@ export function duplicateNodes(layer, ids) {
     copy.position = copy.position.map((v) => v + 30);
     for (const pt of copy.points) pt.id = uid('point');
     for (const [, q] of parameters(copy)) if (remap.has(q.source)) q.source = remap.get(q.source);
+    if (copy.pathAttachment && remap.has(copy.pathAttachment.nodeId)) {
+      // Only remap a contour when the entire selected reference route reaches a
+      // duplicated generator. A copied Curve outside an unselected Transform
+      // must not retarget a Text copy that still reads that original Transform.
+      let source = layer.nodes.find((n) => n.id === copy.pathAttachment.nodeId);
+      const visited = new Set();
+      while (source && remap.has(source.id) && !visited.has(source.id)) {
+        visited.add(source.id);
+        if (
+          ['Transform', 'Path Remap', 'Convert to Path', 'Closed Path Offset'].includes(source.type)
+        ) {
+          source = layer.nodes.find((n) => n.id === source.params.path.source);
+          continue;
+        }
+        const contour = copy.pathAttachment.contourId,
+          prefix =
+            source.type === 'Curve'
+              ? source.id
+              : ['Circle', 'Ellipse', 'Rectangle'].includes(source.type)
+                ? source.id + ':c0'
+                : ['Polygon', 'Star'].includes(source.type)
+                  ? source.id + ':' + source.type + ':'
+                  : null;
+        if (
+          prefix &&
+          (contour === prefix ||
+            (['Polygon', 'Star'].includes(source.type) && contour.startsWith(prefix)))
+        )
+          copy.pathAttachment.contourId = remap.get(source.id) + contour.slice(source.id.length);
+        break;
+      }
+      copy.pathAttachment.nodeId = remap.get(copy.pathAttachment.nodeId);
+    }
     if (copy.reference && remap.has(copy.reference.nodeId))
       copy.reference.nodeId = remap.get(copy.reference.nodeId);
     return copy;
@@ -832,6 +867,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         ),
         reference = key === id && referenceDependency(n);
       if (reference) deps.push(['reference', reference]);
+      if (key === id && n.pathAttachment)
+        deps.push(['textPath', { source: n.pathAttachment.nodeId }]);
       provenances.set(
         key,
         fingerprint(
@@ -926,6 +963,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               n.edits,
               n.text,
               n.characterPositions,
+              n.pathAttachment,
               n.font,
               n.writingMode,
               n.alignment,
@@ -1042,27 +1080,52 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       else if (n.type === 'Text') {
         let font = fonts[n.font];
         if (!font) throw Error('Font is still loading or unavailable');
-        const layout = layoutText(font, n.text, {
-          position: read('position'),
+        const attachment = n.pathAttachment;
+        if (attachment) {
+          validateTextPathAttachment(attachment);
+          validateTextPathMode(n.text, n.writingMode);
+        }
+        let layout = layoutText(font, n.text, {
+          position: attachment ? [0, 0] : read('position'),
           characterPositions: n.characterPositions,
           fonts,
           fontId: n.font,
           size: read('size'),
           writingMode: n.writingMode,
-          alignment: n.alignment,
-          referenceBounds: n.referenceBounds,
-          crossAlignment: n.crossAlignment,
+          alignment: attachment ? 'start' : n.alignment,
+          referenceBounds: attachment ? 'advance' : n.referenceBounds,
+          crossAlignment: attachment ? 'origin' : n.crossAlignment,
           kerning: n.kerning,
           leading: n.leading,
           letterSpacing: n.params.letterSpacing ? read('letterSpacing') : 0,
           lineSpacing: n.params.lineSpacing ? read('lineSpacing') : 1.2,
         });
+        if (attachment) {
+          const sourceNode = byId.get(attachment.nodeId);
+          if (!sourceNode || outputType(sourceNode) !== 'Path')
+            throw Error('TEXT_PATH_SOURCE: Select a Path output in the same layer');
+          const source = run(attachment.nodeId);
+          if (source.unstable)
+            throw Error(
+              'TEXT_PATH_UNSTABLE: Generated contour identities are unsupported; use a Curve or stable primitive',
+            );
+          if (source.remapSuspended)
+            throw Error('TEXT_PATH_REMAP: Rebind suspended Path Remap edits before attaching');
+          const contour = source.contours.find((c) => c.id === attachment.contourId);
+          if (!contour)
+            throw Error(
+              'TEXT_PATH_CONTOUR: Selected contour is missing; detach or choose an explicit contour',
+            );
+          layout = projectTextPath(layout, contour, attachment, n.alignment || 'start');
+        }
         warnings.push(...layout.warnings.map((warning) => `${n.name}: ${warning}`));
         const d = layout.path.toPathData(5);
         let item = new scope.CompoundPath({ pathData: d, insert: false });
         result = fromPaper(item, n.id);
         textLayouts.set(n.id, {
           characters: layout.characters,
+          attachment: layout.attachment,
+          placements: layout.placements,
           lineOffsets: layout.lineOffsets,
           reason: layout.characterReason,
           suspended: layout.characterSuspended,
@@ -1072,7 +1135,11 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             source: n.id,
             route: n.id,
             matrix: identityMatrix(),
-            reason: layout.characterReason || null,
+            reason:
+              layout.characterReason ||
+              (attachment
+                ? 'Canvas character dragging is unavailable on Type on Path; use numeric local XY/rotation/scale'
+                : null),
             suspended: layout.characterSuspended,
           },
         ];
@@ -1286,6 +1353,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           for (const edit of n.edits) {
             let pt = result.contours.flatMap((c) => c.points).find((p) => p.id === edit.pointId);
             if (!pt || (result.unstable && edit.fingerprint !== result.fingerprint)) {
+              result.remapSuspended = true;
               warnings.push(
                 `${n.name}: vertex edit suspended because its source changed. Rebind explicitly.`,
               );
@@ -1314,6 +1382,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             characterTransform(anchor, read('offset'), read('scale'), read('rotation')),
           );
           transformed.unstable = result.unstable;
+          transformed.remapSuspended = result.remapSuspended;
           transformed.fingerprint = result.fingerprint;
           result = transformed;
           obj.remove();
@@ -1431,6 +1500,77 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     stats: { computed, reused },
   };
 }
+// All attached text is checked, even when it is not the displayed Output. A failed
+// edit leaves authored state/history unchanged; pre-existing diagnosed errors can be repaired.
+export function assertTextPathChange(
+  layer,
+  previousLayer,
+  fonts = {},
+  imageAssets = {},
+  previousFonts = fonts,
+) {
+  const attached = layer.nodes.filter((n) => n.type === 'Text' && n.pathAttachment);
+  if (!attached.length) return;
+  assertAcyclic(layer);
+  const current = evaluate(layer, fonts, imageAssets);
+  let previous;
+  for (const n of attached) {
+    try {
+      current.run(n.id);
+    } catch (error) {
+      const old = previousLayer?.nodes.find((x) => x.id === n.id && x.pathAttachment);
+      if (old) {
+        previous ??= evaluate(previousLayer, previousFonts, imageAssets);
+        try {
+          previous.run(n.id);
+        } catch (before) {
+          if (before.message === error.message) continue;
+        }
+      }
+      throw error;
+    }
+  }
+}
+export function setTextPathAttachment(layer, nodeId, attachment, fonts = {}, imageAssets = {}) {
+  const n = layer.nodes.find((n) => n.id === nodeId);
+  if (n?.type !== 'Text') throw Error('Select a Text node');
+  const old = n.pathAttachment;
+  try {
+    if (attachment === null) delete n.pathAttachment;
+    else {
+      validateTextPathAttachment(attachment);
+      n.pathAttachment = clone(attachment);
+    }
+    assertAcyclic(layer);
+    if (attachment !== null) evaluate(layer, fonts, imageAssets).run(nodeId);
+  } catch (error) {
+    if (old === undefined) delete n.pathAttachment;
+    else n.pathAttachment = old;
+    throw error;
+  }
+}
+export function textPathTargets(layer, textId, fonts = {}, imageAssets = {}) {
+  const result = evaluate(layer, fonts, imageAssets),
+    targets = [];
+  for (const n of layer.nodes) {
+    if (n.id === textId || outputType(n) !== 'Path' || n.type === 'Text') continue;
+    try {
+      const path = result.run(n.id);
+      if (path.unstable || path.remapSuspended) continue;
+      for (const contour of path.contours)
+        if (contour.points.length >= 2)
+          targets.push({
+            nodeId: n.id,
+            contourId: contour.id,
+            name: n.name,
+            closed: contour.closed,
+          });
+    } catch {
+      /* Unwired or unsupported sources are not eligible targets. */
+    }
+  }
+  return targets;
+}
 export function assertClosedOffsetChange(
   layer,
   previousLayer,
@@ -1438,6 +1578,7 @@ export function assertClosedOffsetChange(
   imageAssets = {},
   previousFonts = fonts,
 ) {
+  assertTextPathChange(layer, previousLayer, fonts, imageAssets, previousFonts);
   if (!layer.nodes.some((n) => n.type === 'Closed Path Offset' && n.params.path.source)) return;
   const current = evaluate(layer, fonts, imageAssets);
   let previous;
@@ -1560,7 +1701,7 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3, 4, 5, 6].includes(doc.schemaVersion))
+  if (!doc || ![1, 2, 3, 4, 5, 6, 7].includes(doc.schemaVersion))
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   text(doc.name);
@@ -1610,7 +1751,11 @@ export function validate(doc) {
         throw Error('Character positions require schemaVersion 3 and a Text node');
       if (n.leading !== undefined && (n.type !== 'Text' || doc.schemaVersion < 6))
         throw Error('Explicit leading requires schemaVersion 6 and a Text node');
+      if (n.pathAttachment !== undefined && (n.type !== 'Text' || doc.schemaVersion < 7))
+        throw Error('Type on Path requires schemaVersion 7 and a Text node');
       if (n.type === 'Text') {
+        validateTextPathAttachment(n.pathAttachment);
+        if (n.pathAttachment) validateTextPathMode(n.text, n.writingMode);
         validateLeading(n.leading);
         validateCharacterPositions(n.characterPositions);
         if (n.characterPositions?.version >= 2 && doc.schemaVersion < 4)
@@ -1730,6 +1875,12 @@ export function validate(doc) {
         if (owner !== undefined && owner !== l.id)
           throw Error('Reference target must be in the same layer');
         if (owner !== undefined) referenceTarget(l, n);
+      }
+    for (const n of l.nodes)
+      if (n.pathAttachment) {
+        const target = l.nodes.find((x) => x.id === n.pathAttachment.nodeId);
+        if (!target || outputType(target) !== 'Path')
+          throw Error('TEXT_PATH_SOURCE: Select a Path output in the same layer');
       }
     assertAcyclic(l);
   }

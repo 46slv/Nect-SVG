@@ -32,6 +32,8 @@ import {
   linearGradientSettings,
   closedOffsetSettings,
   assertClosedOffsetChange,
+  setTextPathAttachment,
+  textPathTargets,
   parameter,
   outputType,
   outputPorts,
@@ -176,7 +178,9 @@ function change(fn, text, deferRender = false) {
   const previousUI = { selected, activeLayer, selection: new Set(selection), penId };
   try {
     if (current().locked) throw Error('Composition is locked');
-    const previous = current().nodes.some((n) => n.type === 'Closed Path Offset')
+    const previous = current().nodes.some(
+      (n) => n.type === 'Closed Path Offset' || n.pathAttachment,
+    )
       ? clone(current())
       : null;
     const previousFonts = resolveFonts(history.doc, bundledFont ? { default: bundledFont } : {});
@@ -334,6 +338,16 @@ function compactFields(n) {
     )
     .join('');
 }
+function textPathControls(n) {
+  const attachment = n.pathAttachment,
+    targets = textPathTargets(current(), n.id, fonts, history.doc.imageAssets),
+    value = attachment ? JSON.stringify([attachment.nodeId, attachment.contourId]) : '',
+    missing =
+      attachment &&
+      !targets.some((t) => t.nodeId === attachment.nodeId && t.contourId === attachment.contourId),
+    disabled = current().locked ? 'disabled' : '';
+  return `<section class="text-path-controls" aria-label="Type on Path"><h4>Type on Path</h4><label>Explicit path · contour<select data-text-path="${n.id}" aria-label="Type on Path contour" ${disabled}><option value="">Detached (ordinary text)</option>${missing ? `<option value="${esc(value)}" selected disabled>Unavailable: ${esc(attachment.contourId)}</option>` : ''}${targets.map((t) => `<option value="${esc(JSON.stringify([t.nodeId, t.contourId]))}" ${value === JSON.stringify([t.nodeId, t.contourId]) ? 'selected' : ''}>${esc(t.name)} · ${esc(t.contourId)} · ${t.closed ? 'closed' : 'open'}</option>`).join('')}</select></label>${attachment ? `<label>Start unit<select data-text-path-mode="${n.id}" aria-label="Type on Path start unit" ${disabled}>${['distance', 'normalized'].map((mode) => `<option value="${mode}" ${mode === attachment.startMode ? 'selected' : ''}>${mode === 'distance' ? 'Distance px' : 'Normalized (0–1)'}</option>`).join('')}</select></label><label>Start anchor<input type="number" step="any" data-text-path-start="${n.id}" aria-label="Type on Path start" value="${attachment.start}" ${disabled}></label><label class="text-path-reverse"><input type="checkbox" data-text-path-reversed="${n.id}" aria-label="Type on Path reverse" ${attachment.reversed ? 'checked' : ''} ${disabled}>Reverse traversal</label><p class="font-note">Alignment below anchors the full advance span at this start. Position and flat reference controls are retained for detach. Typography reflows advances; character rotation/scale and local XY are applied before tangent projection. Canvas character dragging is unavailable while attached.</p>` : ''}<p class="font-note">One horizontal line on one stable contour. Closed paths wrap once; overflow rejects the edit. Generated/unstable contours and suspended Path Remap edits are unavailable. Detach restores original flat Position, references and character adjustments.</p></section>`;
+}
 function textControls(n) {
   if (n.type !== 'Text') return '';
   return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
@@ -345,7 +359,7 @@ function textControls(n) {
     )
     .join(
       '',
-    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a new line or column. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
+    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${textPathControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a new line or column. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
 }
 function positionReferenceControls(n) {
   if (!['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Image'].includes(n.type)) return '';
@@ -1016,7 +1030,7 @@ function selectOverlappingCharacters(hits, additive) {
 }
 
 function objectResizeContext(n, result) {
-  if (!n || selection.size !== 1 || !selection.has(n.id)) return [];
+  if (!n || n.pathAttachment || selection.size !== 1 || !selection.has(n.id)) return [];
   try {
     return objectResizeHandles(n.type, result.objectResizeState(n.id), canvasScale());
   } catch {
@@ -2317,6 +2331,38 @@ app.addEventListener('change', async (e) => {
         if (record) n.characterPositions = record;
         else delete n.characterPositions;
         textDrafts.delete(n.id);
+      } else if (d.textPath || d.textPathMode || d.textPathStart || d.textPathReversed) {
+        const id = d.textPath || d.textPathMode || d.textPathStart || d.textPathReversed,
+          n = current().nodes.find((n) => n.id === id);
+        let attachment = n.pathAttachment ? { ...n.pathAttachment } : null;
+        if (d.textPath) {
+          if (!el.value) attachment = null;
+          else {
+            const [nodeId, contourId] = JSON.parse(el.value);
+            attachment = {
+              nodeId,
+              contourId,
+              startMode: 'normalized',
+              start: { start: 0, center: 0.5, end: 1 }[n.alignment || 'start'],
+              reversed: false,
+            };
+          }
+        } else {
+          if (!attachment) throw Error('Select a path contour first');
+          if (d.textPathMode) {
+            const length = evaluate(current(), fonts, history.doc.imageAssets).textLayout(id)
+              .attachment.length;
+            attachment.start *= el.value === 'normalized' ? 1 / length : length;
+            attachment.startMode = el.value;
+          }
+          if (d.textPathStart) {
+            if (!el.value.trim()) throw Error('Enter a finite start anchor');
+            attachment.start = Number(el.value);
+          }
+          if (d.textPathReversed) attachment.reversed = el.checked;
+        }
+        setTextPathAttachment(current(), id, attachment, fonts, history.doc.imageAssets);
+        if (attachment) history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 7);
       } else if (d.textLeading || d.textLeadingValue) {
         const n = current().nodes.find((n) => n.id === (d.textLeading || d.textLeadingValue));
         if (d.textLeading) {
@@ -3070,6 +3116,13 @@ app.addEventListener('pointerdown', (e) => {
     return;
   }
   const generators = current().nodes.filter((n) => selection.has(n.id));
+  if (generators.some((n) => n.pathAttachment)) {
+    notify(
+      'Move the source path, change the start anchor, or use a downstream Transform for attached Text',
+      true,
+    );
+    return;
+  }
   if (
     generators.length &&
     ((generators.length === 1 && generators[0].type === 'Transform') ||

@@ -1090,3 +1090,29 @@ input[data-scrub-step].scrubbing {
 .character-typography select {
   width: 100%;
 }
+
+.text-path-controls {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+  min-width: 0;
+}
+.text-path-controls h4 {
+  margin: 0;
+}
+.text-path-controls > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+}
+.text-path-controls select,
+.text-path-controls input[type='number'] {
+  width: 100%;
+  min-width: 0;
+}
+.text-path-controls > .text-path-reverse {
+  flex-direction: row;
+  align-items: center;
+}
