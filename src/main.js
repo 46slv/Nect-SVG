@@ -3944,6 +3944,9 @@ app.addEventListener('pointerdown', (e) => {
       e.target.dataset.point === penDraft.layer.nodes[0].points[0]?.id &&
       !e.target.dataset.handle
     ) {
+      // The clicked vertex is replaced on finish. Cancel native pointer focus
+      // so the newly focused artboard keeps the following keyboard action.
+      e.preventDefault();
       finishPenDraft(true);
       return;
     }

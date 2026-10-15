@@ -80,18 +80,18 @@ test('Pen draft creation is independent, atomic and interruptible', async (t) =>
   const xy = ([x, y]) => [x * 2 + 80, y * 2 + 40];
   const fire = (el, type, p = [0, 0], extra = {}) => {
     const screen = xy(p);
-    el.dispatchEvent(
-      new win.PointerEvent(type, {
-        bubbles: true,
-        cancelable: true,
-        pointerId: 3,
-        button: 0,
-        clientX: screen[0],
-        clientY: screen[1],
-        ...extra,
-      }),
-    );
+    const event = new win.PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 3,
+      button: 0,
+      clientX: screen[0],
+      clientY: screen[1],
+      ...extra,
+    });
+    el.dispatchEvent(event);
     flush();
+    return event;
   };
   const key = (el, name, extra = {}) => {
     const e = new win.KeyboardEvent('keydown', {
@@ -173,8 +173,15 @@ test('Pen draft creation is independent, atomic and interruptible', async (t) =>
         assert.equal(win.nect.export(), oldSVG);
         if (finish === 'button') click('[data-pen-finish]');
         else if (finish === 'tool') click('[data-tool="select"]');
-        else if (finish === 'close') fire($('.vertex'), 'pointerdown', [100, 100]);
-        else key(stage(), finish);
+        else if (finish === 'close') {
+          const event = fire($('.vertex'), 'pointerdown', [100, 100]);
+          assert.equal(
+            event.defaultPrevented,
+            true,
+            'closing anchor must cancel native focus on removed SVG',
+          );
+          fire(document, 'pointerup', [100, 100]);
+        } else key(stage(), finish);
         const after = saved(),
           l = win.nect.document.layers.at(-1);
         assert.equal(win.nect.document.layers.length, 2);

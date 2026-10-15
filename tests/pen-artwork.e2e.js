@@ -477,6 +477,18 @@ try {
       id = before.layers.at(-1).id;
     assert.equal(await page.locator('.inspector-body h3').innerText(), 'Artwork · Curve');
     assert.match(await page.locator('.artwork-move-status').innerText(), /Drag artwork/);
+    // No test-side refocus: both native finish paths must retain the artboard.
+    const focus = await page.evaluate(() => ({
+      canvas: document.activeElement.matches('.canvas-stage'),
+      tag: document.activeElement.tagName,
+      className: document.activeElement.getAttribute('class'),
+    }));
+    if (!focus.canvas)
+      await fs.writeFile(
+        'test-results/workflow-curve-focus-failure.json',
+        JSON.stringify({ closed: isClosed, focus, document: before }, null, 2),
+      );
+    assert.equal(focus.canvas, true, `finish focus: ${JSON.stringify(focus)}`);
     // No selection workaround: the freshly finished path accepts both native arrow steps.
     await page.keyboard.press('ArrowRight');
     await proveRigidPlacement(before, [1, 0]);
