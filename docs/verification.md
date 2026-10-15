@@ -121,3 +121,7 @@ Local aggregate checks are recorded by the implementation lane. Browser assertio
 The schema8 horizontal composition slice has dedicated unit, synthetic DOM and real-Chrome coverage described in [the contract](text-wrap.md). Local `npm run check` passes formatting, all 385 unit/synthetic-DOM tests and the production build. The 16 focused Wrap tests include exact pre-wrap geometry hashes, a 10000-unit single-shaping stress case and core/CLI SVG equality. Local Chromium was attempted but stopped before page startup because the process-singleton socket is denied by this environment. No local browser pass or screenshot is claimed. The new E2E script is in the existing Windows workflow; exact-commit aggregate/Chrome/CSP/Rust/NSIS results must be observed separately.
 
 Native WebView2/IME, high DPI and Adobe/DirectWrite visual parity remain unverified. No main merge, release, signing or access change is implied.
+
+## Manual pair kerning verification
+
+The schema9 slice has focused core, actual-handler DOM and real-pointer Chrome tests in `tests/pair-kerning*`, covering the [acceptance contract](pair-kerning.md). Local Chrome launch was attempted but blocked before page startup by the environment’s process-singleton socket restriction. No local Chrome or native WebView2/IME pass is claimed. The E2E script is part of the existing Windows workflow; observe the exact published commit’s Chrome/CSP/Rust/NSIS result separately.

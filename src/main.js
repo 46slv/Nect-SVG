@@ -74,6 +74,9 @@ import {
   hitCharacter,
   setCharacterOffsets,
   setCharacterStyles,
+  setCharacterKerningPairs,
+  characterPairFromIds,
+  characterPairInRange,
   CHARACTER_STYLE_KEYS,
   characterIdsInRange,
   createCharacterPositions,
@@ -265,6 +268,18 @@ function textNumericTarget(input) {
     };
   const context = characterContext();
   if (!context) return null;
+  if (data.characterKerning !== undefined) {
+    const pair = pairContext(context);
+    return pair && matchesPairInput(input, context, pair)
+      ? {
+          textKind: 'kerning',
+          nodeId: context.n.id,
+          ids: pair.ids,
+          pairKey: pair.key,
+          targetText: context.n.text,
+        }
+      : null;
+  }
   const textKind =
       data.characterAxis !== undefined
         ? 'offset'
@@ -296,6 +311,12 @@ function textNumericState(d) {
     return n.leading?.mode === 'manual' ? { n, values: [n.leading.value] } : null;
   if (d.textKind === 'wrap') return n.textWrap ? { n, values: [n.textWrap.width] } : null;
   const context = characterContext(evaluate(current(), fonts, history.doc.imageAssets));
+  if (d.textKind === 'kerning') {
+    const pair = pairContext(context);
+    return context?.n.id === d.nodeId && n.text === d.targetText && pair?.key === d.pairKey
+      ? { n, values: [pair.value] }
+      : null;
+  }
   if (
     context?.n.id !== d.nodeId ||
     (d.textKind === 'style' ? context.typographyReason : context.layout.reason) ||
@@ -408,6 +429,11 @@ function moveTextNumeric(d, event, dx) {
           history.doc.schemaVersion,
           n.characterPositions.version >= 4 ? 6 : 5,
         );
+      } else if (d.textKind === 'kerning') {
+        n.characterPositions = setCharacterKerningPairs(n.text, base.characterPositions, {
+          [d.pairKey]: values[0],
+        });
+        history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 9);
       } else if (d.textKind === 'leading') {
         n.leading = { mode: 'manual', value: values[0] };
         history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 6);
@@ -543,7 +569,7 @@ function textPathControls(n) {
 }
 function textControls(n) {
   if (n.type !== 'Text') return '';
-  return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
+  return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
     history.doc.fontAssets || {},
   )
     .map(
@@ -552,7 +578,7 @@ function textControls(n) {
     )
     .join(
       '',
-    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
+    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
 }
 function positionReferenceControls(n) {
   if (!['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Image'].includes(n.type)) return '';
@@ -1067,6 +1093,54 @@ function leadingControls(n) {
       '',
     )}</select></label>${mode === 'manual' ? `<label>Baseline / column distance px<input type="number" step="any" min="0.01" max="100000" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-text-leading-value="${n.id}" aria-label="Text manual leading" value="${n.leading.value}" ${current().locked ? 'disabled' : ''}></label>` : ''}<p class="font-note">Auto uses adjacent font metrics and lineSpacing. Manual sets the exact baseline or column distance and can overlap. This is not paragraph spacing.</p></div>`;
 }
+function pairContext(context = characterContext()) {
+  if (!context || context.typographyReason || context.layout.reason) return null;
+  const rows = context.typographySelected;
+  try {
+    const ids = rows.map((g) => g.id),
+      key = characterPairFromIds(context.n.text, context.n.characterPositions, ids),
+      evaluated = context.layout.pairKerning?.[key];
+    if (!evaluated) return null;
+    const line = (index) =>
+      context.layout.lines?.findIndex((l) => index >= l.sourceStart && index < l.sourceEnd);
+    return {
+      ...evaluated,
+      key,
+      ids,
+      rows,
+      dormant: line(rows[0].sourceIndex) !== line(rows[1].sourceIndex),
+    };
+  } catch {
+    return null;
+  }
+}
+function matchesPairInput(input, context, pair) {
+  return (
+    pair &&
+    context.n.id === input.dataset.kerningNode &&
+    JSON.stringify(context.n.text) === input.dataset.kerningText &&
+    pair.key === input.dataset.characterKerning
+  );
+}
+function pairKerningControls(context) {
+  const pair = pairContext(context),
+    disabled = current().locked || !pair;
+  const shown = pair
+    ? pair.rows.map((g) => (g.whitespace ? '[space]' : esc(g.text))).join(' | ')
+    : 'Select exactly two adjacent characters';
+  return `<section class="pair-kerning" aria-label="Pair kerning"><h4>Pair kerning</h4><p>${shown}${pair ? ` · source ${pair.rows.map((g) => g.sourceIndex + 1).join(', ')} · ${pair.manual ? 'Manual' : 'Inherited'}` : ''}</p><label>Pair kerning (1/1000 em)<input type="number" min="-100000" max="100000" step="any" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-character-kerning="${pair?.key || ''}" data-kerning-node="${esc(context.n.id)}" data-kerning-text="${esc(JSON.stringify(context.n.text))}" aria-label="Pair kerning (1/1000 em)" value="${pair ? pair.value : ''}" ${disabled ? 'disabled' : ''}></label><button data-character-kerning-inherit ${disabled || !pair?.manual ? 'disabled' : ''}>Inherit pair</button>${pair?.dormant ? '<p class="font-note">At a wrap break; applies when these characters share a line.</p>' : ''}<p class="font-note">${pair ? `${Number(pair.pixels.toFixed(5))} px. ` : ''}Manual values replace this pair’s font kerning; 0 explicitly removes it. Tracking remains additive. The left character’s font size and inline scale determine the em distance. Use Kerning at cursor above or select exactly two adjacent characters.</p></section>`;
+}
+function updatePairKerning(target, key, value) {
+  const next = setCharacterKerningPairs(target.text, target.characterPositions, { [key]: value });
+  if (next !== target.characterPositions) {
+    target.characterPositions = next;
+    history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 9);
+  }
+  validate(history.doc);
+  const check = evaluate({ ...current(), output: target.id }, fonts, history.doc.imageAssets);
+  if (check.error) throw Error(check.error);
+  if (check.textLayout(target.id).reason) throw Error(check.textLayout(target.id).reason);
+}
 function typographyControls(context) {
   const disabled =
     current().locked || !context.typographySelected.length || !!context.typographyReason;
@@ -1141,7 +1215,7 @@ function characterControls(n) {
                 )
                 .join('')}</select></label>`
             : ''
-        }<label>Characters <select multiple size="${Math.min(6, Math.max(2, context.typographyCharacters.length))}" data-character-selection aria-label="Select characters">${context.typographyCharacters.map((g) => `<option value="${g.id}" ${characterEdit.selected.has(g.id) ? 'selected' : ''}>${g.sourceIndex + 1} · ${g.whitespace ? '[space]' : esc(g.text)}</option>`).join('')}</select></label><p>${context.typographySelected.length} selected${context.typographySelected.some((g) => g.whitespace) ? ' · Moving a space changes its visual position only. Use letterSpacing/kerning for spacing.' : ''}</p>${typographyControls(context)}${characterFields(context)}<button data-character-reset="all" ${current().locked ? 'disabled' : ''}>Reset all adjustments</button><p class="font-note">Local X points right; Y points down. Rotation (clockwise) and uniform scale use each normal-layout advance-cell center, then XY is added, before downstream Transform. Selected characters receive the same absolute value around their own pivots. These shape controls preserve font size and advance. Position and Position OUT stay fixed.</p>`
+        }<label>Characters <select multiple size="${Math.min(6, Math.max(2, context.typographyCharacters.length))}" data-character-selection aria-label="Select characters">${context.typographyCharacters.map((g) => `<option value="${g.id}" ${characterEdit.selected.has(g.id) ? 'selected' : ''}>${g.sourceIndex + 1} · ${g.whitespace ? '[space]' : esc(g.text)}</option>`).join('')}</select></label><p>${context.typographySelected.length} selected${context.typographySelected.some((g) => g.whitespace) ? ' · Moving a space changes its visual position only. Use letterSpacing/kerning for spacing.' : ''}</p>${typographyControls(context)}${pairKerningControls(context)}${characterFields(context)}<button data-character-reset="all" ${current().locked ? 'disabled' : ''}>Reset all adjustments</button><p class="font-note">Local X points right; Y points down. Rotation (clockwise) and uniform scale use each normal-layout advance-cell center, then XY is added, before downstream Transform. Selected characters receive the same absolute value around their own pivots. These shape controls preserve font size and advance. Position and Position OUT stay fixed.</p>`
       : ''
   }</section>`;
 }
@@ -1510,29 +1584,36 @@ app.addEventListener('click', async (e) => {
   if (!b) return;
   const d = b.dataset,
     n = selectedNode();
-  if (d.styleTextRange) {
-    const el = b.closest('.text-controls')?.querySelector(`[data-text="${d.styleTextRange}"]`),
-      sourceNode = current().nodes.find((node) => node.id === d.styleTextRange);
+  if (d.styleTextRange || d.kernTextCursor) {
+    const id = d.styleTextRange || d.kernTextCursor,
+      el = b.closest('.text-controls')?.querySelector(`[data-text="${id}"]`),
+      sourceNode = current().nodes.find((node) => node.id === id);
     const range =
       (el && textRanges.get(textRangeKey(el))) ||
       (el && { raw: el.value, start: el.selectionStart, end: el.selectionEnd });
     if (!el || !range || !sourceNode || current().locked) return;
-    if (textDrafts.get(d.styleTextRange)?.composition) {
+    if (textDrafts.get(id)?.composition) {
       notify('Finish or cancel text composition first', true);
       return;
     }
-    const draft = textDrafts.get(d.styleTextRange);
+    const draft = textDrafts.get(id);
     if (el.value !== sourceNode.text || (draft && draft.record !== sourceNode.characterPositions))
       el.dispatchEvent(new Event('change', { bubbles: true }));
     try {
-      const target = current().nodes.find((node) => node.id === d.styleTextRange);
+      const target = current().nodes.find((node) => node.id === id);
       if (range.raw !== target.text) throw Error('Text changed; select the range again');
-      const ids = characterIdsInRange(
-        target.text,
-        target.characterPositions,
-        range.start,
-        range.end,
-      );
+      const ids = d.kernTextCursor
+        ? characterPairInRange(
+            target.text,
+            target.characterPositions,
+            range.start,
+            range.end,
+          ).split(':')
+        : characterIdsInRange(target.text, target.characterPositions, range.start, range.end);
+      if (d.kernTextCursor) {
+        const layout = evaluate(current(), fonts, history.doc.imageAssets).textLayout(target.id);
+        if (layout.reason) throw Error(layout.reason);
+      }
       if (!ids.length) throw Error('Highlight one or more complete characters in Text first');
       selected = target.id;
       selection = new Set([target.id]);
@@ -1545,10 +1626,20 @@ app.addEventListener('click', async (e) => {
       };
       tool = 'select';
       render();
-      document.querySelector('[data-character-style="font"]')?.focus({ preventScroll: true });
+      document
+        .querySelector(
+          d.kernTextCursor ? '[data-character-kerning]' : '[data-character-style="font"]',
+        )
+        ?.focus({ preventScroll: true });
     } catch (error) {
       notify(error.message, true);
     }
+    return;
+  }
+  if (d.characterKerningInherit !== undefined) {
+    const context = characterContext(),
+      pair = pairContext(context);
+    if (pair) change(() => updatePairKerning(context.n, pair.key, null), 'Pair kerning inherited');
     return;
   }
   if (d.characterStyleReset !== undefined || d.characterStyleInherit !== undefined) {
@@ -2204,7 +2295,7 @@ app.addEventListener(
   true,
 );
 app.addEventListener('pointerdown', (e) => {
-  if (e.target.closest('[data-style-text-range]')) e.preventDefault();
+  if (e.target.closest('[data-style-text-range], [data-kern-text-cursor]')) e.preventDefault();
 });
 app.addEventListener('beforeinput', (e) => {
   if (!e.target.matches('textarea[data-text]')) return;
@@ -2273,6 +2364,21 @@ app.addEventListener('change', async (e) => {
     if (characterEdit)
       characterEdit.selected = new Set([...el.selectedOptions].map((o) => o.value));
     render();
+    return;
+  }
+  if (d.characterKerning !== undefined) {
+    const context = characterContext(),
+      pair = pairContext(context);
+    if (!matchesPairInput(el, context, pair)) return;
+    if (!el.value.trim()) {
+      notify('Enter a value or choose Inherit pair', true);
+      return;
+    }
+    change(
+      () => updatePairKerning(context.n, pair.key, Number(el.value)),
+      'Pair kerning updated',
+      true,
+    );
     return;
   }
   if (d.characterStyle !== undefined) {
@@ -3945,6 +4051,12 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && e.target.dataset?.textWrapWidth) {
     const n = current().nodes.find((n) => n.id === e.target.dataset.textWrapWidth);
     e.target.value = String(n.textWrap.width);
+    e.preventDefault();
+    return;
+  }
+  if (e.key === 'Escape' && e.target.dataset?.characterKerning !== undefined) {
+    const pair = pairContext();
+    e.target.value = pair ? String(pair.value) : '';
     e.preventDefault();
     return;
   }

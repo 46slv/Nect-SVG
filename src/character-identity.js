@@ -5,6 +5,8 @@ export const MAX_CHARACTER_OFFSET = 100000;
 export const CHARACTER_TRANSFORM_VERSION = 2;
 export const CHARACTER_STYLE_VERSION = 3;
 export const CHARACTER_SPACING_VERSION = 4;
+export const CHARACTER_KERNING_VERSION = 5;
+export const MAX_PAIR_KERNING = 100000;
 export const CHARACTER_STYLE_KEYS = [
   'font',
   'size',
@@ -82,6 +84,7 @@ export function validateCharacterPositions(record) {
           'nextId',
           ...(record.version >= 2 ? ['transforms'] : []),
           ...(record.version >= 3 ? ['styles'] : []),
+          ...(record.version >= 5 ? ['kerningPairs'] : []),
         ].includes(key),
     ) ||
     ![
@@ -89,9 +92,11 @@ export function validateCharacterPositions(record) {
       CHARACTER_TRANSFORM_VERSION,
       CHARACTER_STYLE_VERSION,
       CHARACTER_SPACING_VERSION,
+      CHARACTER_KERNING_VERSION,
     ].includes(record.version) ||
     (record.version >= CHARACTER_TRANSFORM_VERSION && !plainObject(record.transforms)) ||
     (record.version >= CHARACTER_STYLE_VERSION && !plainObject(record.styles)) ||
+    (record.version >= CHARACTER_KERNING_VERSION && !plainObject(record.kerningPairs)) ||
     !Number.isSafeInteger(record.nextId) ||
     record.nextId < 1 ||
     !Array.isArray(record.units) ||
@@ -141,7 +146,98 @@ export function validateCharacterPositions(record) {
     )
       throw Error('Character spacing requires characterPositions version 4');
   }
+  const adjacent = adjacentPairKeys(record.units);
+  for (const [key, value] of Object.entries(record.kerningPairs || {})) {
+    if (!adjacent.has(key))
+      throw Error('Pair kerning must reference ordered adjacent non-newline IDs');
+    validatePairValue(value);
+  }
   return record;
+}
+function adjacentPairKeys(units) {
+  return new Set(
+    units.slice(0, -1).flatMap((left, index) => {
+      const right = units[index + 1];
+      return left.text !== '\n' && right.text !== '\n' ? [`${left.id}:${right.id}`] : [];
+    }),
+  );
+}
+function validatePairValue(value) {
+  if (!Number.isFinite(value) || Math.abs(value) > MAX_PAIR_KERNING)
+    throw Error('Pair kerning must be from -100000 to 100000 units (1/1000 em)');
+}
+/** Two source IDs are the target, never glyph indices or a remembered caret offset. */
+export function characterPairFromIds(raw, record, ids) {
+  validateCharacterPositions(record);
+  const basis = normalizeCharacterText(raw);
+  if (record && record.basis !== basis && hasCharacterAdjustments(record))
+    throw Error('Character adjustments are suspended; restore text or reset all adjustments first');
+  const current = record?.basis === basis ? record : allocate(basis);
+  if (
+    !Array.isArray(ids) ||
+    ids.length !== 2 ||
+    ids.some((id) => typeof id !== 'string') ||
+    !adjacentPairKeys(current.units).has(ids.join(':'))
+  )
+    throw Error('Select exactly two adjacent non-newline characters for pair kerning');
+  return ids.join(':');
+}
+/** A caret or exactly two selected source units, with atomic UTF-16/NFC/CRLF boundaries. */
+export function characterPairInRange(raw, record, start, end) {
+  characterIdsInRange(raw, record, start, end); // Shared strict boundary/suspension validation.
+  const basis = normalizeCharacterText(raw),
+    units = record?.basis === basis ? record.units : allocate(basis).units,
+    from = [...normalize(raw.slice(0, start))].length,
+    to = [...normalize(raw.slice(0, end))].length;
+  const pair = start === end ? units.slice(Math.max(0, from - 1), from + 1) : units.slice(from, to);
+  if ((start === end && (!from || from >= units.length)) || pair.length !== 2)
+    throw Error(
+      'Place the cursor between two characters or select exactly two adjacent characters',
+    );
+  return characterPairFromIds(
+    raw,
+    record,
+    pair.map((unit) => unit.id),
+  );
+}
+/** Sparse manual values replace metric kerning. Null inherits; explicit zero remains authored. */
+export function setCharacterKerningPairs(raw, record, changes) {
+  validateCharacterPositions(record);
+  const basis = normalizeCharacterText(raw);
+  if (!plainObject(changes)) throw Error('Invalid pair kerning changes');
+  const entries = Object.entries(changes);
+  if (!entries.length) return record;
+  if (record && record.basis !== basis && hasCharacterAdjustments(record))
+    throw Error('Character adjustments are suspended; restore text or reset all adjustments first');
+  const current = record?.basis === basis ? record : allocate(basis),
+    adjacent = adjacentPairKeys(current.units);
+  for (const [key, value] of entries) {
+    if (!adjacent.has(key))
+      throw Error('Pair kerning must reference ordered adjacent non-newline IDs');
+    if (value !== null) validatePairValue(value);
+  }
+  const kerningPairs = { ...current.kerningPairs };
+  let changed = false;
+  for (const [key, value] of entries) {
+    if (value === null) {
+      if (own(kerningPairs, key)) {
+        delete kerningPairs[key];
+        changed = true;
+      }
+    } else if (!own(kerningPairs, key) || kerningPairs[key] !== value) {
+      kerningPairs[key] = value === 0 ? 0 : value;
+      changed = true;
+    }
+  }
+  return changed
+    ? {
+        ...current,
+        version: CHARACTER_KERNING_VERSION,
+        transforms: { ...current.transforms },
+        styles: { ...current.styles },
+        kerningPairs,
+      }
+    : record;
 }
 function validateCharacterStyle(style, patch = false) {
   if (!plainObject(style) || Object.keys(style).some((key) => !CHARACTER_STYLE_KEYS.includes(key)))
@@ -271,6 +367,7 @@ export function hasCharacterOffsets(record) {
 export function hasCharacterAdjustments(record) {
   return (
     hasCharacterOffsets(record) ||
+    (!!record && Object.keys(record.kerningPairs || {}).length > 0) ||
     (!!record && Object.values(record.styles || {}).some((style) => Object.keys(style).length)) ||
     (!!record &&
       Object.values(record.transforms || {}).some(
@@ -335,7 +432,8 @@ export function resetCharacterOffsets(raw, record, ids) {
       Object.values(record.transforms || {}).some(
         ({ rotation, scale }) => rotation !== 0 || scale !== 1,
       ) ||
-      Object.values(record.styles || {}).some((style) => Object.keys(style).length)
+      Object.values(record.styles || {}).some((style) => Object.keys(style).length) ||
+      Object.keys(record.kerningPairs || {}).length > 0
     )
       throw Error('Character adjustments are suspended; reset all adjustments to recover mapping');
     return allocate(basis, record.nextId);
@@ -397,7 +495,12 @@ export function resetCharacterAdjustments(raw, record) {
   const basis = normalizeCharacterText(raw);
   if (record.basis !== basis) return allocate(basis, record.nextId);
   const next = resetCharacterOffsets(raw, record);
-  return resetCharacterStyles(raw, resetCharacterTransforms(raw, next));
+  const reset = resetCharacterStyles(raw, resetCharacterTransforms(raw, next));
+  return setCharacterKerningPairs(
+    raw,
+    reset,
+    Object.fromEntries(Object.keys(reset.kerningPairs || {}).map((key) => [key, null])),
+  );
 }
 function scalarBoundary(raw, at) {
   if (!Number.isInteger(at) || at < 0 || at > raw.length) return false;
@@ -578,6 +681,12 @@ export function reconcileCharacterEdit(record, transaction) {
     next.styles = Object.fromEntries(
       Object.entries(record.styles).filter(([id]) => retained.has(id)),
     );
+  if (record.kerningPairs) {
+    const adjacent = adjacentPairKeys(units);
+    next.kerningPairs = Object.fromEntries(
+      Object.entries(record.kerningPairs).filter(([key]) => adjacent.has(key)),
+    );
+  }
   validateCharacterPositions(next);
   return { record: next, status: 'applied', reason: null };
 }

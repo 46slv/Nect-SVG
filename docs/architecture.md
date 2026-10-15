@@ -142,3 +142,7 @@ New documents remain schema2. XY-only stable-character records require schema3; 
 ## Concentric radial gradient paint
 
 `radial-gradient.js` follows the same dependency-free descriptor and definition boundary, with a bounded center Vector2 and radius Scalar. Explicit concentric focal values avoid SVG default ambiguity. The existing scene allocator, grouped rendering, paint replacement and PNG path are shared with linear paint. The importer validates both kinds in one definition/reference pass under shared aggregate budgets, constructs independent editable paint values, and retains strict namespace/attribute/structure rejection. See [the radial contract](radial-gradient-fill.md) for exact numeric limits, safe reopening and source-adaptation boundaries.
+
+## Manual pair kerning (schema 9)
+
+`characterPositions` v5 adds sparse `kerningPairs` keyed by ordered adjacent source IDs. Explicit zero remains active. Verified reconciliation retains only surviving adjacent pairs; unknown edits suspend them. Normal/wrapped horizontal and vertical layout share one boundary resolver, replacing the metric component while preserving intrinsic advance and adding tracking once. Text path-cache metadata is isolated from Position OUT cache entries. See [the complete storage, UI and layout contract](pair-kerning.md).

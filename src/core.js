@@ -1028,7 +1028,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         versions.set(key, existing.version);
         active.delete(id);
         warnings.push(...existing.warnings);
-        if (existing.textLayout) textLayouts.set(id, clone(existing.textLayout));
+        if (!positionOutput && existing.textLayout) textLayouts.set(id, clone(existing.textLayout));
         return result;
       }
       const warningStart = warnings.length;
@@ -1150,6 +1150,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           placements: layout.placements,
           lineOffsets: layout.lineOffsets,
           lines: layout.lines,
+          pairKerning: layout.pairKerning,
           reason: layout.characterReason,
           suspended: layout.characterSuspended,
         });
@@ -1455,7 +1456,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         value: clone(result),
         version,
         warnings: warnings.slice(warningStart),
-        textLayout: textLayouts.has(id) ? clone(textLayouts.get(id)) : undefined,
+        textLayout: !positionOutput && textLayouts.has(id) ? clone(textLayouts.get(id)) : undefined,
       });
       return result;
     } finally {
@@ -1746,7 +1747,7 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8].includes(doc.schemaVersion))
+  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(doc.schemaVersion))
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   text(doc.name);
@@ -1812,6 +1813,8 @@ export function validate(doc) {
           throw Error('Character typography requires schemaVersion 5');
         if (n.characterPositions?.version >= 4 && doc.schemaVersion < 6)
           throw Error('Character spacing requires schemaVersion 6');
+        if (n.characterPositions?.version >= 5 && doc.schemaVersion < 9)
+          throw Error('Pair kerning requires schemaVersion 9');
         for (const style of Object.values(n.characterPositions?.styles || {}))
           if (
             style.font &&

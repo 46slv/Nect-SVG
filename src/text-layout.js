@@ -75,7 +75,7 @@ function transformed(path, transform) {
  * Positions include pair kerning/tracking; an endpoint uses its own advance, never the
  * next pair's contribution. Prefix differences make every candidate measurement O(1).
  */
-function shapeWrapRuns(chars, resolved, letterSpacing, kerning) {
+function shapeWrapRuns(chars, resolved, letterSpacing, kerning, boundaryStep) {
   const records = Array(chars.length);
   for (const line of hardTextLines(chars)) {
     let cursor = 0;
@@ -115,10 +115,10 @@ function shapeWrapRuns(chars, resolved, letterSpacing, kerning) {
           entry = resolved[from + i];
         const advance =
           (glyph.advanceWidth || 0) * (entry.size / entry.font.unitsPerEm) * entry.width;
+        const shapedAdvance =
+          i + 1 < shaped.length ? (shaped[i + 1].x - x - letterSpacing) * entry.width : advance;
         const step =
-          i + 1 < shaped.length
-            ? (shaped[i + 1].x - x - letterSpacing) * entry.width + entry.tracking
-            : advance + entry.tracking;
+          boundaryStep(from + i, advance, shapedAdvance, 'horizontal-tb') + entry.tracking;
         records[from + i] = { glyph, x: cursor, advance };
         cursor += step;
         if (!Number.isFinite(cursor)) throw Error('TEXT_WRAP_ADVANCE: Invalid shaped advance');
@@ -232,7 +232,31 @@ export function layoutText(
     path.extend(outline);
   }
   const sourceChars = [...normalized];
-  const shapedWrap = textWrap ? shapeWrapRuns(sourceChars, resolved, letterSpacing, kerning) : null;
+  const pairs =
+    !status.suspended && characterPositions?.basis === normalized
+      ? characterPositions.kerningPairs || {}
+      : {};
+  const pairKerning = {};
+  // Shared boundary rule: replace only the metric component. Each caller adds tracking
+  // in its legacy arithmetic order so projects without pair edits stay byte-compatible.
+  const boundaryStep = (index, advance, shapedAdvance, mode) => {
+    const units = characterPositions?.basis === normalized ? characterPositions.units : null,
+      key = `${units?.[index]?.id || `c${index + 1}`}:${units?.[index + 1]?.id || `c${index + 2}`}`,
+      style = resolved[index] || resolved.at(-1),
+      em = style.size * (mode === 'horizontal-tb' ? style.width : style.height),
+      manual = Object.hasOwn(pairs, key),
+      gap = manual ? (pairs[key] / 1000) * em : shapedAdvance - advance;
+    if (sourceChars[index] !== '\n' && sourceChars[index + 1] && sourceChars[index + 1] !== '\n')
+      pairKerning[key] = {
+        value: manual ? pairs[key] : em === 0 ? 0 : (gap / em) * 1000,
+        pixels: gap,
+        manual,
+      };
+    return manual ? advance + gap : shapedAdvance;
+  };
+  const shapedWrap = textWrap
+    ? shapeWrapRuns(sourceChars, resolved, letterSpacing, kerning, boundaryStep)
+    : null;
   const lineSpans = textWrap
     ? composeTextLines(sourceChars, textWrap.width, shapedWrap.measure)
     : hardTextLines(sourceChars);
@@ -384,9 +408,9 @@ export function layoutText(
           to++;
         let originalX = end,
           cursor = end,
-          previousWidth = 1,
-          previousTracking = letterSpacing;
+          previousWidth = 1;
         const runGlyphs = [],
+          runAdvances = [],
           runStart = end;
         const runEnd = style.font.forEachGlyph(
           chars.slice(from, to).join(''),
@@ -395,8 +419,16 @@ export function layoutText(
           style.size,
           { letterSpacing: letterSpacing / style.size, kerning },
           (glyph, x, y) => {
-            if (runGlyphs.length)
-              cursor += (x - originalX - letterSpacing) * previousWidth + previousTracking;
+            if (runGlyphs.length) {
+              const previous = runGlyphs.at(-1);
+              cursor +=
+                boundaryStep(
+                  previous.sourceIndex,
+                  runAdvances.at(-1),
+                  (x - originalX - letterSpacing) * previousWidth,
+                  writingMode,
+                ) + previous.tracking;
+            }
             const index = from + runGlyphs.length,
               characterStyle = resolved[lineSourceStart + index] || style,
               width = characterStyle.width,
@@ -439,13 +471,24 @@ export function layoutText(
             };
             glyphs.push(info);
             runGlyphs.push(info);
+            // Legacy selection cells use an em fallback for zero-width glyphs. Boundary
+            // replacement must instead use the true font advance, including literal zero.
+            runAdvances.push(
+              (((glyph.advanceWidth ?? 0) * style.size) / style.font.unitsPerEm) * width,
+            );
             originalX = x;
             previousWidth = width;
-            previousTracking = characterStyle.tracking;
           },
         );
         end = runGlyphs.length
-          ? cursor + (runEnd - originalX - letterSpacing) * previousWidth + previousTracking
+          ? cursor +
+            boundaryStep(
+              runGlyphs.at(-1).sourceIndex,
+              runAdvances.at(-1),
+              (runEnd - originalX - letterSpacing) * previousWidth,
+              writingMode,
+            ) +
+            runGlyphs.at(-1).tracking
           : runEnd;
         if (
           runGlyphs.length !== to - from ||
@@ -541,11 +584,17 @@ export function layoutText(
         metricCenter: ((activeFont.ascender + activeFont.descender) * localScale) / 2,
         advance: advance * style.height,
       });
-      y += advance * style.height + style.tracking;
+      y +=
+        boundaryStep(
+          glyphs.at(-1).sourceIndex,
+          advance * style.height,
+          advance * style.height,
+          writingMode,
+        ) + style.tracking;
     }
     align(y - position[1] - (glyphs.length > glyphStart ? glyphs.at(-1).tracking : 0));
   }
-  if (mappingReason && Object.keys(styles).length) {
+  if (mappingReason && (Object.keys(styles).length || Object.keys(pairs).length)) {
     // Never attach a logical character's width/font/size to an unverified shaped glyph.
     // Keep the saved record intact, show normal unadjusted artwork, and block export.
     const normal = layoutText(font, text, {
@@ -691,6 +740,7 @@ export function layoutText(
     advances,
     lineOffsets,
     lines: lineSpans,
+    pairKerning,
     warnings: [...warnings],
     characters,
     characterReason: reason,

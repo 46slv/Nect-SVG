@@ -1133,3 +1133,26 @@ input[data-scrub-step].scrubbing {
   width: 100%;
   min-width: 0;
 }
+
+.pair-kerning {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+.pair-kerning h4,
+.pair-kerning p {
+  margin: 0;
+}
+.pair-kerning > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.pair-kerning input {
+  width: 100%;
+  min-width: 0;
+}
