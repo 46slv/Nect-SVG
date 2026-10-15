@@ -12,16 +12,19 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('dialog', (d) => d.accept());
 const inspect = (id) => page.locator(`.graph .node[data-id="${id}"] .node-head strong`).click();
 const field = (id, key) =>
-  page.locator(`.inspector-body .field[data-node="${id}"][data-key="${key}"]`);
+  page.locator(
+    `${key === 'path' ? '.graph' : '.inspector-body'} .field[data-node="${id}"][data-key="${key}"]`,
+  );
 const saved = () => page.evaluate(() => JSON.stringify(window.nect.document));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForSelector('.shape');
   await page.locator('#add-node').selectOption('Closed Path Offset');
-  assert.equal(
-    await page.locator('.inspector-body [data-key="path"]').getAttribute('data-type'),
-    'Path',
+  const added = await page.evaluate(
+    () => window.nect.document.layers[0].nodes.find((n) => n.type === 'Closed Path Offset').id,
   );
+  await inspect(added);
+  assert.equal(await field(added, 'path').getAttribute('data-type'), 'Path');
   const ids = await page.evaluate(async () => {
     const { document, node, connect } = await import('/src/core.js');
     const doc = document(),
@@ -162,6 +165,20 @@ try {
   console.log(
     'Closed Path Offset: real controls, rejects/rollback, history, zero/erosion, alpha pixels and editable sample verified.',
   );
+} catch (error) {
+  await fs.mkdir('test-results', { recursive: true });
+  const diagnostic = await page.evaluate(() => ({
+    status: document.querySelector('.status .message')?.textContent,
+    inspector: document.querySelector('.inspector-body')?.textContent,
+    nodeTypes: window.nect?.document.layers[0].nodes.map((n) => n.type),
+  }));
+  console.error('Offset browser diagnostic:', JSON.stringify(diagnostic));
+  await fs.writeFile(
+    'test-results/workflow-closed-path-offset-failure.json',
+    JSON.stringify(diagnostic, null, 2),
+  );
+  await page.screenshot({ path: 'test-results/closed-path-offset-failure.png', fullPage: true });
+  throw error;
 } finally {
   await browser.close();
 }
