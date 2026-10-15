@@ -136,6 +136,11 @@ try {
   const smallFit = await scale();
   await truthful();
   await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.waitForFunction(
+    (previous) => document.querySelector('.artboard')?.getScreenCTM()?.a > previous,
+    smallFit,
+    { timeout: 5000 },
+  );
   assert.ok((await scale()) > smallFit);
   await truthful();
   await click('actual-size');
