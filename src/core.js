@@ -1,6 +1,7 @@
 export { objectResizeHandles, resizedObjectValue } from './object-resize.js';
 import { validateImageAssets, imageURL } from './images.js';
 import { validateGuides } from './guides.js';
+import { createLinearGradientFill, renderLinearGradientFill } from './linear-gradient.js';
 export {
   guideDefaults,
   guideSettings,
@@ -108,6 +109,13 @@ export const definitions = {
   Reference: {},
   Expression: { value: p('Scalar', 100) },
   Fill: { path: p('PaintedPath', null), color: p('Color', { hex: '#36434e', alpha: 1 }) },
+  'Linear Gradient Fill': {
+    path: p('PaintedPath', null),
+    start: p('Vector2', [200, 250]),
+    end: p('Vector2', [500, 250]),
+    startColor: p('Color', { hex: '#ff6b35', alpha: 1 }),
+    endColor: p('Color', { hex: '#6554c0', alpha: 1 }),
+  },
   Stroke: {
     path: p('PaintedPath', null),
     color: p('Color', { hex: '#36434e', alpha: 1 }),
@@ -125,6 +133,11 @@ export const definitions = {
   'Text to Path': { path: p('Path', null) },
   'Imported Path': {},
 };
+export function linearGradientSettings(read) {
+  return createLinearGradientFill(
+    Object.fromEntries(['start', 'end', 'startColor', 'endColor'].map((key) => [key, read(key)])),
+  );
+}
 // Keep count validation shared by JSON/direct input and resolved expression/socket input.
 export function radialSettings(type, read) {
   const key = type === 'Polygon' ? 'sides' : 'points',
@@ -282,7 +295,7 @@ export function outputType(n, port) {
   if (port !== undefined) return undefined;
   if (n.type === 'Vector Math')
     return ['length', 'distance', 'dot'].includes(n.operation) ? 'Scalar' : 'Vector2';
-  if (['Fill', 'Stroke', 'Output'].includes(n.type)) return 'PaintedPath';
+  if (['Fill', 'Linear Gradient Fill', 'Stroke', 'Output'].includes(n.type)) return 'PaintedPath';
   if (n.type === 'Color') return 'Color';
   if (n.type === 'Image' || n.type === 'Image Output') return 'Image';
   return ['Value', 'Expression', 'Math'].includes(n.type)
@@ -1146,6 +1159,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         if (!result) throw Error(`Connect a ${n.params.path.type} input`);
         result = clone(result);
         if (n.type === 'Fill') result.fill = read('color');
+        if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
         if (n.type === 'Stroke') {
           const width = read('width');
           if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
@@ -1527,6 +1541,7 @@ export function validate(doc) {
         throw Error('Unexpected parameter');
       for (const [key, def] of Object.entries(definitions[n.type]))
         param(n.params[key], def.type, n.type === 'Fill' && key === 'color');
+      if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
       if (['Polygon', 'Star'].includes(n.type))
         radialSettings(n.type, (key) => n.params[key].value);
       if (
@@ -1603,27 +1618,37 @@ const escape = (s) =>
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c],
   );
-export function renderElement(value, l, assets = {}, attributes = '') {
+// Callers allocate one scene-local ID per top-level layer. The same paint server is
+// reused by all independent contour groups, preserving a single artboard-space ramp.
+export function renderElement(
+  value,
+  l,
+  assets = {},
+  attributes = '',
+  gradientId = 'nect-gradient-0',
+) {
   if (value.kind === 'image') {
     const asset = assets[value.asset];
     if (!asset) throw Error('Missing image asset');
     return `<image ${attributes} data-layer="${escape(l.name)}" x="${value.position[0]}" y="${value.position[1]}" width="${value.size[0]}" height="${value.size[1]}" preserveAspectRatio="none" href="${imageURL(asset)}"/>`;
   }
-  if (value.contours.some((c) => c.group !== undefined))
-    return `<g ${attributes} data-layer="${escape(l.name)}">${contourGroups(value)
-      .map((contours) =>
-        renderElement({ ...value, contours: contours.map(({ group, ...c }) => c) }, l, assets),
-      )
-      .join('')}</g>`;
   const fill = value.fill,
-    stroke = value.stroke;
-  if (fill) assertValue('Color', fill);
+    stroke = value.stroke,
+    gradient = fill?.kind === 'linear-gradient' ? renderLinearGradientFill(fill, gradientId) : null;
+  if (fill && !gradient) assertValue('Color', fill);
   if (stroke) {
     assertValue('Color', { hex: stroke.hex, alpha: stroke.alpha });
     if (!Number.isFinite(stroke.width) || stroke.width < 0 || stroke.width > 100000)
       throw Error('Invalid stroke width');
   }
-  return `<path ${attributes} data-layer="${escape(l.name)}" d="${escape(pathData(value))}" fill="${fill ? escape(fill.hex) : 'none'}"${fill ? ` fill-opacity="${fill.alpha}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${stroke.alpha}" stroke-width="${stroke.width}" stroke-linecap="${stroke.cap}" stroke-linejoin="${stroke.join}" stroke-miterlimit="${stroke.miterLimit}" stroke-dasharray="${stroke.dash.length ? stroke.dash.join(' ') : 'none'}" stroke-dashoffset="${stroke.dashOffset}"` : ''}/>`;
+  function shape(path, attrs = '') {
+    if (path.contours.some((c) => c.group !== undefined))
+      return `<g ${attrs} data-layer="${escape(l.name)}">${contourGroups(path)
+        .map((contours) => shape({ ...path, contours: contours.map(({ group, ...c }) => c) }))
+        .join('')}</g>`;
+    return `<path ${attrs} data-layer="${escape(l.name)}" d="${escape(pathData(path))}" fill="${gradient ? gradient.paint : fill ? escape(fill.hex) : 'none'}"${fill && !gradient ? ` fill-opacity="${fill.alpha}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${stroke.alpha}" stroke-width="${stroke.width}" stroke-linecap="${stroke.cap}" stroke-linejoin="${stroke.join}" stroke-miterlimit="${stroke.miterLimit}" stroke-dasharray="${stroke.dash.length ? stroke.dash.join(' ') : 'none'}" stroke-dashoffset="${stroke.dashOffset}"` : ''}/>`;
+  }
+  return `${gradient ? `<defs>${gradient.definition}</defs>` : ''}${shape(value, attributes)}`;
 }
 export function exportScene(doc, fonts = {}) {
   validate(doc);
@@ -1645,7 +1670,13 @@ export function exportSVG(doc, fonts = {}) {
   let bytes = 512;
   const elements = [];
   for (const { layer, value } of scene) {
-    const element = renderElement(value, layer, doc.imageAssets);
+    const element = renderElement(
+      value,
+      layer,
+      doc.imageAssets,
+      '',
+      `nect-gradient-${doc.layers.indexOf(layer)}`,
+    );
     bytes += utf8ByteLength(element);
     if (bytes > MAX_PROJECT_BYTES)
       throw Error('SVG export exceeds 50 MB; reduce embedded image size or repetitions');

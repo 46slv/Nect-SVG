@@ -69,7 +69,7 @@ Node width (optional, 220–550 px) and position are editor state excluded from 
 
 ## Typed Color values
 
-Color is a separate socket type with a serializable `{hex: "#RRGGBB", alpha: 0..1}` value. Color inputs preserve the source/fallback/lock model and reject numeric expressions. Fill and Stroke accept Path or PaintedPath and output PaintedPath. `socketCompatible` is shared by validation, evaluation, selectors, and drag highlighting. Boolean/Transform/Remap/conversion nodes accept only Path, keeping geometry before painting. Output accepts either Path or PaintedPath; an unpainted Path renders with `fill="none"`.
+Color is a separate socket type with a serializable `{hex: "#RRGGBB", alpha: 0..1}` value. Color inputs preserve the source/fallback/lock model and reject numeric expressions. Fill, Linear Gradient Fill and Stroke accept Path or PaintedPath and output PaintedPath. `socketCompatible` is shared by validation, evaluation, selectors, and drag highlighting. Boolean/Transform/Remap/conversion nodes accept only Path, keeping geometry before painting. Output accepts either Path or PaintedPath; an unpainted Path renders with `fill="none"`.
 
 Fill replaces only `fill`; Stroke replaces only `stroke` (`{hex,alpha,width,cap,join,dash,miterLimit,dashOffset}`), cloning upstream geometry before changing it. Repeated same-channel nodes use the last value. Width is a finite 0–100000 px Scalar; zero width and zero alpha are preserved. SVG uses standard fill-then-stroke order, and PNG rasterizes the identical scene. Solid fill/stroke colors, independent alpha inheritance, open paths and stroke-only shapes import explicitly. CSS, gradients, unsupported stroke styles/units, transforms and general/group opacity remain rejected.
 
@@ -128,3 +128,7 @@ Reference stores a nullable explicit `{nodeId, portId}` descriptor, with `output
 ## Character shape records
 
 New documents remain schema2. XY-only stable-character records require schema3; rotation/uniform-scale records require schema4. `characterPositions` record v2 adds sparse `transforms` to the existing logical IDs/offsets, and all schemas 1–4 are accepted with version-specific validation. `text-layout.js` applies local shape about a normal advance-cell pivot before XY and downstream provenance, without altering advances, Position OUT caching or compound paint grouping. See [the full contract](character-transform.md).
+
+## Linear gradient paint
+
+`linear-gradient.js` validates and copies a bounded two-stop descriptor and emits a bare paint-server definition. Core owns the typed node and replaces only fill. `renderElement` emits one definition per top-level layer and reuses its URL through contour-group rendering. Canvas and export allocate deterministic scene-local IDs using the document layer index, independent of user layer names/IDs; PNG rasterizes that SVG. Solid rendering stays unchanged. Endpoint evaluation is artboard-space, after all geometry operations; upstream Repeater shares a ramp. See [the full contract and limitations](linear-gradient-fill.md).
