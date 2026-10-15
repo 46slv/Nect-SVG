@@ -206,6 +206,10 @@ try {
     png = await download('export-png', 'test-results/workflow-radial-gradient.png');
   const pngPixels = await pixels(png, 'image/png'),
     svgPixels = await pixels(svg, 'image/svg+xml');
+  await fs.writeFile(
+    'test-results/workflow-radial-gradient-pixels.json',
+    JSON.stringify({ pngPixels, svgPixels }, null, 2),
+  );
   assert.deepEqual(pngPixels, svgPixels);
   assert.deepEqual(pngPixels.size, [340, 220]);
   // Color/alpha follow an absolute circular ramp. Past the radius, pad holds the last stop.
@@ -230,7 +234,15 @@ try {
     overlapAlpha = 0.25 + 0.5 * overlapT;
   assert.ok(Math.abs(pngPixels.points[15][3] - 255 * (1 - (1 - overlapAlpha) ** 2)) <= 2);
   assert.ok(Math.abs(pngPixels.points[16][3] - 255 * 0.25) <= 1);
-  assert.ok(pngPixels.points[16][0] >= 254 && pngPixels.points[16][2] <= 1);
+  // At alpha 0.25, one premultiplied byte becomes about four unpremultiplied
+  // RGB units. Compare the center in premultiplied space within one byte;
+  // SVG/PNG and reopened-scene RGBA digests still require exact equality.
+  const centerPixel = pngPixels.points[16];
+  centerPixel
+    .slice(0, 3)
+    .forEach((channel, i) =>
+      assert.ok(Math.abs((channel * centerPixel[3]) / 255 - (i === 0 ? 255 * 0.25 : 0)) <= 1),
+    );
   for (const point of pngPixels.points.slice(17, 21))
     point.forEach((channel, i) => assert.ok(Math.abs(channel - pngPixels.points[17][i]) <= 2));
   assert.deepEqual(pngPixels.points[21], pngPixels.points[8]);
