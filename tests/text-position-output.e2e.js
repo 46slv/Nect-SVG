@@ -137,8 +137,11 @@ try {
       [x, y],
     );
   const drag = async (x, y, dx, dy) => {
-    const a = await screen(x, y),
-      b = await screen(x + dx, y + dy);
+    const marker = await page.locator('.node-stage-move rect').boundingBox(),
+      a = { x: marker.x + marker.width / 2, y: marker.y + marker.height / 2 },
+      origin = await screen(0, 0),
+      delta = await screen(dx, dy),
+      b = { x: a.x + delta.x - origin.x, y: a.y + delta.y - origin.y };
     await page.mouse.move(a.x, a.y);
     await page.mouse.down();
     await page.mouse.move(b.x, b.y, { steps: 5 });

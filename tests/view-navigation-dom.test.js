@@ -34,6 +34,14 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
     .replace("from './focus.js'", `from '${new URL('../src/focus.js', import.meta.url)}'`)
     .replace("from './layout.js'", `from '${new URL('../src/layout.js', import.meta.url)}'`)
     .replace("from './core.js'", `from '${new URL('../src/core.js', import.meta.url)}'`)
+    .replace(
+      "from './artwork-creation.js'",
+      `from '${new URL('../src/artwork-creation.js', import.meta.url)}'`,
+    )
+    .replace(
+      "from './artwork-move-target.js'",
+      `from '${new URL('../src/artwork-move-target.js', import.meta.url)}'`,
+    )
     .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
@@ -164,7 +172,7 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
             : kind === 'resize'
               ? q('.node-resize')
               : kind === 'shape'
-                ? q('.shape')
+                ? q('[data-node-stage-move]')
                 : q('input[type="number"][data-scrub-step]');
     pointer(target, 'pointerdown', { button: kind === 'pan' ? 1 : 0 });
     const before = [scale('canvas'), scale('graph'), view()];

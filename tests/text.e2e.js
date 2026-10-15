@@ -30,6 +30,11 @@ try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForSelector('.shape');
   await page.locator('[data-tool="Text"]').click();
+  await page
+    .locator('.graph .node')
+    .filter({ has: page.locator('[data-text]') })
+    .locator('.node-head strong')
+    .click();
   await commit('[data-text]', text);
   assert.match(await page.locator('.warning').textContent(), /Missing glyphs/);
   const beforeCancel = await snapshot();
@@ -75,6 +80,10 @@ try {
   await page.waitForTimeout(150);
   assert.equal(await page.evaluate(() => window.nect.export()), svg);
   // Select the restored Text and edit a previously unused character, proving full bytes survived.
+  const restoredLayer = await page.evaluate(
+    () => window.nect.document.layers.find((l) => l.nodes.some((n) => n.type === 'Text')).id,
+  );
+  await page.locator(`[data-select-layer="${restoredLayer}"]`).click();
   await page
     .locator('.node')
     .filter({ has: page.locator('[data-text]') })
@@ -90,6 +99,11 @@ try {
   // Imported asset can be selected from a second Text node in the same project.
   const fontId = await page.evaluate(() => Object.keys(window.nect.document.fontAssets)[0]);
   await page.locator('[data-tool="Text"]').click();
+  await page
+    .locator('.graph .node')
+    .filter({ has: page.locator('[data-text]') })
+    .locator('.node-head strong')
+    .click();
   await page.locator('.inspector-body [data-font]').selectOption(fontId);
   await commit('[data-text]', '日本語');
   assert.equal(await page.locator('.warning').count(), 0);

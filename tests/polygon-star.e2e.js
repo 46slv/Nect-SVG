@@ -16,13 +16,15 @@ try {
   await page.getByRole('button', { name: 'Add Polygon', exact: true }).click();
   assert.equal(
     await page.evaluate(() =>
-      window.nect.document.layers[0].nodes.some((n) => n.type === 'Polygon'),
+      window.nect.document.layers.at(-1).nodes.some((n) => n.type === 'Polygon'),
     ),
     true,
   );
   await page.getByRole('button', { name: 'Add Star', exact: true }).click();
   assert.equal(
-    await page.evaluate(() => window.nect.document.layers[0].nodes.some((n) => n.type === 'Star')),
+    await page.evaluate(() =>
+      window.nect.document.layers.at(-1).nodes.some((n) => n.type === 'Star'),
+    ),
     true,
   );
   const ids = await page.evaluate(async () => {

@@ -20,6 +20,8 @@ test('synthetic font UI preserves cancellation/errors/stale edits and commits re
   source = source.replace("import './style.css';", '');
   for (const name of [
     'core',
+    'artwork-creation',
+    'artwork-move-target',
     'focus',
     'layout',
     'svg-import',

@@ -34,6 +34,14 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
     .replace("from './focus.js'", `from '${new URL('../src/focus.js', import.meta.url)}'`)
     .replace("from './layout.js'", `from '${new URL('../src/layout.js', import.meta.url)}'`)
     .replace("from './core.js'", `from '${new URL('../src/core.js', import.meta.url)}'`)
+    .replace(
+      "from './artwork-creation.js'",
+      `from '${new URL('../src/artwork-creation.js', import.meta.url)}'`,
+    )
+    .replace(
+      "from './artwork-move-target.js'",
+      `from '${new URL('../src/artwork-move-target.js', import.meta.url)}'`,
+    )
     .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
@@ -131,14 +139,14 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   pointer(document, 'pointerup');
   assert.equal(document.querySelectorAll('.node.selected').length, 2);
   const centers = [...circle2.params.center.value, ...rectangle2.params.center.value];
-  pointer(document.querySelector('.artboard'), 'pointerdown', 100, 100);
+  pointer(document.querySelector('[data-node-stage-move]'), 'pointerdown', 100, 100);
   pointer(document, 'pointermove', 110, 120);
   pointer(document, 'pointerup', 110, 120);
   assert.deepEqual(circle2.params.center.value, [centers[0] + 10, centers[1] + 20]);
   assert.deepEqual(rectangle2.params.center.value, [centers[2] + 10, centers[3] + 20]);
   rectangle2.params.center.locked = true;
   const unchanged = JSON.stringify(win.nect.document);
-  pointer(document.querySelector('.artboard'), 'pointerdown', 100, 100);
+  pointer(document.querySelector('[data-node-stage-move]'), 'pointerdown', 100, 100);
   pointer(document, 'pointermove', 150, 150);
   pointer(document, 'pointerup', 150, 150);
   assert.equal(JSON.stringify(win.nect.document), unchanged);
@@ -173,6 +181,9 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   document.querySelector(`.node[data-id="${outputId}"] [data-key="path"] [data-lock]`).click();
   let lockedOutput = JSON.stringify(win.nect.document);
   document.querySelector('[data-tool="Circle"]').click();
+  assert.equal(win.nect.document.layers.length, JSON.parse(lockedOutput).layers.length + 1);
+  assert.deepEqual(win.nect.document.layers.slice(0, -1), JSON.parse(lockedOutput).layers);
+  document.querySelector('[data-action="undo"]').click();
   assert.equal(JSON.stringify(win.nect.document), lockedOutput);
   document.querySelector('[data-tool="pen"]').click();
   pointer(document.querySelector('.artboard'), 'pointerdown', 50, 50);
@@ -197,7 +208,7 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
     pointer(document, 'pointerup', 700, 600);
     assert.equal(JSON.stringify(win.nect.document), before);
   };
-  pointer(document.querySelector('.artboard'), 'pointerdown', 100, 100);
+  pointer(document.querySelector('[data-node-stage-move]'), 'pointerdown', 100, 100);
   pointer(document, 'pointermove', 150, 170);
   assert.notEqual(JSON.stringify(win.nect.document), serialized);
   cancelAndCheck(serialized);

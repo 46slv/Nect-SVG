@@ -92,9 +92,11 @@ try {
       { once: true },
     );
   });
-  await page.mouse.move(canvas.x + 50, canvas.y + 50);
+  const sourceMove = await page.locator('.node-stage-move rect').boundingBox();
+  const sourceStart = [sourceMove.x + sourceMove.width / 2, sourceMove.y + sourceMove.height / 2];
+  await page.mouse.move(...sourceStart);
   await page.mouse.down();
-  await page.mouse.move(canvas.x + 80, canvas.y + 70, { steps: 4 });
+  await page.mouse.move(sourceStart[0] + 30, sourceStart[1] + 20, { steps: 4 });
   assert.notEqual(
     await page.evaluate(() => JSON.stringify(window.nect.document)),
     beforeInterruptedDrag,

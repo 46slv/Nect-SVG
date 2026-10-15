@@ -20,6 +20,13 @@ const start = async (p) => {
   await move(p);
   await page.mouse.down();
 };
+const nodeStagePoint = () =>
+  page.locator('.node-stage-move').evaluate((el) => {
+    const p = new DOMPoint(0, 0)
+      .matrixTransform(el.getScreenCTM())
+      .matrixTransform(document.querySelector('.artboard').getScreenCTM().inverse());
+    return [p.x, p.y];
+  });
 const near = (a, b) => a.forEach((v, i) => assert.ok(Math.abs(v - b[i]) < 0.01, `${a} != ${b}`));
 const undo = () => page.locator('[data-action="undo"]').click();
 const setup = async (type, transformed = false) => {
@@ -115,7 +122,9 @@ try {
     const ids = await setup(type),
       before = await saved(),
       origin = await position(ids);
-    const p = ['Null', 'Vector', 'Curve', 'Path Remap'].includes(type) ? [250, 200] : [600, 400];
+    const p = ['Null', 'Vector', 'Curve', 'Path Remap'].includes(type)
+      ? [250, 200]
+      : await nodeStagePoint();
     // Axis follows the first motion, then stays fixed even after crossing the diagonal.
     await page.keyboard.down('Shift');
     await start(p);
@@ -183,8 +192,9 @@ try {
       before = await saved();
     await page.keyboard.down('Shift');
     await page.keyboard.down('Alt');
-    await start([600, 400]);
-    await move([630, 405]);
+    const p = await nodeStagePoint();
+    await start(p);
+    await move([p[0] + 30, p[1] + 5]);
     await page.keyboard.press('Delete');
     near(await position(ids), [280, 200]);
     await page.mouse.up();

@@ -33,13 +33,20 @@ const state = () =>
     document: JSON.stringify(window.nect.document),
     svg: window.nect.export(),
     path: JSON.stringify(window.nect.evaluate().path),
-    canvas: document.querySelector('.artboard .shape')?.outerHTML,
-    font: window.nect.document.layers[0].nodes.find((n) => n.type === 'Text')?.font,
+    canvas: document.querySelector(
+      `.artboard .shape[data-layer="${window.nect.document.layers.at(-1).id}"]`,
+    )?.outerHTML,
+    font: window.nect.document.layers.at(-1).nodes.find((n) => n.type === 'Text')?.font,
   }));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForSelector('.shape');
   await page.locator('[data-tool="Text"]').click();
+  await page
+    .locator('.graph .node')
+    .filter({ has: page.locator('[data-text]') })
+    .locator('.node-head strong')
+    .click();
   const text = page.locator('.inspector-body [data-text]');
   await text.fill('Abg 123');
   await text.dispatchEvent('change');
@@ -68,7 +75,9 @@ try {
   assert.equal((await state()).svg, second.svg);
   await page.evaluate((json) => window.nect.load(json), second.document);
   assert.equal((await state()).svg, second.svg);
-  // Reload selects the first node; explicitly reopen the Text inspector.
+  // Reload opens the preserved first layer; explicitly select the new Text layer and node.
+  const textLayer = await page.evaluate(() => window.nect.document.layers.at(-1).id);
+  await page.locator(`[data-select-layer="${textLayer}"]`).click();
   await page
     .locator('.node-head strong')
     .filter({ hasText: /^Text$/ })

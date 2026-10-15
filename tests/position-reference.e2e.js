@@ -59,8 +59,11 @@ try {
       },
       [x, y],
     );
-  const from = await screen(600, 210),
-    to = await screen(619, 210);
+  const marker = await page.locator('.node-stage-move rect').boundingBox(),
+    from = { x: marker.x + marker.width / 2, y: marker.y + marker.height / 2 },
+    origin = await screen(0, 0),
+    delta = await screen(19, 0),
+    to = { x: from.x + delta.x - origin.x, y: from.y + delta.y - origin.y };
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 5 });

@@ -82,9 +82,17 @@ try {
     d.editor.snapArtboard = false;
     window.nect.load(JSON.stringify(d));
   });
-  await move(290, 250);
+  const sourcePointAt = () =>
+    page.locator('.node-stage-move').evaluate((el) => {
+      const p = new DOMPoint(0, 0)
+        .matrixTransform(el.getScreenCTM())
+        .matrixTransform(document.querySelector('.artboard').getScreenCTM().inverse());
+      return [p.x, p.y];
+    });
+  let sourcePoint = await sourcePointAt();
+  await move(...sourcePoint);
   await page.mouse.down();
-  await move(298, 250);
+  await move(sourcePoint[0] + 8, sourcePoint[1]);
   await page.waitForTimeout(60);
   assert.equal((await model()).layers[0].nodes[0].params.center.value[0], 360);
   assert.ok(await page.locator('[data-snap-kind="guide"]').count());
@@ -96,9 +104,9 @@ try {
   await page.getByTitle('Ctrl+Z', { exact: true }).click();
   // Alt bypasses snapping without disabling the stored snap mode.
   await page.keyboard.down('Alt');
-  await move(290, 250);
+  await move(...sourcePoint);
   await page.mouse.down();
-  await move(298, 250);
+  await move(sourcePoint[0] + 8, sourcePoint[1]);
   await page.mouse.up();
   await page.keyboard.up('Alt');
   assert.ok(Math.abs((await model()).layers[0].nodes[0].params.center.value[0] - 358) < 0.01);
@@ -108,9 +116,9 @@ try {
   await page.getByLabel('Show guides', { exact: true }).uncheck();
   await page.getByRole('button', { name: 'Guides', exact: true }).click();
   assert.equal(await page.locator('.editing-guide').count(), 0);
-  await move(290, 250);
+  await move(...sourcePoint);
   await page.mouse.down();
-  await move(298, 250);
+  await move(sourcePoint[0] + 8, sourcePoint[1]);
   await page.mouse.up();
   assert.ok(Math.abs((await model()).layers[0].nodes[0].params.center.value[0] - 358) < 0.01);
   await page.getByTitle('Ctrl+Z', { exact: true }).click();
@@ -119,9 +127,9 @@ try {
   await page.getByLabel('Snap artboard', { exact: true }).check();
   await page.getByLabel('Snap guides', { exact: true }).uncheck();
   await page.getByRole('button', { name: 'Guides', exact: true }).click();
-  await move(290, 250);
+  await move(...sourcePoint);
   await page.mouse.down();
-  await move(298, 250);
+  await move(sourcePoint[0] + 8, sourcePoint[1]);
   await page.mouse.up();
   assert.equal((await model()).layers[0].nodes[0].params.center.value[0], 360);
   await page.getByTitle('Ctrl+Z', { exact: true }).click();
@@ -129,15 +137,16 @@ try {
   await page.getByRole('button', { name: 'Artboard zoom in', exact: true }).click();
   await page.getByRole('button', { name: 'Artboard zoom in', exact: true }).click();
   const scale = await page.locator('.artboard').evaluate((el) => el.getScreenCTM().a);
-  await move(290, 250);
+  sourcePoint = await sourcePointAt();
+  await move(...sourcePoint);
   await page.mouse.down();
-  await move(300 - 5 / scale, 250);
+  await move(sourcePoint[0] + 10 - 5 / scale, sourcePoint[1]);
   await page.mouse.up();
   assert.equal((await model()).layers[0].nodes[0].params.center.value[0], 360);
   await page.getByTitle('Ctrl+Z', { exact: true }).click();
-  await move(290, 250);
+  await move(...sourcePoint);
   await page.mouse.down();
-  await move(300 - 8 / scale, 250);
+  await move(sourcePoint[0] + 10 - 8 / scale, sourcePoint[1]);
   await page.mouse.up();
   assert.ok(
     Math.abs((await model()).layers[0].nodes[0].params.center.value[0] - (360 - 8 / scale)) < 0.01,

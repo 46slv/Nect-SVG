@@ -174,6 +174,9 @@ test('Vector UI: opt-in position handle, exact source values, shared snap/drag/h
   move(xy([600, 400]), 30, 20);
   up();
   assert.equal(saved(), before, 'empty canvas does not move Vector');
+  // Empty canvas clears selection; explicitly re-enter the controller node.
+  fire(document.querySelector(`.node[data-id="${a.id}"] .node-head`), 'pointerdown');
+  up();
   let p = start();
   fire(document, 'pointermove', p[0] + 1, p[1] + 1);
   up();

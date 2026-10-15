@@ -2,6 +2,8 @@ import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './ra
 import { validateImageAssets } from './images.js';
 import { captureFocus, restoreFocus } from './focus.js';
 import './style.css';
+import { appendArtwork } from './artwork-creation.js';
+import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import {
   findFreeNodePosition,
   fitScale,
@@ -106,6 +108,7 @@ const app = document.querySelector('#app');
 let history = new History(newDocument()),
   activeLayer = history.doc.layers[0].id,
   selected = history.doc.layers[0].nodes[0].id,
+  artworkTarget = null,
   tool = 'select',
   zoom = 1,
   canvasFit = true,
@@ -138,6 +141,19 @@ let savedSnapshot = serialize(history.doc),
   exportInFlight = false;
 let selection = new Set([selected]);
 const detailsState = new Map();
+const selectionHistory = new WeakMap();
+function selectionSnapshot() {
+  return { activeLayer, selected, artworkTarget, selection: new Set(selection) };
+}
+function stepHistory(redo = false) {
+  selectionHistory.set(history.doc, selectionSnapshot());
+  redo ? history.redo() : history.undo();
+  const state = selectionHistory.get(history.doc);
+  if (state) {
+    ({ activeLayer, selected, artworkTarget } = state);
+    selection = new Set(state.selection);
+  }
+}
 const remapBatches = new Map();
 let characterEdit = null;
 let nameEdit = null,
@@ -157,7 +173,33 @@ const esc = (s) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   );
 const current = () => history.doc.layers.find((l) => l.id === activeLayer) || history.doc.layers[0];
-const selectedNode = () => current().nodes.find((n) => n.id === selected);
+const selectedNode = () =>
+  artworkTarget ? undefined : current().nodes.find((n) => n.id === selected);
+function selectArtwork(layerId) {
+  activeLayer = layerId;
+  artworkTarget = layerId;
+  selected = null;
+  selection = new Set();
+  characterEdit = null;
+  selectedGuide = null;
+}
+function artworkMove() {
+  return resolveArtworkMoveTarget(history.doc, artworkTarget, { fonts });
+}
+function sameArtworkMove(target, expected) {
+  return (
+    target?.layerId === expected.layerId &&
+    target?.nodeId === expected.nodeId &&
+    target?.parameter === expected.parameter &&
+    target?.outputNodeId === expected.outputNodeId &&
+    JSON.stringify(target.route) === JSON.stringify(expected.route)
+  );
+}
+function writeArtworkMove(target, delta) {
+  const l = history.doc.layers.find((l) => l.id === target.layerId),
+    q = l.nodes.find((n) => n.id === target.nodeId).params[target.parameter];
+  q.value = target.value.map((v, axis) => v + delta[axis]);
+}
 function notify(text, bad = false) {
   message = text;
   error = bad;
@@ -207,7 +249,7 @@ function scheduleRender() {
     }, 0);
 }
 function change(fn, text, deferRender = false) {
-  const previousUI = { selected, activeLayer, selection: new Set(selection), penId };
+  const previousUI = { selected, activeLayer, artworkTarget, selection: new Set(selection), penId };
   try {
     if (current().locked) throw Error('Composition is locked');
     const previous = current().nodes.some(
@@ -230,7 +272,7 @@ function change(fn, text, deferRender = false) {
     if (deferRender) scheduleRender();
     else render();
   } catch (e) {
-    ({ selected, activeLayer, selection, penId } = previousUI);
+    ({ selected, activeLayer, artworkTarget, selection, penId } = previousUI);
     notify(e.message, true);
     if (deferRender) scheduleRender();
     else render();
@@ -776,6 +818,8 @@ function render(resetView = false) {
       );
   for (const el of document.querySelectorAll('.graph details[data-detail]'))
     detailsState.set(`${el.closest('.node').dataset.id}/${el.dataset.detail}`, el.open);
+  if (artworkTarget && !history.doc.layers.some((l) => l.id === artworkTarget))
+    artworkTarget = null;
   if (selected && !current().nodes.some((n) => n.id === selected)) selected = null;
   if (penId && !current().nodes.some((n) => n.id === penId && n.type === 'Curve')) penId = null;
   if (!selection.has(selected)) selection = new Set(selected ? [selected] : []);
@@ -817,14 +861,14 @@ function render(resetView = false) {
     .map(([x, r]) => layerShape(x, r.path))
     .join(
       '',
-    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : n ? `Editing ${esc(n.name)}${n.type === 'Transform' ? ' · Selected Transform output (before downstream nodes)' : ''}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select a generator to edit its original parameters'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
+    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : artworkTarget ? `Artwork · ${esc(l.name)} · ${esc(artworkMove().supported ? 'Drag to move · Arrow: 1 unit · Shift+Arrow: 10' : artworkMove().reason)}` : n ? `Node · ${esc(n.name)} · ${n.type === 'Transform' ? 'Selected Transform output · ' : ''}before downstream nodes${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork on the canvas or a layer; select a graph node for source-stage editing'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
     definitions,
   )
     .filter((x) => !['Output', 'Image Output', 'Image'].includes(x))
     .map((x) => `<option>${x}</option>`)
     .join(
       '',
-    )}</select><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg>${l.nodes.map((x) => nodeHTML(x, result)).join('')}</div></div><div class="graph-hint" id="graph-navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer">+ Composition</button></div>${[
+    )}</select><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg>${l.nodes.map((x) => nodeHTML(x, result)).join('')}</div></div><div class="graph-hint" id="graph-navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -836,7 +880,7 @@ function render(resetView = false) {
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3>${bypassControl(n)}<p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
+      ? `<h3>${esc(n.name)}</h3>${bypassControl(n)}<p>Node · ${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Before downstream nodes. Use the source-stage move marker or dedicated handles to edit this node directly. Connected or locked parameters cannot be moved.</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
           n,
         )
           .filter(
@@ -845,7 +889,9 @@ function render(resetView = false) {
           )
           .map(([k, q]) => field(n, k, q))
           .join('')}`
-      : '<p>Select a node.</p>'
+      : artworkTarget
+        ? `<h3>Artwork · ${esc(l.name)}</h3><p>Final evaluated Output in artboard coordinates.</p><p class="artwork-move-status">${esc(artworkMove().supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : artworkMove().reason)}</p>`
+        : '<p>Select artwork or a graph node.</p>'
   }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label>Artboard W</label><input type="number" data-dimension="width" value="${doc.width}" aria-label="Artboard width"></div><div class="field"><label>Artboard H</label><input type="number" data-dimension="height" value="${doc.height}" aria-label="Artboard height"></div>${results
     .filter(([, r]) => r.error || r.warnings.length)
     .map(
@@ -1010,7 +1056,7 @@ function guidesOverlay() {
 }
 function transformControls(n) {
   return n.type === 'Transform'
-    ? '<p class="font-note">Shared parent: connect child paths through Join Geometry, then this Transform, then Fill / Stroke. Anchor is the scale/rotation pivot in input coordinates; offset moves the result. Select only this Transform: drag its square to scale uniformly, circle to rotate (Shift: 15°), or canvas to move the group. Pivot stays Anchor + Offset; child parameters stay unchanged. The dashed outline and controls edit this selected Transform output, before downstream nodes. They may differ from final artwork. Gray controls are read-only.</p>'
+    ? '<p class="font-note">Shared parent: connect child paths through Join Geometry, then this Transform, then Fill / Stroke. Anchor is the scale/rotation pivot in input coordinates; offset moves the result. Select only this Transform: drag its square to scale uniformly, circle to rotate (Shift: 15°), or the Move node stage marker to move the group. Pivot stays Anchor + Offset; child parameters stay unchanged. The dashed outline and controls edit this selected Transform output, before downstream nodes. They may differ from final artwork. Gray controls are read-only.</p>'
     : '';
 }
 function positionControllerControls(n) {
@@ -1034,7 +1080,7 @@ function radialControls(n) {
     : '';
 }
 function canvasScale() {
-  const ctm = document.querySelector('.artboard').getScreenCTM();
+  const ctm = document.querySelector('.artboard')?.getScreenCTM();
   return Math.hypot(ctm?.a ?? 1, ctm?.b ?? 0) || 1;
 }
 function snapped(sources, delta, event, excludedGuide = null) {
@@ -1066,7 +1112,7 @@ function artworkDelta(sources, delta, event) {
   return snapped(allowed, constraint.delta, event);
 }
 const artworkDrag = () =>
-  ['character', 'position-controller', 'shape', 'point', 'remap'].includes(drag?.type);
+  ['character', 'position-controller', 'shape', 'point', 'remap', 'artwork'].includes(drag?.type);
 function captureArtworkPointer(event, capture) {
   drag.startClient = [event.clientX, event.clientY];
   drag.pointerId = event.pointerId;
@@ -1491,6 +1537,11 @@ function transformOverlay(n, result) {
 
 function canvasOverlay(n, result) {
   if (characterEdit) return characterOverlay(result);
+  if (artworkTarget) {
+    if (!layerShown(current()) || !result.path || result.error) return '';
+    const b = pathBounds(result.path);
+    return `<rect class="guide artwork-selection" x="${b[0][0]}" y="${b[1][0]}" width="${b[0][2] - b[0][0]}" height="${b[1][2] - b[1][0]}" stroke-dasharray="5 4"/>`;
+  }
   if (!n || !layerShown(current()) || n.bypassed) return '';
   let path;
   try {
@@ -1506,9 +1557,14 @@ function canvasOverlay(n, result) {
     return `<g class="position-marker ${kind}-marker ${readonly ? 'readonly' : ''}" data-position-handle="${n.id}" data-${kind}-handle="${n.id}" transform="translate(${path[0]} ${path[1]})" aria-label="${esc(n.name)} ${label} handle${readonly ? ' (read-only)' : ''}"><title>${esc(n.name)} · ${label}${readonly ? ' · Locked or driven by an input' : ' · Drag to move; Alt bypasses snap'}</title><g class="position-marker-size ${kind}-marker-size">${kind === 'vector' ? '<polygon points="0,-12 12,0 0,12 -12,0"/><text x="16" y="-12">Vector XY</text>' : '<circle r="11"/>'}<path d="M-8 0H8 M0-8V8"/></g></g>`;
   }
   if (path?.kind === 'image')
-    return `<rect class="guide" x="${path.position[0]}" y="${path.position[1]}" width="${path.size[0]}" height="${path.size[1]}" stroke-dasharray="5 4"/>`;
+    return (
+      `<rect class="guide" x="${path.position[0]}" y="${path.position[1]}" width="${path.size[0]}" height="${path.size[1]}" stroke-dasharray="5 4"/>` +
+      nodeStageMoveMarker(n, path)
+    );
   if (outputType(n) !== 'Path') return '';
-  let out = `<path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>`;
+  let out =
+    `<path class="node-stage-hit" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" d="${esc(pathData(path))}"/><path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>` +
+    nodeStageMoveMarker(n, path);
   if (['Curve', 'Path Remap'].includes(n.type))
     for (const pt of path.contours.flatMap((c) => c.points)) {
       for (const key of ['handleA', 'handleB']) {
@@ -1520,6 +1576,27 @@ function canvasOverlay(n, result) {
   if (n.type === 'Transform') out += transformOverlay(n, result);
   out += objectResizeOverlay(n, result);
   return out;
+}
+function nodeStageMoveMarker(n, path) {
+  if (
+    ![
+      'Circle',
+      'Ellipse',
+      'Rectangle',
+      'Polygon',
+      'Star',
+      'Text',
+      'Curve',
+      'Transform',
+      'Image',
+    ].includes(n.type)
+  )
+    return '';
+  const b = pathBounds(path),
+    x = b[0][1],
+    y = b[1][0] - 24 / canvasScale();
+  if (![x, y].every(Number.isFinite)) return '';
+  return `<g class="node-stage-move" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" transform="translate(${x} ${y}) scale(${1 / canvasScale()})" aria-label="Move selected node before downstream nodes"><title>Move selected node before downstream nodes</title><rect x="-10" y="-10" width="20" height="20" rx="3"/><path d="M-6 0H6 M0-6V6"/><text x="14" y="4">Move node stage</text></g>`;
 }
 let canvasFrame = null;
 function updateCanvas(immediate = false) {
@@ -1733,23 +1810,35 @@ function revealNode(id) {
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
   );
 }
-function addNode(type, preview = false) {
+function addNode(type) {
   change(() => {
     const l = current(),
       position = freePosition(type),
       n = node(type, ...position);
     l.nodes.push(n);
     selected = n.id;
-    if (preview) {
-      if (outputType(n) === 'Path') {
-        const paint = node('Fill', ...freePosition('Fill'));
-        paint.params.path.source = n.id;
-        l.nodes.push(paint);
-        connect(l, paint.id, l.output, 'path');
-      } else connect(l, n.id, l.output, 'path');
-    }
+    selection = new Set([n.id]);
+    artworkTarget = null;
   }, `Added ${type}`);
   if (selected) revealNode(selected);
+}
+function createArtwork(type) {
+  try {
+    let created;
+    const priorUI = selectionSnapshot();
+    history.apply((doc) => {
+      created = appendArtwork(doc, type, { at: [doc.width / 2, doc.height / 2] });
+    });
+    selectArtwork(created.layerId);
+    selectionHistory.set(history.past.at(-1), priorUI);
+    selectionHistory.set(history.doc, selectionSnapshot());
+    notify(`Added independent ${type} artwork`);
+    render();
+    revealNode(created.nodeId);
+    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+  } catch (error) {
+    notify(error.message, true);
+  }
 }
 function confirmReplace() {
   return (
@@ -1813,6 +1902,7 @@ app.addEventListener('click', async (e) => {
         if (layout.reason) throw Error(layout.reason);
       }
       if (!ids.length) throw Error('Highlight one or more complete characters in Text first');
+      artworkTarget = null;
       selected = target.id;
       selection = new Set([target.id]);
       characterEdit = {
@@ -1854,6 +1944,9 @@ app.addEventListener('click', async (e) => {
   }
   if (d.characterMode) {
     cancelInteraction();
+    artworkTarget = null;
+    selected = d.characterMode;
+    selection = new Set([selected]);
     if (characterEdit?.node === d.characterMode) characterEdit = null;
     else if (!current().locked) {
       characterEdit = {
@@ -1870,6 +1963,9 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.editText) {
+    artworkTarget = null;
+    selected = d.editText;
+    selection = new Set([selected]);
     characterEdit = null;
     render();
     document
@@ -1991,12 +2087,12 @@ app.addEventListener('click', async (e) => {
       switch (d.action) {
         case 'undo':
           resetTransient();
-          history.undo();
+          stepHistory();
           render();
           break;
         case 'redo':
           resetTransient();
-          history.redo();
+          stepHistory(true);
           render();
           break;
         case 'save': {
@@ -2060,6 +2156,7 @@ app.addEventListener('click', async (e) => {
               history.apply(() => (history.doc = next));
               activeLayer = next.layers[0].id;
               selected = current().nodes[0]?.id;
+              artworkTarget = null;
               savedSnapshot = serialize(next);
               render(true);
               notify('Project restored');
@@ -2072,6 +2169,7 @@ app.addEventListener('click', async (e) => {
             history = new History(newDocument());
             activeLayer = current().id;
             selected = current().nodes[0].id;
+            artworkTarget = null;
             render(true);
           }
           break;
@@ -2081,6 +2179,8 @@ app.addEventListener('click', async (e) => {
             doc.layers.push(l);
             activeLayer = l.id;
             selected = l.nodes[0].id;
+            artworkTarget = null;
+            selection = new Set([selected]);
           });
           render(true);
           break;
@@ -2124,7 +2224,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Select a node to edit its parameters or move its source shape on the canvas. Shift-drag locks horizontal or vertical; release Shift to move freely.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => dialog.remove();
           document.body.append(dialog);
           dialog.showModal();
@@ -2183,7 +2283,7 @@ app.addEventListener('click', async (e) => {
       notify('Click the canvas to begin a curve');
       render();
     } else if (tool !== 'select') {
-      addNode(tool, true);
+      createArtwork(tool);
       tool = 'select';
       render();
     } else render();
@@ -2192,10 +2292,10 @@ app.addEventListener('click', async (e) => {
   if (d.selectLayer) {
     if (lastNameClick?.layerId === d.selectLayer && nameClicked(d.selectLayer, null, e)) return;
     resetTransient();
-    activeLayer = d.selectLayer;
-    selected = current().nodes[0]?.id;
-    render(true);
+    selectArtwork(d.selectLayer);
+    render();
     nameClicked(d.selectLayer, null, e);
+    if (!nameEdit) document.querySelector('.canvas-stage').focus({ preventScroll: true });
     return;
   }
   if (d.visible || d.layerLock || d.upLayer) {
@@ -2297,6 +2397,7 @@ app.addEventListener('click', async (e) => {
   if (d.referenceJump) {
     const ref = current().nodes.find((n) => n.id === d.referenceJump);
     try {
+      artworkTarget = null;
       selected = referenceTarget(current(), ref).id;
       selection = new Set([selected]);
       render();
@@ -2315,6 +2416,7 @@ app.addEventListener('click', async (e) => {
             : null,
         copies = duplicateNodes(current(), ids);
       if (position) copies[0].position = position;
+      artworkTarget = null;
       selected = copies[0].id;
       selection = new Set(copies.map((n) => n.id));
     }, 'Nodes duplicated');
@@ -2782,6 +2884,7 @@ app.addEventListener('change', async (e) => {
       });
       activeLayer = history.doc.layers.at(-1).id;
       selected = current().nodes[0].id;
+      artworkTarget = null;
       selection = new Set([selected]);
       notify(`Imported ${asset.name} · embedded PNG; JSON keeps the editable image`);
       render(true);
@@ -2836,6 +2939,7 @@ app.addEventListener('change', async (e) => {
       });
       activeLayer = next.layers[0].id;
       selected = current().nodes[0]?.id;
+      artworkTarget = null;
       if (el.id === 'open-file') savedSnapshot = serialize(next);
       notify('Project restored');
       render(true);
@@ -3505,6 +3609,7 @@ app.addEventListener('pointerdown', (e) => {
   }
   let head = e.target.closest('.node-head');
   if (head && !e.target.closest('button') && !control) {
+    artworkTarget = null;
     selectedGuide = null;
     let id = head.closest('.node').dataset.id;
     if (e.shiftKey) {
@@ -3516,7 +3621,10 @@ app.addEventListener('pointerdown', (e) => {
     }
     if (!selection.has(id)) selection = new Set([id]);
     selected = id;
-    if (current().locked) return;
+    if (current().locked) {
+      render();
+      return;
+    }
     // Commit a focused field before taking the gesture rollback snapshot.
     document.querySelector('.graph-scroll').focus({ preventScroll: true });
     drag = {
@@ -3577,10 +3685,41 @@ app.addEventListener('pointerdown', (e) => {
     return;
   }
   selectedGuide = null;
-  if (tool === 'select' && e.target.dataset.layer && e.target.dataset.layer !== activeLayer) {
-    activeLayer = e.target.dataset.layer;
-    selected = current().nodes[0]?.id;
+  const dedicated = e.target.closest(
+    '[data-object-resize],[data-transform-handle],[data-position-handle],[data-point],[data-node-stage-move]',
+  );
+  if (tool === 'select' && !dedicated) {
+    const layerId = e.target.closest('[data-layer]')?.dataset.layer;
+    stage.focus({ preventScroll: true });
+    if (!layerId) {
+      artworkTarget = null;
+      selected = null;
+      selection = new Set();
+      render();
+      document.querySelector('.canvas-stage').focus({ preventScroll: true });
+      return;
+    }
+    selectArtwork(layerId);
+    const resolved = artworkMove();
     render();
+    const capture = document.querySelector('.canvas-stage');
+    capture.focus({ preventScroll: true });
+    if (!resolved.supported) {
+      notify(resolved.reason, true);
+      return;
+    }
+    const target = resolved.target,
+      b = pathBounds(evaluate(current(), fonts, history.doc.imageAssets).path);
+    drag = {
+      type: 'artwork',
+      target,
+      start: canvasPoint(e),
+      started: false,
+      anchors: b.map((axis) => [...axis]),
+      before: cloneDocument(history.doc),
+    };
+    captureArtworkPointer(e, capture);
+    e.preventDefault();
     return;
   }
   if (!layerShown(current())) {
@@ -3625,7 +3764,9 @@ app.addEventListener('pointerdown', (e) => {
       nn.params.closed.value = false;
       current().nodes.push(nn);
       penId = nn.id;
+      artworkTarget = null;
       selected = nn.id;
+      selection = new Set([selected]);
       const paint = node('Fill', ...freePosition('Fill'));
       paint.params.path.source = nn.id;
       current().nodes.push(paint);
@@ -3816,6 +3957,12 @@ app.addEventListener('pointerdown', (e) => {
     captureArtworkPointer(e, stage);
     return;
   }
+  const stageMove = e.target.closest('[data-node-stage-move]');
+  if (
+    stageMove?.dataset.nodeStageMove !== selected ||
+    stageMove?.dataset.nodeStageLayer !== current().id
+  )
+    return;
   const generators = current().nodes.filter((n) => selection.has(n.id));
   if (generators.some((n) => n.pathAttachment)) {
     notify(
@@ -3898,6 +4045,31 @@ function movePointer(e) {
       altKey: e.altKey,
       shiftKey: e.shiftKey,
     };
+  if (drag.type === 'artwork') {
+    const resolved = artworkMove();
+    if (!resolved.supported || !sameArtworkMove(resolved.target, drag.target)) {
+      cancelInteraction();
+      notify(resolved.reason || 'Artwork target changed', true);
+      return;
+    }
+    if (
+      !drag.started &&
+      Math.hypot(e.clientX - drag.startClient[0], e.clientY - drag.startClient[1]) < 3
+    )
+      return;
+    const pos = canvasPoint(e),
+      delta = artworkDelta(
+        drag.anchors,
+        pos.map((v, i) => v - drag.start[i]),
+        e,
+      );
+    if (!delta.every(Number.isFinite)) return;
+    writeArtworkMove(drag.target, delta);
+    drag.started = true;
+    drag.lastDelta = delta;
+    updateCanvas();
+    return;
+  }
   if (['transform', 'object-resize'].includes(drag.type)) {
     const n = selectedNode(),
       q = n?.params[drag.key];
@@ -4254,6 +4426,14 @@ document.addEventListener('pointerup', (e) => {
       return;
     }
   }
+  if (drag?.type === 'artwork') {
+    const resolved = artworkMove();
+    if (!resolved.supported || !sameArtworkMove(resolved.target, drag.target)) {
+      cancelInteraction();
+      notify(resolved.reason || 'Artwork target changed', true);
+      return;
+    }
+  }
   if (wiring) {
     if (wiring.pointerId !== undefined && wiring.pointerId !== e.pointerId) return;
     let w = wiring;
@@ -4296,7 +4476,7 @@ document.addEventListener('pointerup', (e) => {
       if (nameClicked(current().id, d.nameTarget, e)) return;
     }
     if (
-      ['shape', 'point', 'remap'].includes(d.type) &&
+      ['shape', 'point', 'remap', 'artwork'].includes(d.type) &&
       (!d.started || d.lastDelta?.every((v) => v === 0))
     )
       history.doc = d.before;
@@ -4381,6 +4561,11 @@ document.addEventListener('keydown', (e) => {
     }
     return;
   }
+  if (e.key === 'F2' && artworkTarget && e.target.matches?.('.canvas-stage')) {
+    e.preventDefault();
+    beginNameEdit(artworkTarget);
+    return;
+  }
   if (e.key === 'F2' || (e.key === 'Enter' && e.target.matches?.('[data-rename-node]'))) {
     const title = e.target.closest?.('[data-rename-node], [data-select-layer]');
     if (title) {
@@ -4411,6 +4596,7 @@ document.addEventListener('keydown', (e) => {
   if (
     [
       'character',
+      'artwork',
       'position-controller',
       'shape',
       'point',
@@ -4515,6 +4701,36 @@ document.addEventListener('keydown', (e) => {
     }
     return;
   }
+  if (
+    e.target.matches?.('.canvas-stage') &&
+    ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.altKey &&
+    !characterEdit &&
+    !navigationBusy()
+  ) {
+    if (!artworkTarget) return;
+    e.preventDefault();
+    const resolved = artworkMove();
+    if (!resolved.supported) {
+      notify(resolved.reason, true);
+      return;
+    }
+    const step = e.shiftKey ? 10 : 1,
+      delta = [
+        e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0,
+        e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0,
+      ];
+    change(() => {
+      const fresh = artworkMove();
+      if (!fresh.supported || !sameArtworkMove(fresh.target, resolved.target))
+        throw Error(fresh.reason || 'Artwork target changed');
+      writeArtworkMove(fresh.target, delta);
+    }, 'Artwork position updated');
+    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+    return;
+  }
   if (e.code === 'Space' && !e.target.closest('button,[role="button"]')) {
     // A busy surface must not fall through to the browser's Space-to-scroll action.
     if (e.target.closest('.canvas-stage,.graph-scroll')) e.preventDefault();
@@ -4538,7 +4754,7 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
     e.preventDefault();
     resetTransient();
-    e.shiftKey ? history.redo() : history.undo();
+    stepHistory(e.shiftKey);
     render();
   }
   if (e.key === 'Delete' && selectedGuide) {
@@ -4640,6 +4856,7 @@ window.nect = {
     history = new History(d);
     activeLayer = d.layers[0].id;
     selected = current().nodes[0]?.id;
+    artworkTarget = null;
     render(true);
   },
   export: () => exportSVG(history.doc, fonts),

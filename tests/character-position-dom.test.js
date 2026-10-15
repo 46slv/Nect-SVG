@@ -362,7 +362,8 @@ test('Character position UI: transformed selection/drag, mixed fields, cancel, l
   pointer(stage(), 'pointerdown', ...toolPoint);
   pointer(document, 'pointermove', toolPoint[0] + 10, toolPoint[1] + 8);
   key(stage(), 't');
-  const countText = () => win.nect.document.layers[0].nodes.filter((n) => n.type === 'Text').length;
+  const countText = () =>
+    win.nect.document.layers.flatMap((l) => l.nodes).filter((n) => n.type === 'Text').length;
   assert.equal(countText(), 2);
   pointer(document, 'pointermove', toolPoint[0] + 20, toolPoint[1] + 20);
   pointer(document, 'pointerup', toolPoint[0] + 20, toolPoint[1] + 20);

@@ -1262,3 +1262,34 @@ input[data-scrub-step].scrubbing {
 .graph-scroll.panning * {
   cursor: grabbing;
 }
+
+.node-stage-move {
+  cursor: move;
+  pointer-events: all;
+}
+.node-stage-move rect {
+  fill: white;
+  stroke: #526a7c;
+  stroke-width: 1.5;
+}
+.node-stage-move path {
+  fill: none;
+  stroke: #526a7c;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.node-stage-move text {
+  font: 11px sans-serif;
+  fill: #36434e;
+  stroke: none;
+  pointer-events: none;
+}
+
+.node-stage-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 8;
+  vector-effect: non-scaling-stroke;
+  pointer-events: stroke;
+  cursor: move;
+}

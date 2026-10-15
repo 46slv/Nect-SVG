@@ -94,7 +94,11 @@ test('Shift artwork movement: shared axes, snap, modifiers, source coordinates, 
     );
     flush();
   };
-  const down = (p, extra = {}, target = stage()) => fire(target, 'pointerdown', xy(p), extra);
+  const down = (
+    p,
+    extra = {},
+    target = document.querySelector('[data-node-stage-move]') || stage(),
+  ) => fire(target, 'pointerdown', xy(p), extra);
   const move = (p, extra = {}) => fire(document, 'pointermove', xy(p), extra);
   const up = () => fire(document, 'pointerup');
   const key = (name, type = 'keydown', extra = {}) => {
@@ -160,7 +164,9 @@ test('Shift artwork movement: shared axes, snap, modifiers, source coordinates, 
     const { d, n, position } = project(type);
     load(d);
     const original = saved(),
-      target = () => document.querySelector('[data-position-handle]') || stage();
+      target = () =>
+        document.querySelector('[data-position-handle]') ||
+        document.querySelector('[data-node-stage-move]');
     down([250, 200], { shiftKey: true }, target());
     move([279, 204], { shiftKey: true });
     const constrained = get(n.id).params[position].value;
@@ -251,7 +257,8 @@ test('Shift artwork movement: shared axes, snap, modifiers, source coordinates, 
     down(
       [250, 200],
       { shiftKey: true },
-      document.querySelector('[data-position-handle]') || stage(),
+      document.querySelector('[data-position-handle]') ||
+        document.querySelector('[data-node-stage-move]'),
     );
     move([280, 205], { shiftKey: true });
     key('Delete');

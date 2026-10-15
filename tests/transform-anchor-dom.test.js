@@ -34,6 +34,14 @@ test('Transform pivot controls, parameter lock, group drag, history and legacy d
     .replace("from './focus.js'", `from '${new URL('../src/focus.js', import.meta.url)}'`)
     .replace("from './layout.js'", `from '${new URL('../src/layout.js', import.meta.url)}'`)
     .replace("from './core.js'", `from '${new URL('../src/core.js', import.meta.url)}'`)
+    .replace(
+      "from './artwork-creation.js'",
+      `from '${new URL('../src/artwork-creation.js', import.meta.url)}'`,
+    )
+    .replace(
+      "from './artwork-move-target.js'",
+      `from '${new URL('../src/artwork-move-target.js', import.meta.url)}'`,
+    )
     .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
@@ -82,7 +90,7 @@ test('Transform pivot controls, parameter lock, group drag, history and legacy d
       new win.PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }),
     );
   const drag = async () => {
-    pointer(document.querySelector('.artboard'), 'pointerdown', 200, 200);
+    pointer(document.querySelector('[data-node-stage-move]'), 'pointerdown', 200, 200);
     pointer(document, 'pointermove', 230, 215);
     pointer(document, 'pointerup', 230, 215);
     await tick();

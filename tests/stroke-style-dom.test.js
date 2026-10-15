@@ -34,6 +34,14 @@ test('stroke controls: cap, join, dash validation, numeric bounds, parity and hi
     .replace("from './focus.js'", `from '${new URL('../src/focus.js', import.meta.url)}'`)
     .replace("from './layout.js'", `from '${new URL('../src/layout.js', import.meta.url)}'`)
     .replace("from './core.js'", `from '${new URL('../src/core.js', import.meta.url)}'`)
+    .replace(
+      "from './artwork-creation.js'",
+      `from '${new URL('../src/artwork-creation.js', import.meta.url)}'`,
+    )
+    .replace(
+      "from './artwork-move-target.js'",
+      `from '${new URL('../src/artwork-move-target.js', import.meta.url)}'`,
+    )
     .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);

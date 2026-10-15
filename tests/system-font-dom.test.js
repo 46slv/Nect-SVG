@@ -32,7 +32,17 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
       /import \{ desktop, saveFile, openFile, listSystemFonts, readSystemFont \} from '.\/storage.js';/,
       `const desktop = true, saveFile = async () => true, openFile = async () => null, listSystemFonts = async () => [['system-0', 'Japanese fixture', null], ['system-1', 'Variable face', 'Variable fonts unsupported'], ['system-2', 'DejaVu Sans', null]], readSystemFont = (id) => globalThis.readInstalledTestFont(id);`,
     );
-  for (const name of ['core', 'focus', 'layout', 'svg-import', 'fonts', 'images', 'raster'])
+  for (const name of [
+    'artwork-creation',
+    'artwork-move-target',
+    'core',
+    'focus',
+    'layout',
+    'svg-import',
+    'fonts',
+    'images',
+    'raster',
+  ])
     source = source.replace(
       `from './${name}.js'`,
       `from '${new URL(`../src/${name}.js`, import.meta.url)}'`,

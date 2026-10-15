@@ -34,6 +34,14 @@ test('Text Position UI: typed sockets, source labels, cancellation, snap ownersh
     .replace("from './focus.js'", `from '${new URL('../src/focus.js', import.meta.url)}'`)
     .replace("from './layout.js'", `from '${new URL('../src/layout.js', import.meta.url)}'`)
     .replace("from './core.js'", `from '${new URL('../src/core.js', import.meta.url)}'`)
+    .replace(
+      "from './artwork-creation.js'",
+      `from '${new URL('../src/artwork-creation.js', import.meta.url)}'`,
+    )
+    .replace(
+      "from './artwork-move-target.js'",
+      `from '${new URL('../src/artwork-move-target.js', import.meta.url)}'`,
+    )
     .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
@@ -154,14 +162,14 @@ test('Text Position UI: typed sockets, source labels, cancellation, snap ownersh
   assert.equal(JSON.stringify(win.nect.document), connected, 'cycle rejection is atomic');
   // The source owns canvas snapping. Followers cannot write through to the source.
   select(a.id);
-  fire(document.querySelector('.artboard'), 'pointerdown', 100, 100);
+  fire(document.querySelector('[data-node-stage-move]'), 'pointerdown', 100, 100);
   fire(document, 'pointermove', 119, 100);
   fire(document, 'pointerup', 119, 100);
   assert.deepEqual(position(a.id), [520, 300]);
   assert.deepEqual(position(b.id), [520, 300]);
   const beforeFollower = JSON.stringify(win.nect.document);
   select(b.id);
-  fire(document.querySelector('.artboard'), 'pointerdown', 100, 100);
+  fire(document.querySelector('[data-node-stage-move]'), 'pointerdown', 100, 100);
   fire(document, 'pointermove', 150, 130);
   fire(document, 'pointerup', 150, 130);
   assert.equal(JSON.stringify(win.nect.document), beforeFollower);

@@ -146,9 +146,15 @@ try {
     );
     await page.mouse.move(p.x, p.y);
   };
-  await move(290, 250);
+  const sourcePoint = await page.locator('.node-stage-move').evaluate((el) => {
+    const p = new DOMPoint(0, 0)
+      .matrixTransform(el.getScreenCTM())
+      .matrixTransform(document.querySelector('.artboard').getScreenCTM().inverse());
+    return [p.x, p.y];
+  });
+  await move(...sourcePoint);
   await page.mouse.down();
-  await move(298, 250);
+  await move(sourcePoint[0] + 8, sourcePoint[1]);
   await page.waitForTimeout(80);
   assert.equal((await model()).layers[0].nodes[0].params.center.value[0], 360);
   assert.ok(await page.locator('[data-snap-kind="guide-layer"]').count());
@@ -160,9 +166,9 @@ try {
     d.layers[1].visible = false;
     window.nect.load(JSON.stringify(d));
   });
-  await move(290, 250);
+  await move(...sourcePoint);
   await page.mouse.down();
-  await move(298, 250);
+  await move(sourcePoint[0] + 8, sourcePoint[1]);
   await page.mouse.up();
   assert.ok(Math.abs((await model()).layers[0].nodes[0].params.center.value[0] - 358) < 0.01);
   assert.deepEqual(errors, []);

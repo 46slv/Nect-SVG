@@ -32,10 +32,8 @@ try {
   await rotation.fill('10');
   await rotation.press('Tab');
   assert.equal(await page.evaluate(() => window.nect.evaluate().error), null);
-  const pt = await page.locator('.artboard').evaluate((el) => {
-    const p = new DOMPoint(700, 300).matrixTransform(el.getScreenCTM());
-    return { x: p.x, y: p.y };
-  });
+  const marker = await page.locator('.node-stage-move rect').boundingBox();
+  const pt = { x: marker.x + marker.width / 2, y: marker.y + marker.height / 2 };
   await page.mouse.move(pt.x, pt.y);
   await page.mouse.down();
   await page.mouse.move(pt.x + 30, pt.y + 20, { steps: 4 });

@@ -23,6 +23,8 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   source = source.replace("import './style.css';", '');
   for (const name of [
     'core',
+    'artwork-creation',
+    'artwork-move-target',
     'focus',
     'layout',
     'svg-import',
@@ -113,7 +115,7 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   d.editor.snapArtboard = false;
   d.editor.guides.push({ id: 'test-guide', axis: 'x', position: 480, locked: true });
   win.nect.load(JSON.stringify(d));
-  pointer($('.shape'), 'pointerdown', 300, 250);
+  pointer($('[data-node-stage-move]'), 'pointerdown', 300, 250);
   pointer(document, 'pointermove', 308, 250);
   pointer(document, 'pointerup', 308, 250);
   assert.deepEqual(get().layers[0].nodes[0].params.center.value, [360, 250]);
@@ -261,7 +263,7 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   emptyGuide.guide = true;
   emptyTarget.layers.push(emptyGuide);
   win.nect.load(JSON.stringify(emptyTarget));
-  pointer($('.shape'), 'pointerdown', 50, 250);
+  pointer($('[data-node-stage-move]'), 'pointerdown', 50, 250);
   pointer(document, 'pointermove', 52, 250);
   pointer(document, 'pointerup', 52, 250);
   assert.equal(get().layers[0].nodes[0].params.center.value[0], 126);
