@@ -214,6 +214,18 @@ try {
   await edit(250);
   await page.locator('.inspector-body [data-text-wrap-width]').fill('300');
   await page.locator('.inspector-body [data-text-wrap-width]').press('Tab');
+  // Typed controls commit immediately and deliberately render on the next task.
+  await page.waitForFunction(() => {
+    const el = document.querySelector('.inspector-body [data-text-wrap-width]');
+    return (
+      window.nect.document.layers[0].nodes[0].textWrap.width === 300 &&
+      el?.getAttribute('value') === '300'
+    );
+  });
+  assert.equal(
+    await page.evaluate(() => window.nect.evaluate().textLayout('pair-text').lines.length),
+    1,
+  );
   assert.doesNotMatch(await page.locator('.pair-kerning').textContent(), /At a wrap break/);
   assert.deepEqual(await pairs(), { 'c2:c3': 250 });
   await load({ text: 'AV', vertical: true });

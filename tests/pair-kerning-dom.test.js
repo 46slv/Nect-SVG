@@ -296,6 +296,14 @@ test('pair kerning controls: caret/range identity, sparse history, scrub/cancel,
   assert.equal(field().disabled, false);
   await edit(250);
   assert.equal(read().characterPositions.kerningPairs['c2:c3'], 250);
+  el = q('.inspector-body [data-text-wrap-width]');
+  el.value = '300';
+  el.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await tick();
+  assert.equal(read().textWrap.width, 300);
+  assert.equal(win.nect.evaluate().textLayout(t.id).lines.length, 1);
+  assert.doesNotMatch(q('.pair-kerning').textContent, /At a wrap break/);
+  assert.equal(read().characterPositions.kerningPairs['c2:c3'], 250);
   // Raw CRLF survives the numeric field's target identity without HTML normalization.
   await load((n) => {
     n.text = 'AV\r\nAV';
