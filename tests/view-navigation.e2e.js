@@ -197,9 +197,30 @@ try {
   await fitVisible('.node.selected');
   const zoomButton = page.locator('[data-action="zoom-in"]');
   await zoomButton.focus();
-  const oldScale = await scale();
+  const oldScale = await scale(),
+    oldInlineWidth = await page.locator('.artboard').evaluate((el) => parseFloat(el.style.width));
   await page.keyboard.press('Space');
-  assert.ok(Math.abs((await scale()) - oldScale * 1.2) < 1e-6);
+  const nextScale = await scale(),
+    documentWidth = await page.evaluate(() => window.nect.document.width);
+  const nextInlineWidth = await page
+    .locator('.artboard')
+    .evaluate((el) => parseFloat(el.style.width));
+  assert.ok(
+    Math.abs(nextInlineWidth - oldInlineWidth * 1.2) < 0.001,
+    JSON.stringify({ oldInlineWidth, nextInlineWidth }),
+  );
+  // Compare rendered distance: CSS subpixel layout rounds a fitted SVG before/after zoom.
+  // This still rejects missed activation or a visible scale error (tolerance 0.1 CSS px).
+  assert.ok(
+    Math.abs(nextScale - oldScale * 1.2) * documentWidth < 0.1,
+    JSON.stringify({
+      oldScale,
+      nextScale,
+      expected: oldScale * 1.2,
+      documentWidth,
+      errorPx: Math.abs(nextScale - oldScale * 1.2) * documentWidth,
+    }),
+  );
   assert.equal(await zoomButton.evaluate((el) => el === document.activeElement), true);
   // No document/history/export effects from any preceding view operation.
   assert.deepEqual(await saved(), original);
@@ -301,6 +322,30 @@ try {
   console.log(
     'View navigation Chrome: truthful scale, anchors, fit, resize, scoped input/IME, sidebar, busy guards, unchanged output and 1280/1600 layout passed',
   );
+} catch (error) {
+  await page.screenshot({ path: 'test-results/view-navigation-failure.png' }).catch(() => {});
+  const state = await page
+    .evaluate(() => ({
+      viewport: [innerWidth, innerHeight],
+      artboard: document.querySelector('.artboard')?.getBoundingClientRect().toJSON(),
+      scale: document.querySelector('.artboard')?.getScreenCTM().a,
+      canvasLabel: document.querySelector('[data-zoom="canvas"]')?.textContent,
+      graphZoom: document.querySelector('.graph')?.style.zoom,
+      graphScroll: [
+        document.querySelector('.graph-scroll')?.scrollLeft,
+        document.querySelector('.graph-scroll')?.scrollTop,
+      ],
+      focus: {
+        tag: document.activeElement?.tagName,
+        label: document.activeElement?.getAttribute('aria-label'),
+      },
+    }))
+    .catch(() => ({}));
+  await fs.writeFile(
+    'test-results/workflow-view-navigation-failure.json',
+    JSON.stringify({ error: error.message, state }, null, 2),
+  );
+  throw error;
 } finally {
   await browser.close();
 }
