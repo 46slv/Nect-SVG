@@ -1,4 +1,5 @@
 import opentype from 'opentype.js';
+import { validateTextWrap, hardTextLines, composeTextLines } from './text-wrap.js';
 import {
   normalizeCharacterText,
   characterPositionStatus,
@@ -70,6 +71,67 @@ function transformed(path, transform) {
   });
   return result;
 }
+/** Shape once per hard-line/font/size run. Fitting and rendering reuse these exact records.
+ * Positions include pair kerning/tracking; an endpoint uses its own advance, never the
+ * next pair's contribution. Prefix differences make every candidate measurement O(1).
+ */
+function shapeWrapRuns(chars, resolved, letterSpacing, kerning) {
+  const records = Array(chars.length);
+  for (const line of hardTextLines(chars)) {
+    let cursor = 0;
+    for (let from = line.sourceStart; from < line.sourceEnd; ) {
+      const style = resolved[from];
+      let to = from + 1;
+      while (
+        to < line.sourceEnd &&
+        resolved[to].font === style.font &&
+        resolved[to].size === style.size
+      )
+        to++;
+      const shaped = [];
+      style.font.forEachGlyph(
+        chars.slice(from, to).join(''),
+        0,
+        0,
+        style.size,
+        { letterSpacing: letterSpacing / style.size, kerning },
+        (glyph, x) => shaped.push({ glyph, x }),
+      );
+      if (
+        shaped.length !== to - from ||
+        shaped.some(
+          ({ glyph }, i) =>
+            glyph.index !== style.font.charToGlyphIndex(chars[from + i]) ||
+            !/^[\p{Script=Latin}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Common}]$/u.test(
+              chars[from + i],
+            ),
+        )
+      )
+        throw Error(
+          'TEXT_WRAP_MAPPING: Wrap width requires a verified one-to-one Japanese/Latin character mapping',
+        );
+      for (let i = 0; i < shaped.length; i++) {
+        const { glyph, x } = shaped[i],
+          entry = resolved[from + i];
+        const advance =
+          (glyph.advanceWidth || 0) * (entry.size / entry.font.unitsPerEm) * entry.width;
+        const step =
+          i + 1 < shaped.length
+            ? (shaped[i + 1].x - x - letterSpacing) * entry.width + entry.tracking
+            : advance + entry.tracking;
+        records[from + i] = { glyph, x: cursor, advance };
+        cursor += step;
+        if (!Number.isFinite(cursor)) throw Error('TEXT_WRAP_ADVANCE: Invalid shaped advance');
+      }
+      from = to;
+    }
+  }
+  return {
+    records,
+    measure: (start, end) =>
+      end > start ? records[end - 1].x - records[start].x + records[end - 1].advance : 0,
+  };
+}
 /** Explicit leading is optional: absence preserves the pre-schema6 spacing contract. */
 export function validateLeading(leading) {
   if (leading === undefined) return;
@@ -97,6 +159,7 @@ export function layoutText(
     letterSpacing = 0,
     lineSpacing = 1.2,
     leading,
+    textWrap,
     alignment = 'start',
     kerning = true,
     referenceBounds = 'advance',
@@ -107,6 +170,7 @@ export function layoutText(
   },
 ) {
   validateLeading(leading);
+  validateTextWrap(textWrap, writingMode);
   if (!['start', 'center', 'end'].includes(alignment)) throw Error('Invalid text alignment');
   if (!['visible', 'advance'].includes(referenceBounds))
     throw Error('Invalid text reference bounds');
@@ -127,6 +191,10 @@ export function layoutText(
     throw Error('Unsupported writing mode');
   if (text.length > 10000) throw Error('Text exceeds 10000 characters');
   const normalized = normalizeCharacterText(text);
+  if (textWrap && /[\u2028\u2029]/u.test(normalized))
+    throw Error(
+      'TEXT_WRAP_SEPARATOR: Unicode line and paragraph separators are unsupported; use Enter',
+    );
   if (/[\p{Mark}\p{Cf}\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u.test(normalized))
     throw Error(
       'Combining sequences, variation selectors, tabs and control characters are unsupported',
@@ -163,20 +231,30 @@ export function layoutText(
       throw Error('Text outline is too complex');
     path.extend(outline);
   }
-  const lines = normalized.split('\n');
+  const sourceChars = [...normalized];
+  const shapedWrap = textWrap ? shapeWrapRuns(sourceChars, resolved, letterSpacing, kerning) : null;
+  const lineSpans = textWrap
+    ? composeTextLines(sourceChars, textWrap.width, shapedWrap.measure)
+    : hardTextLines(sourceChars);
+  const lines = lineSpans.map((line) =>
+    sourceChars.slice(line.sourceStart, line.sourceEnd).join(''),
+  );
+  if (lineSpans.some((line) => line.overflow))
+    warnings.add(
+      'Wrap width overflow: an unbreakable span exceeds the width; all artwork is retained.',
+    );
   // Legacy text retains its exact fixed baseline spacing. Rich text uses the largest
   // adjacent line metrics, so a larger selected character does not collide with the next line.
   const lineOffsets = [0];
   if (leading?.mode === 'manual') {
     for (let i = 1; i < lines.length; i++) lineOffsets[i] = i * leading.value;
   } else if (leading?.mode === 'auto' || Object.keys(styles).length) {
-    let index = 0;
-    const metrics = lines.map((content) => {
+    const metrics = lines.map((content, line) => {
+      const index = lineSpans[line].sourceStart;
       const count = [...content].length;
       const entries = count
         ? resolved.slice(index, index + count)
         : [{ font, size, width: 1, height: 1, baselineShift: 0 }];
-      index += count + 1;
       return {
         em: Math.max(size, ...entries.map((entry) => entry.size * entry.height)),
         ascent: Math.max(
@@ -218,16 +296,14 @@ export function layoutText(
       lineOffsets[i] = lineOffsets[i - 1] + distance;
     }
   } else for (let i = 1; i < lines.length; i++) lineOffsets[i] = i * size * lineSpacing;
-  let sourceIndex = 0,
-    mappingReason = null;
+  let mappingReason = null;
   const advances = [];
   const factor = { start: 0, center: 0.5, end: 1 }[alignment];
   for (const [line, content] of lines.entries()) {
     const commandStart = path.commands.length,
       glyphStart = glyphs.length,
       chars = [...content],
-      lineSourceStart = sourceIndex;
-    sourceIndex += chars.length + 1;
+      lineSourceStart = lineSpans[line].sourceStart;
     function align(advance) {
       if (!Number.isFinite(advance)) throw Error('Invalid text advance');
       advances.push(advance);
@@ -246,6 +322,52 @@ export function layoutText(
         for (const suffix of ['', '1', '2'])
           if (axis + suffix in path.commands[i]) path.commands[i][axis + suffix] += shift;
       for (let i = glyphStart; i < glyphs.length; i++) glyphs[i][axis] += shift;
+    }
+    if (shapedWrap) {
+      const span = lineSpans[line];
+      for (let i = span.sourceStart; i < span.sourceEnd; i++) {
+        const style = resolved[i],
+          record = shapedWrap.records[i],
+          glyph = record.glyph;
+        const cursor = position[0] + record.x - shapedWrap.records[span.sourceStart].x;
+        const baseline = position[1] + lineOffsets[line] - style.baselineShift;
+        const start = path.commands.length,
+          raw = glyph.getPath(cursor, baseline, style.size);
+        append(
+          style.width === 1 && style.height === 1
+            ? raw
+            : transformed(raw, (gx, gy) => [
+                cursor + (gx - cursor) * style.width,
+                baseline + (gy - baseline) * style.height,
+              ]),
+        );
+        glyphs.push({
+          id: glyph.index,
+          char: sourceChars[i],
+          sourceIndex: i,
+          line,
+          x: cursor,
+          y: baseline,
+          rotation: 0,
+          advance:
+            (((glyph.advanceWidth || style.font.unitsPerEm) * style.size) / style.font.unitsPerEm) *
+            style.width,
+          fontId: style.fontId,
+          size: style.size,
+          width: style.width,
+          height: style.height,
+          tracking: style.tracking,
+          baselineShift: style.baselineShift,
+          metricCenter:
+            ((style.font.ascender + style.font.descender) * style.size * style.height) /
+            style.font.unitsPerEm /
+            2,
+          commandStart: start,
+          commandEnd: path.commands.length,
+        });
+      }
+      align(span.advance);
+      continue;
     }
     if (writingMode === 'horizontal-tb') {
       let end = position[0];
@@ -568,6 +690,7 @@ export function layoutText(
     glyphs,
     advances,
     lineOffsets,
+    lines: lineSpans,
     warnings: [...warnings],
     characters,
     characterReason: reason,

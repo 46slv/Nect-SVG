@@ -17,6 +17,7 @@ export {
 import paper from 'paper/dist/paper-core.js';
 import { validateFontAssets, resolveFonts, MAX_PROJECT_BYTES, utf8ByteLength } from './fonts.js';
 import { layoutText, validateLeading } from './text-layout.js';
+import { validateTextWrap } from './text-wrap.js';
 import { validateTextPathAttachment, validateTextPathMode, projectTextPath } from './text-path.js';
 import { offsetClosedPath, OFFSET_EDITOR_LIMITS, OffsetError } from './closed-offset.js';
 export { OFFSET_EDITOR_LIMITS } from './closed-offset.js';
@@ -988,6 +989,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               n.positionReference,
               n.kerning,
               n.leading,
+              n.textWrap,
               n.strokeCap,
               n.strokeJoin,
               n.strokeDash,
@@ -1097,6 +1099,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         let font = fonts[n.font];
         if (!font) throw Error('Font is still loading or unavailable');
         const attachment = n.pathAttachment;
+        validateTextWrap(n.textWrap, n.writingMode, attachment);
         if (attachment) {
           validateTextPathAttachment(attachment);
           validateTextPathMode(n.text, n.writingMode);
@@ -1113,6 +1116,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           crossAlignment: attachment ? 'origin' : n.crossAlignment,
           kerning: n.kerning,
           leading: n.leading,
+          textWrap: n.textWrap,
           letterSpacing: n.params.letterSpacing ? read('letterSpacing') : 0,
           lineSpacing: n.params.lineSpacing ? read('lineSpacing') : 1.2,
         });
@@ -1143,6 +1147,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           attachment: layout.attachment,
           placements: layout.placements,
           lineOffsets: layout.lineOffsets,
+          lines: layout.lines,
           reason: layout.characterReason,
           suspended: layout.characterSuspended,
         });
@@ -1517,7 +1522,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     stats: { computed, reused },
   };
 }
-// All attached text is checked, even when it is not the displayed Output. A failed
+// All attached/wrapped text is checked, even when it is not the displayed Output. A failed
 // edit leaves authored state/history unchanged; pre-existing diagnosed errors can be repaired.
 export function assertTextPathChange(
   layer,
@@ -1526,7 +1531,7 @@ export function assertTextPathChange(
   imageAssets = {},
   previousFonts = fonts,
 ) {
-  const attached = layer.nodes.filter((n) => n.type === 'Text' && n.pathAttachment);
+  const attached = layer.nodes.filter((n) => n.type === 'Text' && (n.pathAttachment || n.textWrap));
   if (!attached.length) return;
   assertAcyclic(layer);
   const current = evaluate(layer, fonts, imageAssets);
@@ -1535,7 +1540,9 @@ export function assertTextPathChange(
     try {
       current.run(n.id);
     } catch (error) {
-      const old = previousLayer?.nodes.find((x) => x.id === n.id && x.pathAttachment);
+      const old = previousLayer?.nodes.find(
+        (x) => x.id === n.id && (x.pathAttachment || x.textWrap),
+      );
       if (old) {
         previous ??= evaluate(previousLayer, previousFonts, imageAssets);
         try {
@@ -1563,6 +1570,25 @@ export function setTextPathAttachment(layer, nodeId, attachment, fonts = {}, ima
   } catch (error) {
     if (old === undefined) delete n.pathAttachment;
     else n.pathAttachment = old;
+    throw error;
+  }
+}
+/** Set or remove composition width atomically; source text and character identities stay untouched. */
+export function setTextWrap(layer, nodeId, wrap, fonts = {}, imageAssets = {}) {
+  const n = layer.nodes.find((n) => n.id === nodeId);
+  if (n?.type !== 'Text') throw Error('Select a Text node');
+  if (layer.locked) throw Error('Composition is locked');
+  const old = n.textWrap;
+  try {
+    if (wrap === null) delete n.textWrap;
+    else {
+      validateTextWrap(wrap, n.writingMode, n.pathAttachment);
+      n.textWrap = clone(wrap);
+      evaluate(layer, fonts, imageAssets).run(nodeId);
+    }
+  } catch (error) {
+    if (old === undefined) delete n.textWrap;
+    else n.textWrap = old;
     throw error;
   }
 }
@@ -1718,7 +1744,7 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3, 4, 5, 6, 7].includes(doc.schemaVersion))
+  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8].includes(doc.schemaVersion))
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   text(doc.name);
@@ -1770,7 +1796,10 @@ export function validate(doc) {
         throw Error('Explicit leading requires schemaVersion 6 and a Text node');
       if (n.pathAttachment !== undefined && (n.type !== 'Text' || doc.schemaVersion < 7))
         throw Error('Type on Path requires schemaVersion 7 and a Text node');
+      if (n.textWrap !== undefined && (n.type !== 'Text' || doc.schemaVersion < 8))
+        throw Error('Wrap width requires schemaVersion 8 and a Text node');
       if (n.type === 'Text') {
+        validateTextWrap(n.textWrap, n.writingMode, n.pathAttachment);
         validateTextPathAttachment(n.pathAttachment);
         if (n.pathAttachment) validateTextPathMode(n.text, n.writingMode);
         validateLeading(n.leading);

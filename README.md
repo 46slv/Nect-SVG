@@ -6,6 +6,8 @@ A node-authored vector editor, designed for a **Windows desktop app**, with a re
 
 Select one character or a range to change its font, font size, horizontal width, vertical scale, tracking or baseline shift with real text reflow. Text-level Auto/Manual leading controls baseline or column distance. Use **Style selected text** below Text, or select characters on the canvas. [Editing guide, semantics and limits](docs/rich-text.md) · [Editable sample](examples/rich-text-range.json) · [Spacing/leading sample](examples/typography-spacing.json).
 
+Horizontal **Wrap width · auto height** composes Latin words and a bounded Japanese punctuation subset without changing source text or stable character IDs. Long unbreakable spans remain visible and export intact. [Contract and limits](docs/text-wrap.md) · [Editable sample](examples/text-wrap-width.json).
+
 ## Run the editor
 
 Node 22+ is recommended.

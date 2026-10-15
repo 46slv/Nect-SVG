@@ -115,3 +115,9 @@ The cancelled dependency-version update was not retried. Existing lockfile depen
 The independently qualified 31-test kernel is integrated as a bounded Path → Path node with an exact `clipper2-ts@2.0.1-18` pin and source-hash guards. Graph/DOM tests cover typed parameters, paint ordering, signed amount and joins, zero/empty erosion, provenance-safe Remap suspension, strict interactive work limits and failed/cancelled gesture history. The [contract](closed-path-offset.md) gives numerical and interaction boundaries.
 
 Local aggregate checks are recorded by the implementation lane. Browser assertions were not observed locally: Chromium exited before opening a page because the singleton socket was denied. The new real-Chrome script and production-CSP sample run are part of the existing Windows CI suite; until that exact commit succeeds, they are prepared coverage, not a passed browser/Windows claim. No main merge or release is implied.
+
+## Wrap width · auto height (2026-10-15)
+
+The schema8 horizontal composition slice has dedicated unit, synthetic DOM and real-Chrome coverage described in [the contract](text-wrap.md). Local `npm run check` passes formatting, all 385 unit/synthetic-DOM tests and the production build. The 16 focused Wrap tests include exact pre-wrap geometry hashes, a 10000-unit single-shaping stress case and core/CLI SVG equality. Local Chromium was attempted but stopped before page startup because the process-singleton socket is denied by this environment. No local browser pass or screenshot is claimed. The new E2E script is in the existing Windows workflow; exact-commit aggregate/Chrome/CSP/Rust/NSIS results must be observed separately.
+
+Native WebView2/IME, high DPI and Adobe/DirectWrite visual parity remain unverified. No main merge, release, signing or access change is implied.

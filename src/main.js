@@ -34,6 +34,7 @@ import {
   closedOffsetSettings,
   assertClosedOffsetChange,
   setTextPathAttachment,
+  setTextWrap,
   textPathTargets,
   parameter,
   outputType,
@@ -180,7 +181,7 @@ function change(fn, text, deferRender = false) {
   try {
     if (current().locked) throw Error('Composition is locked');
     const previous = current().nodes.some(
-      (n) => n.type === 'Closed Path Offset' || n.pathAttachment,
+      (n) => n.type === 'Closed Path Offset' || n.pathAttachment || n.textWrap,
     )
       ? clone(current())
       : null;
@@ -364,7 +365,7 @@ function textControls(n) {
     )
     .join(
       '',
-    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${textPathControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a new line or column. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
+    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
 }
 function positionReferenceControls(n) {
   if (!['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Image'].includes(n.type)) return '';
@@ -837,6 +838,10 @@ function initialManualLeading(n) {
     distance = defaults.size * defaults.lineSpacing;
   }
   return Math.min(100000, Math.max(0.01, distance));
+}
+function wrapControls(n) {
+  const disabled = current().locked ? 'disabled' : '';
+  return `<section class="text-wrap-controls" aria-label="Wrap width"><label>Horizontal line composition<select data-text-wrap="${n.id}" aria-label="Text wrap mode" ${disabled}><option value="off" ${n.textWrap ? '' : 'selected'}>Off · explicit newlines</option><option value="width" ${n.textWrap ? 'selected' : ''}>Wrap width · auto height</option></select></label>${n.textWrap ? `<label>Wrap width px<input type="number" step="any" min="0.01" max="100000" data-text-wrap-width="${n.id}" aria-label="Text wrap width" value="${n.textWrap.width}" ${disabled}></label>` : ''}<p class="font-note">Horizontal text only; detach Type on Path first. Width reflows whole Latin words and a bounded Japanese punctuation subset. Height grows automatically. Long unbreakable spans overflow visibly and export intact. Position stays fixed; no clipping or font scaling.</p></section>`;
 }
 function leadingControls(n) {
   const mode = n.leading?.mode || 'legacy';
@@ -2370,6 +2375,19 @@ app.addEventListener('change', async (e) => {
         }
         setTextPathAttachment(current(), id, attachment, fonts, history.doc.imageAssets);
         if (attachment) history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 7);
+      } else if (d.textWrap || d.textWrapWidth) {
+        const id = d.textWrap || d.textWrapWidth;
+        let wrap = null;
+        if (d.textWrap) {
+          if (!['off', 'width'].includes(el.value)) throw Error('Invalid wrap mode');
+          if (el.value === 'width') wrap = { width: 320 };
+        } else {
+          if (!el.value.trim()) throw Error('Enter a finite wrap width');
+          wrap = { width: Number(el.value) };
+        }
+        setTextWrap(current(), id, wrap, fonts, history.doc.imageAssets);
+        if (wrap) history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 8);
+        validate(history.doc);
       } else if (d.textLeading || d.textLeadingValue) {
         const n = current().nodes.find((n) => n.id === (d.textLeading || d.textLeadingValue));
         if (d.textLeading) {
@@ -3593,6 +3611,12 @@ document.addEventListener('keydown', (e) => {
     // Delete, history or tool shortcuts interleave a second document action.
     e.preventDefault();
     e.stopImmediatePropagation();
+    return;
+  }
+  if (e.key === 'Escape' && e.target.dataset?.textWrapWidth) {
+    const n = current().nodes.find((n) => n.id === e.target.dataset.textWrapWidth);
+    e.target.value = String(n.textWrap.width);
+    e.preventDefault();
     return;
   }
   if (e.key === 'Escape' && e.target.dataset?.textLeadingValue) {
