@@ -139,10 +139,17 @@ try {
   let before = await saved();
   g = await geo();
   let p = await screen(g.scale);
+  const panHandle = await page.locator('[data-transform-handle="scale"]').elementHandle();
   await page.mouse.move(...p);
   await page.mouse.down({ button: 'middle' });
   await page.mouse.move(p[0] + 40, p[1] + 25);
+  assert.equal(
+    await panHandle.evaluate((el) => el.isConnected),
+    true,
+    'a pan retains the existing SVG handle at fractional zoom',
+  );
   await page.mouse.up({ button: 'middle' });
+  await panHandle.dispose();
   assert.equal(await saved(), before);
   g = await start('scale');
   await move(g.scale.map((v, i) => v - g.axis[i] * g.radius * 0.1));

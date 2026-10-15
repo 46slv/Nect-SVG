@@ -1522,43 +1522,46 @@ function canvasOverlay(n, result) {
   return out;
 }
 let canvasFrame = null;
-function updateCanvas() {
-  if (canvasFrame !== null) return;
-  canvasFrame = requestAnimationFrame(() => {
-    canvasFrame = null;
-    const svg = document.querySelector('.artboard');
-    if (!svg) return;
-    const l = current();
-    if (drag?.before) {
-      try {
-        assertClosedOffsetChange(
-          l,
-          drag.before.layers.find((x) => x.id === l.id),
-          fonts,
-          history.doc.imageAssets,
-        );
-      } catch (error) {
-        cancelInteraction();
-        notify(error.message, true);
-        return;
-      }
+function updateCanvas(immediate = false) {
+  if (immediate) {
+    if (canvasFrame !== null) window.cancelAnimationFrame(canvasFrame);
+    drawCanvas();
+  } else if (canvasFrame === null) canvasFrame = requestAnimationFrame(drawCanvas);
+}
+function drawCanvas() {
+  canvasFrame = null;
+  const svg = document.querySelector('.artboard');
+  if (!svg) return;
+  const l = current();
+  if (drag?.before) {
+    try {
+      assertClosedOffsetChange(
+        l,
+        drag.before.layers.find((x) => x.id === l.id),
+        fonts,
+        history.doc.imageAssets,
+      );
+    } catch (error) {
+      cancelInteraction();
+      notify(error.message, true);
+      return;
     }
-    const r = evaluate(l, fonts, history.doc.imageAssets);
-    svg.innerHTML =
-      gridOverlay() +
-      history.doc.layers
-        .filter((x) => layerShown(x))
-        .map((x) => {
-          const value = x === l ? r : evaluate(x, fonts, history.doc.imageAssets);
-          return value.path && !value.error ? layerShape(x, value.path) : '';
-        })
-        .join('') +
-      guidesOverlay() +
-      canvasOverlay(selectedNode(), r);
-    renderEvaluation = r;
-    sizePositionHandle();
-    positionCharacterFloating();
-  });
+  }
+  const r = evaluate(l, fonts, history.doc.imageAssets);
+  svg.innerHTML =
+    gridOverlay() +
+    history.doc.layers
+      .filter((x) => layerShown(x))
+      .map((x) => {
+        const value = x === l ? r : evaluate(x, fonts, history.doc.imageAssets);
+        return value.path && !value.error ? layerShape(x, value.path) : '';
+      })
+      .join('') +
+    guidesOverlay() +
+    canvasOverlay(selectedNode(), r);
+  renderEvaluation = r;
+  sizePositionHandle();
+  positionCharacterFloating();
 }
 function sizePositionHandle() {
   document
@@ -1608,13 +1611,19 @@ function fitCanvas() {
   // Fit follows viewport resize; manual zoom keeps its real scale and center world point.
   if (canvasFit && stage.clientWidth && stage.clientHeight)
     zoom = fitScale(history.doc, [stage.clientWidth, stage.clientHeight], 35, CANVAS_LIMITS).scale;
+  const oldWidth = svg.style.width,
+    oldHeight = svg.style.height;
   svg.style.width = history.doc.width * zoom + 'px';
   svg.style.height = history.doc.height * zoom + 'px';
+  // Compare CSSOM-normalized values so float serialization cannot turn a pan into a redraw.
+  const scaleChanged = svg.style.width !== oldWidth || svg.style.height !== oldHeight;
   svg.style.transform = `translate(${pan[0]}px,${pan[1]}px)`;
   sizePositionHandle();
   positionCharacterFloating();
   updateNavigation();
-  if (selectedNode()) updateCanvas();
+  // Keep screen-sized handles and their hit targets atomic with the new view scale.
+  // Only the SVG changes; graph/input drafts and focus stay intact.
+  if (selectedNode() && scaleChanged) updateCanvas(true);
 }
 function zoomCanvas(next, clientX, clientY) {
   const r = document.querySelector('.artboard').getBoundingClientRect();

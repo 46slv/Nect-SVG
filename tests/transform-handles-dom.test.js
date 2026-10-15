@@ -319,6 +319,23 @@ test('Transform handles: source stage, scale/rotation, precise history, read-onl
   flush();
   assert.equal(saved(), roundtrip);
   assert.equal(win.nect.export(), exported);
+  // View changes update screen-size markers immediately, before the queued frame flush.
+  const markerDocument = saved(),
+    inspectorInput = document.querySelector('.inspector-body input');
+  const oldMatrix = { ...matrix };
+  matrix.a = 2.4;
+  matrix.d = 2.4;
+  matrix.b = 0;
+  matrix.c = 0;
+  document.querySelector('[data-action="zoom-in"]').click();
+  assert.equal(
+    document.querySelector('.transform-marker-size').getAttribute('transform'),
+    `scale(${1 / 2.4})`,
+  );
+  assert.equal(document.querySelector('.inspector-body input'), inspectorInput);
+  assert.equal(saved(), markerDocument);
+  Object.assign(matrix, oldMatrix);
+  document.querySelector('[data-action="zoom-out"]').click();
   // Multi-selection hides transform controls, hidden layers also hide them.
   fire(
     document.querySelector(`.node[data-id="${r.id}"] .node-head strong`),
