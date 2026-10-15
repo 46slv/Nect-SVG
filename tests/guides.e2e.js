@@ -143,7 +143,7 @@ try {
     Math.abs((await model()).layers[0].nodes[0].params.center.value[0] - (360 - 8 / scale)) < 0.01,
   );
   await page.getByTitle('Ctrl+Z', { exact: true }).click();
-  await page.getByRole('button', { name: 'Fit', exact: true }).click();
+  await page.getByRole('button', { name: 'Fit artboard', exact: true }).click();
   const saved = await snapshot(),
     svg = await page.evaluate(() => window.nect.export());
   await page.evaluate((text) => window.nect.load(text), saved);
