@@ -146,3 +146,7 @@ New documents remain schema2. XY-only stable-character records require schema3; 
 ## Manual pair kerning (schema 9)
 
 `characterPositions` v5 adds sparse `kerningPairs` keyed by ordered adjacent source IDs. Explicit zero remains active. Verified reconciliation retains only surviving adjacent pairs; unknown edits suspend them. Normal/wrapped horizontal and vertical layout share one boundary resolver, replacing the metric component while preserving intrinsic advance and adding tracking once. Text path-cache metadata is isolated from Position OUT cache entries. See [the complete storage, UI and layout contract](pair-kerning.md).
+
+## Node bypass (schema 10)
+
+An optional `bypassed` boolean enables an explicit per-type input identity. `bypassContract` defines compatibility; `setNodeBypassed` retains authored inputs and checks stored cycles. `evaluatedParameters` and active dependency traversal use only the forwarded input while bypassed, without changing the parameter editor or stored-graph validation. Evaluation cache keys and source provenance include bypass state. Forwarded values are cloned with character, paint and contour metadata intact. The [interaction contract](names-visibility-bypass.md) lists supported/unsupported types and persistence boundaries.

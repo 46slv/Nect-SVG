@@ -26,6 +26,8 @@ import {
   activeParameters,
   operationOptions,
   setOperation,
+  bypassContract,
+  setNodeBypassed,
   parseStrokeDash,
   validateStrokeStyle,
   radialSettings,
@@ -129,6 +131,8 @@ let selection = new Set([selected]);
 const detailsState = new Map();
 const remapBatches = new Map();
 let characterEdit = null;
+let nameEdit = null,
+  lastNameClick = null;
 const textDrafts = new Map();
 const textRanges = new Map();
 const textRangeKey = (el) => `${el.dataset.text}:${el.closest('.node') ? 'node' : 'inspector'}`;
@@ -159,8 +163,20 @@ let pendingRender = null,
   pointerActive = false;
 document.addEventListener(
   'pointerdown',
-  () => {
+  (event) => {
     pointerActive = true;
+    const title = event.target.closest?.('[data-rename-node], [data-select-layer]');
+    if (
+      lastNameClick &&
+      (!title ||
+        event.button !== 0 ||
+        event.shiftKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        lastNameClick.layerId !== (title.dataset.selectLayer || current().id) ||
+        lastNameClick.nodeId !== (title.dataset.renameNode || null))
+    )
+      lastNameClick = null;
   },
   true,
 );
@@ -212,6 +228,8 @@ function change(fn, text, deferRender = false) {
   }
 }
 function resetTransient() {
+  nameEdit = null;
+  lastNameClick = null;
   stopGraphDrag();
   imageRequest++;
   imagePick = null;
@@ -544,8 +562,76 @@ function remapFields(n, result) {
     `<div class="batch-edit"><p>${batch.selected.size} points selected · Δ position</p><div class="field-controls">${batch.delta.map((v, axis) => `<input type="number" step="any" data-batch-axis="${axis}" data-node="${n.id}" aria-label="Batch delta ${axis ? 'Y' : 'X'}" value="${v}">`).join('')}</div><button class="mini" data-apply-batch="${n.id}">Move selected points</button><button class="mini" data-clear-batch="${n.id}">Deselect points</button></div><button class="mini" data-clear-edits="${n.id}">Clear vertex edits</button>`
   );
 }
+// A name edit belongs to stable document IDs, never the currently selected row.
+function nameInput(kind, id) {
+  return `<input class="inline-name" data-rename-name="${id}" aria-label="${kind === 'node' ? 'Node' : 'Layer'} name" value="${esc(nameEdit.value)}" maxlength="100000" spellcheck="false">`;
+}
+function beginNameEdit(layerId, nodeId = null) {
+  const l = history.doc.layers.find((l) => l.id === layerId),
+    target = nodeId ? l?.nodes.find((n) => n.id === nodeId) : l;
+  if (!target || l.locked) {
+    notify('Composition is locked', true);
+    return;
+  }
+  cancelInteraction();
+  nameEdit = { layerId, nodeId, original: target.name, value: target.name, composing: false };
+  lastNameClick = null;
+  render();
+  const input = document.querySelector('[data-rename-name]');
+  input.focus({ preventScroll: true });
+  input.select();
+}
+function finishNameEdit(commit, deferred = false) {
+  const edit = nameEdit;
+  if (!edit) return;
+  if (commit && edit.composing) {
+    edit.pendingCommit = true;
+    return;
+  }
+  nameEdit = null;
+  lastNameClick = null;
+  if (commit) {
+    const l = history.doc.layers.find((l) => l.id === edit.layerId),
+      target = edit.nodeId ? l?.nodes.find((n) => n.id === edit.nodeId) : l,
+      value = edit.value.trim();
+    if (!target || l.locked || target.name !== edit.original)
+      notify('Name edit cancelled: target changed or composition is locked', true);
+    else if (!value) notify('Name cannot be empty', true);
+    else {
+      history.apply(() => {
+        target.name = value;
+      });
+      notify('Name updated');
+    }
+  }
+  if (deferred) scheduleRender();
+  else render();
+}
+// Structural renders and graph pointer capture can remove the native dblclick target.
+// Recognize two completed, stationary title clicks by stable IDs as well.
+function nameClicked(layerId, nodeId, event) {
+  const now = performance.now(),
+    previous = lastNameClick;
+  lastNameClick = { layerId, nodeId, time: now, x: event.clientX, y: event.clientY };
+  if (
+    previous &&
+    previous.layerId === layerId &&
+    previous.nodeId === nodeId &&
+    now - previous.time < 500 &&
+    Math.hypot(event.clientX - previous.x, event.clientY - previous.y) < 5
+  ) {
+    beginNameEdit(layerId, nodeId);
+    return true;
+  }
+  return false;
+}
+function bypassControl(n, compact = false) {
+  const contract = bypassContract(n),
+    label = n.bypassed ? 'Restore effect' : 'Bypass effect';
+  return `<button class="mini node-bypass ${n.bypassed ? 'active' : ''}" data-bypass="${n.id}" aria-label="${label}: ${esc(n.name)}" aria-pressed="${!!n.bypassed}" title="${esc(contract.reason)}" ${current().locked || !contract.supported ? 'disabled' : ''}>${compact ? (n.bypassed ? 'Bypassed' : 'Bypass') : label}</button>${compact ? '' : `<p class="font-note">${esc(contract.reason)}${n.bypassed ? ' Saved controls below apply when restored.' : ''}</p>`}`;
+}
 function nodeHeader(n) {
-  return `<div class="node-head"><button class="node-collapse" data-collapse="${n.id}" aria-expanded="${!n.collapsed}" aria-label="Toggle ${esc(n.name)} node details" title="${n.collapsed ? 'Expand' : 'Collapse'} node">${n.collapsed ? '▸' : '▾'}</button><strong>${esc(n.name)}</strong><span class="type-tag">${outputType(n) || 'Scalar X/Y'}</span>${outputPorts(
+  return `<div class="node-head"><button class="node-collapse" data-collapse="${n.id}" aria-expanded="${!n.collapsed}" aria-label="Toggle ${esc(n.name)} node details" title="${n.collapsed ? 'Expand' : 'Collapse'} node">${n.collapsed ? '▸' : '▾'}</button>${nameEdit?.nodeId === n.id && nameEdit.layerId === current().id ? nameInput('node', n.id) : `<strong data-rename-node="${n.id}" tabindex="0" role="button" aria-label="Rename ${esc(n.name)}" title="Double-click or F2 to rename">${esc(n.name)}</strong>`}${bypassControl(n, true)}<span class="type-tag">${outputType(n) || 'Scalar X/Y'}</span>${outputPorts(
     n,
   )
     .map(
@@ -659,9 +745,13 @@ function nodeHTML(n, result) {
   const body = n.collapsed
     ? `<div class="node-body compact-body">${compactFields(n)}${referenceControls(n, result, true)}</div><div hidden><button data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button data-delete="${n.id}">Delete</button>` : ''}</div>`
     : expandedNodeBody(n, result);
-  return `<section class="node ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
+  return `<section class="node ${n.bypassed ? 'bypassed' : ''} ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
 function render(resetView = false) {
+  if (nameEdit?.composing) {
+    needsRender = true;
+    return;
+  }
   needsRender = false;
   if (pendingRender !== null) {
     clearTimeout(pendingRender);
@@ -730,13 +820,13 @@ function render(resetView = false) {
     .reverse()
     .map(
       (x) =>
-        `<div class="layer ${x.guide ? 'is-guide' : ''} ${x.id === l.id ? 'selected' : ''}" data-layer="${x.id}"><button data-visible="${x.id}" title="Toggle visibility">${x.visible ? '◉' : '○'}</button><button class="name" data-select-layer="${x.id}">${esc(x.name)}</button><button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><button data-up-layer="${x.id}" title="Move layer up">↑</button></div>`,
+        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${x.id === l.id ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" title="Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><button data-up-layer="${x.id}" title="Move layer up">↑</button></div>`,
     )
     .join(
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
+      ? `<h3>${esc(n.name)}</h3>${bypassControl(n)}<p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
           n,
         )
           .filter(
@@ -1353,7 +1443,8 @@ function objectResizeOverlay(n, result) {
 }
 
 function transformContext(n, result) {
-  if (n?.type !== 'Transform' || selection.size !== 1 || !selection.has(n.id)) return null;
+  if (n?.bypassed || n?.type !== 'Transform' || selection.size !== 1 || !selection.has(n.id))
+    return null;
   const state = result.transformState(n.id);
   if (!state.input?.contours.some((c) => c.points.length)) return null;
   return {
@@ -1385,7 +1476,7 @@ function transformOverlay(n, result) {
 
 function canvasOverlay(n, result) {
   if (characterEdit) return characterOverlay(result);
-  if (!n || !layerShown(current())) return '';
+  if (!n || !layerShown(current()) || n.bypassed) return '';
   let path;
   try {
     path = result.run(n.id);
@@ -1589,6 +1680,16 @@ app.addEventListener('click', async (e) => {
   if (!b) return;
   const d = b.dataset,
     n = selectedNode();
+  if (d.bypass) {
+    cancelInteraction();
+    change(() => {
+      const target = current().nodes.find((n) => n.id === d.bypass);
+      setNodeBypassed(current(), d.bypass, !target.bypassed);
+      history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 10);
+      validate(history.doc);
+    }, 'Node bypass updated; settings and connections retained');
+    return;
+  }
   if (d.styleTextRange || d.kernTextCursor) {
     const id = d.styleTextRange || d.kernTextCursor,
       el = b.closest('.text-controls')?.querySelector(`[data-text="${id}"]`),
@@ -1970,10 +2071,12 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.selectLayer) {
+    if (lastNameClick?.layerId === d.selectLayer && nameClicked(d.selectLayer, null, e)) return;
     resetTransient();
     activeLayer = d.selectLayer;
     selected = current().nodes[0]?.id;
     render(true);
+    nameClicked(d.selectLayer, null, e);
     return;
   }
   if (d.visible || d.layerLock || d.upLayer) {
@@ -2302,6 +2405,14 @@ app.addEventListener(
 app.addEventListener('pointerdown', (e) => {
   if (e.target.closest('[data-style-text-range], [data-kern-text-cursor]')) e.preventDefault();
 });
+app.addEventListener('dblclick', (e) => {
+  const title = e.target.closest('[data-rename-node], [data-select-layer]');
+  if (title && !nameEdit)
+    beginNameEdit(title.dataset.selectLayer || current().id, title.dataset.renameNode || null);
+});
+app.addEventListener('focusout', (e) => {
+  if (e.target.matches('[data-rename-name]') && nameEdit) finishNameEdit(true, true);
+});
 app.addEventListener('beforeinput', (e) => {
   if (!e.target.matches('textarea[data-text]')) return;
   const el = e.target,
@@ -2316,6 +2427,10 @@ app.addEventListener('beforeinput', (e) => {
   };
 });
 app.addEventListener('input', (e) => {
+  if (e.target.matches('[data-rename-name]')) {
+    if (nameEdit) nameEdit.value = e.target.value;
+    return;
+  }
   if (!e.target.matches('textarea[data-text]')) return;
   const draft = textDraft(e.target);
   if (!draft || draft.composition || e.isComposing) return;
@@ -2323,6 +2438,10 @@ app.addEventListener('input', (e) => {
   draft.capture = null;
 });
 app.addEventListener('compositionstart', (e) => {
+  if (e.target.matches('[data-rename-name]')) {
+    if (nameEdit) nameEdit.composing = true;
+    return;
+  }
   if (!e.target.matches('textarea[data-text]')) return;
   const el = e.target,
     draft = textDraft(el);
@@ -2334,6 +2453,15 @@ app.addEventListener('compositionstart', (e) => {
   };
 });
 app.addEventListener('compositionend', (e) => {
+  if (e.target.matches('[data-rename-name]')) {
+    if (nameEdit) {
+      nameEdit.value = e.target.value;
+      nameEdit.composing = false;
+      if (nameEdit.pendingCommit) finishNameEdit(true, true);
+      else if (needsRender) scheduleRender();
+    }
+    return;
+  }
   if (!e.target.matches('textarea[data-text]')) return;
   const draft = textDraft(e.target);
   if (!draft) return;
@@ -2355,6 +2483,7 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (d.renameName !== undefined) return;
   if (d.text && textDrafts.get(d.text)?.composition) {
     textDrafts.get(d.text).pendingCommit = true;
     return;
@@ -2973,6 +3102,7 @@ app.addEventListener(
   { passive: false },
 );
 window.addEventListener('blur', () => {
+  lastNameClick = null;
   space = false;
   cancelInteraction();
 });
@@ -3173,7 +3303,7 @@ app.addEventListener('pointerdown', (e) => {
     return;
   }
   let head = e.target.closest('.node-head');
-  if (head && !e.target.closest('button')) {
+  if (head && !e.target.closest('button') && !control) {
     selectedGuide = null;
     let id = head.closest('.node').dataset.id;
     if (e.shiftKey) {
@@ -3190,6 +3320,8 @@ app.addEventListener('pointerdown', (e) => {
     document.querySelector('.graph-scroll').focus({ preventScroll: true });
     drag = {
       type: 'node',
+      nameTarget: e.target.closest('[data-rename-node]') ? id : null,
+      started: false,
       pointer: [e.clientX, e.clientY],
       startWorld: graphPoint(e.clientX, e.clientY),
       id,
@@ -3201,7 +3333,6 @@ app.addEventListener('pointerdown', (e) => {
       before: cloneDocument(history.doc),
     };
     captureGraphPointer(e);
-    graphFrame = requestAnimationFrame(graphAutoPan);
     document
       .querySelectorAll('.node')
       .forEach((x) => x.classList.toggle('selected', selection.has(x.dataset.id)));
@@ -3494,6 +3625,7 @@ app.addEventListener('pointerdown', (e) => {
   }
   if (
     generators.length &&
+    !generators.some((n) => n.bypassed) &&
     ((generators.length === 1 && generators[0].type === 'Transform') ||
       generators.every((n) =>
         ['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Text', 'Curve', 'Image'].includes(
@@ -3570,6 +3702,7 @@ function movePointer(e) {
       q = n?.params[drag.key];
     if (
       n?.id !== drag.nodeId ||
+      n?.bypassed ||
       selection.size !== 1 ||
       current().locked ||
       !layerShown(current()) ||
@@ -3803,6 +3936,13 @@ function movePointer(e) {
     return;
   }
   if (drag.type === 'node') {
+    if (!drag.started && Math.hypot(e.clientX - drag.start[0], e.clientY - drag.start[1]) < 4)
+      return;
+    if (!drag.started) {
+      drag.started = true;
+      lastNameClick = null;
+      graphFrame = requestAnimationFrame(graphAutoPan);
+    }
     drag.pointer = [e.clientX, e.clientY];
     moveGraphNodes();
     return;
@@ -3891,6 +4031,7 @@ function movePointer(e) {
 }
 document.addEventListener('pointermove', movePointer);
 document.addEventListener('pointercancel', (e) => {
+  lastNameClick = null;
   const pointerId = wiring?.pointerId ?? drag?.pointerId;
   if (pointerId !== undefined && pointerId !== e.pointerId) return;
   cancelInteraction();
@@ -3950,6 +4091,9 @@ document.addEventListener('pointerup', (e) => {
     if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
     snapMatches = [];
     if (d.type === 'numeric' && !d.started) return;
+    if (d.type === 'node' && !d.started && d.nameTarget) {
+      if (nameClicked(current().id, d.nameTarget, e)) return;
+    }
     if (
       ['shape', 'point', 'remap'].includes(d.type) &&
       (!d.started || d.lastDelta?.every((v) => v === 0))
@@ -4007,6 +4151,23 @@ app.addEventListener(
   true,
 );
 document.addEventListener('keydown', (e) => {
+  if (e.target.matches?.('[data-rename-name]')) {
+    if (e.isComposing || e.keyCode === 229 || nameEdit?.composing) return;
+    if (e.key === 'Enter' || e.key === 'Escape') {
+      e.preventDefault();
+      if (nameEdit) nameEdit.value = e.target.value;
+      finishNameEdit(e.key === 'Enter');
+    }
+    return;
+  }
+  if (e.key === 'F2' || (e.key === 'Enter' && e.target.matches?.('[data-rename-node]'))) {
+    const title = e.target.closest?.('[data-rename-node], [data-select-layer]');
+    if (title) {
+      e.preventDefault();
+      beginNameEdit(title.dataset.selectLayer || current().id, title.dataset.renameNode || null);
+      return;
+    }
+  }
   if (artworkDrag() && e.key === 'Shift') {
     if (drag.lastPointer) movePointer({ ...drag.lastPointer, shiftKey: true, altKey: e.altKey });
     return;

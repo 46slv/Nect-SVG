@@ -1156,3 +1156,50 @@ input[data-scrub-step].scrubbing {
   width: 100%;
   min-width: 0;
 }
+
+/* Stable name controls fit long names without widening a graph or layer row. */
+.node-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inline-name {
+  min-width: 0;
+  width: 60px;
+  flex: 1;
+  font: inherit;
+  padding: 3px 4px;
+}
+.layer .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.layer.is-hidden .name {
+  color: var(--muted);
+}
+.layer .layer-visibility {
+  min-width: 36px;
+}
+.layer-visibility[aria-pressed='false'] {
+  border-style: dashed;
+  background: #f0f2f4;
+}
+
+.node.bypassed {
+  border-style: dashed;
+}
+.node.bypassed .node-head {
+  background: #f1f2f4;
+}
+.node-bypass {
+  flex: none;
+}
+.node-head .node-bypass {
+  padding: 2px 3px;
+  font-size: 9px;
+}
+.node-head:has(.node-bypass) {
+  gap: 5px;
+}

@@ -100,6 +100,14 @@ try {
     await page.evaluate(() => window.nect.evaluate().textLayout('wrap-text').lineOffsets),
     [0, 80, 160],
   );
+  await page.waitForFunction(() => {
+    const input = document.querySelector('.inspector-body [data-text-leading-value]');
+    return (
+      window.nect.document.layers[0].nodes[0].leading.value === 80 &&
+      input?.getAttribute('value') === '80'
+    );
+  });
+  await field('text').focus();
   // The browser's IME events exercise draft isolation and stable-ID reconciliation; native IME is separate.
   await field('text').evaluate((el) => {
     el.setSelectionRange(6, 10);

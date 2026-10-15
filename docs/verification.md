@@ -125,3 +125,7 @@ Native WebView2/IME, high DPI and Adobe/DirectWrite visual parity remain unverif
 ## Manual pair kerning verification
 
 The schema9 slice has focused core, actual-handler DOM and real-pointer Chrome tests in `tests/pair-kerning*`, covering the [acceptance contract](pair-kerning.md). Local Chrome launch was attempted but blocked before page startup by the environment’s process-singleton socket restriction. No local Chrome or native WebView2/IME pass is claimed. The E2E script is part of the existing Windows workflow; observe the exact published commit’s Chrome/CSP/Rust/NSIS result separately.
+
+## Names, visibility and bypass / 2026-10-15
+
+The cumulative slice adds inline stable-ID naming, explicit layer Hide/Show and schema10 typed bypass. Local checks cover the [contract](names-visibility-bypass.md), including every supported identity, ignored-operation errors, stored cycles/types, provenance, paint/character metadata, locks/history and Type on Path duplication. Actual Chromium interaction coverage is included in the full existing Windows workflow, after pair-kerning. The prior wrap synthetic-IME test now waits for the committed leading render and focuses its textarea before composition, preserving its original text/identity assertions. Exact-commit Windows Chrome/CSP/Rust/NSIS results remain a separate required observation; no native WebView2/IME claim is made.

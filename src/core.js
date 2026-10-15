@@ -347,6 +347,63 @@ export function outputType(n, port) {
         ? 'Boolean'
         : 'Path';
 }
+// Deliberate identity contracts. Never guess the first socket of a new node type.
+const bypassInputs = Object.freeze({
+  Boolean: 'a',
+  'Join Geometry': 'a',
+  Math: 'a',
+  'Vector Math': 'a',
+  Transform: 'path',
+  'Path Remap': 'path',
+  'Closed Path Offset': 'path',
+  'Geometry Repeater': 'path',
+  'Convert to Path': 'path',
+  'Text to Path': 'path',
+  Fill: 'path',
+  'Linear Gradient Fill': 'path',
+  'Radial Gradient Fill': 'path',
+  Stroke: 'path',
+});
+export function bypassContract(n) {
+  const input = bypassInputs[n?.type];
+  if (!input)
+    return {
+      supported: false,
+      reason: 'This node has no bypassable effect with a same-type identity input.',
+    };
+  const type = outputType(n),
+    parameterType = n.params?.[input]?.type;
+  if (parameterType !== type)
+    return {
+      supported: false,
+      reason: 'This operation changes the input type; it cannot pass through unchanged.',
+    };
+  return {
+    supported: true,
+    input,
+    type,
+    reason: `Pass ${input === 'a' ? 'A' : input} through unchanged; keep all settings and connections.`,
+  };
+}
+function bypassInput(n) {
+  if (!n.bypassed) return null;
+  const contract = bypassContract(n);
+  if (!contract.supported) throw Error(`Cannot bypass ${n.type}: ${contract.reason}`);
+  return contract.input;
+}
+function evaluatedParameters(n) {
+  const input = bypassInput(n);
+  return input ? [[input, n.params[input]]] : activeParameters(n);
+}
+export function setNodeBypassed(layer, nodeId, bypassed) {
+  const n = layer.nodes.find((n) => n.id === nodeId);
+  if (!n || typeof bypassed !== 'boolean') throw Error('Invalid bypass target or state');
+  if (layer.locked) throw Error('Composition is locked');
+  if (bypassed && !bypassContract(n).supported) throw Error(bypassContract(n).reason);
+  assertAcyclic(layer);
+  if (bypassed) n.bypassed = true;
+  else delete n.bypassed;
+}
 // Reference uses an explicit public-port ID. Existing default sockets remain unchanged.
 const referencePort = (target) => (target.portId === 'output' ? undefined : target.portId);
 export function vectorReferenceTargets(layer, referenceId) {
@@ -369,7 +426,7 @@ function referenceDependency(n) {
     : null;
 }
 export function nodeDependencies(n, activeOnly = false) {
-  const deps = (activeOnly ? activeParameters(n) : parameters(n))
+  const deps = (activeOnly ? evaluatedParameters(n) : parameters(n))
     .filter(([, q]) => q.source)
     .map(([, q]) => q);
   const reference = referenceDependency(n);
@@ -472,10 +529,12 @@ export function duplicateNodes(layer, ids) {
       const visited = new Set();
       while (source && remap.has(source.id) && !visited.has(source.id)) {
         visited.add(source.id);
+        const identityInput = bypassInput(source);
         if (
+          identityInput ||
           ['Transform', 'Path Remap', 'Convert to Path', 'Closed Path Offset'].includes(source.type)
         ) {
-          source = layer.nodes.find((n) => n.id === source.params.path.source);
+          source = layer.nodes.find((n) => n.id === source.params[identityInput || 'path'].source);
           continue;
         }
         const contour = copy.pathAttachment.contourId,
@@ -561,6 +620,8 @@ export function activeParameters(n) {
 export function setOperation(layer, nodeId, operation) {
   const n = layer.nodes.find((n) => n.id === nodeId);
   if (!n || !operationOptions[n.type]?.includes(operation)) throw Error('Invalid operation');
+  if (n.bypassed && !bypassContract({ ...n, operation }).supported)
+    throw Error('Restore this node before choosing an operation that changes its output type');
   for (const target of layer.nodes)
     for (const [, q] of parameters(target))
       if (
@@ -875,13 +936,28 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   let computed = 0,
     reused = 0;
   const byId = new Map(layer.nodes.map((n) => [n.id, n]));
+  let storedGraphError = null;
+  if (layer.nodes.some((n) => n.bypassed)) {
+    try {
+      // A bypass skips computation, never structural cycle/type validation.
+      assertAcyclic(layer);
+      for (const n of layer.nodes) {
+        bypassInput(n);
+        for (const [, q] of parameters(n))
+          if (q.source && !socketCompatible(outputType(byId.get(q.source), q.sourcePort), q.type))
+            throw Error('Incompatible socket types');
+      }
+    } catch (error) {
+      storedGraphError = error;
+    }
+  }
   // Source identities matter even when two graphs produce identical coordinates.
   const provenances = new Map();
   function provenance(id, port) {
     const key = outputKey(id, port);
     if (!provenances.has(key)) {
       const n = byId.get(id),
-        deps = (key !== id ? [['position', n.params.position]] : activeParameters(n)).filter(
+        deps = (key !== id ? [['position', n.params.position]] : evaluatedParameters(n)).filter(
           ([, q]) => q.source,
         ),
         reference = key === id && referenceDependency(n);
@@ -894,6 +970,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           JSON.stringify([
             n.id,
             n.type,
+            ...(n.bypassed ? ['bypassed'] : []),
             key !== id ? 'position' : null,
             deps.map(([input, q]) => [
               input,
@@ -931,6 +1008,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     return value;
   }
   function run(id, port) {
+    if (storedGraphError) throw storedGraphError;
     const n = byId.get(id);
     if (!n || !outputType(n, port)) throw Error('Missing output socket');
     const value = runNode(id, port);
@@ -946,7 +1024,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     if (!n) throw Error('Missing source node');
     active.add(id);
     try {
-      const inputs = positionOutput ? [['position', n.params.position]] : activeParameters(n);
+      const inputs = positionOutput ? [['position', n.params.position]] : evaluatedParameters(n);
       const deps = positionOutput
         ? inputs.filter(([, q]) => q.source).map(([, q]) => q)
         : nodeDependencies(n, true);
@@ -974,6 +1052,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           ? [inputs, dependencyVersions]
           : [
               n.type,
+              !!n.bypassed,
               n.reference,
               inputs,
               n.type === 'Fill' ? layer.fill : null,
@@ -1003,7 +1082,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               dependencyVersions,
             ],
       );
-      if (n.type === 'Closed Path Offset' && readParameter(n, 'amount') !== 0) {
+      if (!n.bypassed && n.type === 'Closed Path Offset' && readParameter(n, 'amount') !== 0) {
         offsetComputations.add(n.id);
         if (offsetComputations.size > 8)
           throw new OffsetError(
@@ -1021,7 +1100,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       ) {
         reused++;
         const result =
-          n.type === 'Closed Path Offset' && readParameter(n, 'amount') === 0
+          !n.bypassed && n.type === 'Closed Path Offset' && readParameter(n, 'amount') === 0
             ? readParameter(n, 'path')
             : clone(existing.value);
         values.set(key, result);
@@ -1035,7 +1114,11 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       computed++;
       const read = (key) => readParameter(n, key);
       let result;
-      if (n.type === 'Reference') {
+      if (n.bypassed) {
+        result = clone(read(bypassInput(n)));
+        if (result === null) throw Error(`Connect ${bypassInput(n)} to bypass ${n.type}`);
+        assertValue(outputType(n), result);
+      } else if (n.type === 'Reference') {
         result = clone(run(n.reference.nodeId, referencePort(n.reference)));
         assertValue('Vector2', result);
       } else if (positionOutput || n.type === 'Null') result = read('position');
@@ -1496,6 +1579,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     transformState(id) {
       const n = byId.get(id);
       if (n?.type !== 'Transform') throw Error('Select a Transform');
+      if (n.bypassed) throw Error('Restore the Transform before editing its canvas handles');
       run(id);
       return {
         anchor: n.params.anchor ? readParameter(n, 'anchor') : [0, 0],
@@ -1747,7 +1831,7 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(doc.schemaVersion))
+  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(doc.schemaVersion))
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   text(doc.name);
@@ -1774,6 +1858,9 @@ export function validate(doc) {
       id(n.id);
       validateReference(n);
       text(n.name);
+      if (n.bypassed !== undefined && (typeof n.bypassed !== 'boolean' || doc.schemaVersion < 10))
+        throw Error('Node bypass requires a boolean and schemaVersion 10');
+      bypassInput(n);
       vec(n.position);
       if (n.width !== undefined && (!Number.isFinite(n.width) || n.width < 220 || n.width > 550))
         throw Error('Invalid node width');
