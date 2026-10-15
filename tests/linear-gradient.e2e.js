@@ -231,6 +231,13 @@ try {
     await page.evaluate(() => window.nect.document.layers[0].name),
     'Changed after save',
   );
+  // Renaming schedules a structural render. Await its layer-list text before resolving
+  // the hidden file input, otherwise that input may detach during setInputFiles.
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('.layer .name')].some(
+      (el) => el.textContent === 'Changed after save',
+    ),
+  );
   await page
     .locator('#open-file')
     .setInputFiles({ name: 'gradient.json', mimeType: 'application/json', buffer: json });
@@ -283,6 +290,19 @@ try {
   console.log(
     'Linear Gradient Fill: real controls, type guards, fallbacks, locks/history, JSON/SVG/PNG and alpha pixels verified.',
   );
+} catch (error) {
+  const diagnostic = await page.evaluate(() => ({
+    status: document.querySelector('.status .message')?.textContent,
+    layer: window.nect?.document.layers[0].name,
+    files: [...(document.querySelector('#open-file')?.files || [])].map((f) => f.name),
+  }));
+  console.error('Gradient failure diagnostic:', JSON.stringify(diagnostic));
+  await fs.writeFile(
+    'test-results/workflow-linear-gradient-failure.json',
+    JSON.stringify(diagnostic, null, 2),
+  );
+  await page.screenshot({ path: 'test-results/linear-gradient-failure.png', fullPage: true });
+  throw error;
 } finally {
   await browser.close();
 }
