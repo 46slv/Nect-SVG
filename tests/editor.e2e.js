@@ -71,26 +71,45 @@ try {
   // Interrupted canvas gestures neither commit history nor resume on a later pointer move.
   const beforeInterruptedDrag = await page.evaluate(() => JSON.stringify(window.nect.document));
   const canvas = await page.locator('.artboard').boundingBox();
-  await page.locator('.artboard').dispatchEvent('pointerdown', {
-    clientX: canvas.x + 50,
-    clientY: canvas.y + 50,
-    button: 0,
-  });
-  await page.evaluate(
-    ({ x, y }) => {
-      document.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y }));
-    },
-    { x: canvas.x + 80, y: canvas.y + 70 },
+  assert.equal(
+    await page
+      .locator('.artboard')
+      .evaluate((el, point) => el.contains(document.elementFromPoint(point.x, point.y)), {
+        x: canvas.x + 50,
+        y: canvas.y + 50,
+      }),
+    true,
+    'Interrupted gesture starts on the actual artboard',
   );
+  // Captured artwork gestures need a real active browser pointer. A fabricated
+  // pointerdown cannot be captured in Chrome and would test an impossible input path.
+  await page.evaluate(() => {
+    document.addEventListener(
+      'pointerdown',
+      (event) => {
+        window.interruptedPointerId = event.pointerId;
+      },
+      { once: true },
+    );
+  });
+  await page.mouse.move(canvas.x + 50, canvas.y + 50);
+  await page.mouse.down();
+  await page.mouse.move(canvas.x + 80, canvas.y + 70, { steps: 4 });
   assert.notEqual(
     await page.evaluate(() => JSON.stringify(window.nect.document)),
     beforeInterruptedDrag,
   );
   await page.evaluate(() => {
-    document.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true }));
-    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 700, clientY: 600 }));
-    document.dispatchEvent(new PointerEvent('pointerup', { clientX: 700, clientY: 600 }));
+    const pointerId = window.interruptedPointerId;
+    document.dispatchEvent(new PointerEvent('pointercancel', { pointerId, bubbles: true }));
+    document.dispatchEvent(
+      new PointerEvent('pointermove', { pointerId, clientX: 700, clientY: 600 }),
+    );
+    document.dispatchEvent(
+      new PointerEvent('pointerup', { pointerId, clientX: 700, clientY: 600 }),
+    );
   });
+  await page.mouse.up();
   assert.equal(
     await page.evaluate(() => JSON.stringify(window.nect.document)),
     beforeInterruptedDrag,
