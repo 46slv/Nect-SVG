@@ -2513,6 +2513,10 @@ app.addEventListener('change', async (e) => {
       'Pair kerning updated',
       true,
     );
+    // A committed or rejected edit is no longer a draft. In particular, do not
+    // let focus restoration carry a rejected path-overflow value into the render.
+    const committed = selectedNode().characterPositions?.kerningPairs?.[pair.key];
+    el.value = committed === undefined ? '' : String(committed);
     return;
   }
   if (d.characterStyle !== undefined) {

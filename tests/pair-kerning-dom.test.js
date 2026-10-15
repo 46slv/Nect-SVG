@@ -5,6 +5,7 @@ import { Window } from 'happy-dom';
 import {
   document as makeDoc,
   node,
+  point,
   connect,
   setCharacterOffsets,
   setCharacterTransforms,
@@ -304,6 +305,50 @@ test('pair kerning controls: caret/range identity, sparse history, scrub/cancel,
   assert.equal(win.nect.evaluate().textLayout(t.id).lines.length, 1);
   assert.doesNotMatch(q('.pair-kerning').textContent, /At a wrap break/);
   assert.equal(read().characterPositions.kerningPairs['c2:c3'], 250);
+  // Rejected path edits restore inherited, explicit zero and authored values,
+  // even if focus restoration runs while the numeric input remains focused.
+  for (const committed of [undefined, 0, -100]) {
+    await load((n, d) => {
+      const curve = node('Curve');
+      curve.points = [point(0, 200), point(500, 200)];
+      curve.params.closed.value = false;
+      d.layers[0].nodes.push(curve);
+      n.pathAttachment = {
+        nodeId: curve.id,
+        contourId: curve.id,
+        startMode: 'distance',
+        start: 0,
+        reversed: false,
+      };
+      d.schemaVersion = 7;
+      if (committed !== undefined) {
+        n.characterPositions = setCharacterKerningPairs(n.text, undefined, { 'c1:c2': committed });
+        d.schemaVersion = 9;
+      }
+    });
+    range(1);
+    const pathBefore = saved(),
+      previousField = field(),
+      expected = committed === undefined ? '' : String(committed);
+    previousField.focus();
+    previousField.value = '-100000';
+    previousField.dispatchEvent(new win.Event('change', { bubbles: true }));
+    assert.equal(saved(), pathBefore);
+    assert.match(q('.message').textContent, /TEXT_PATH_/);
+    assert.equal(previousField.value, expected);
+    await tick();
+    assert.equal(previousField.isConnected, false);
+    assert.equal(field().value, expected);
+    assert.equal(document.activeElement, field());
+    empty();
+    field().value = '-100000';
+    field().dispatchEvent(
+      new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    assert.equal(field().value, expected);
+    assert.equal(saved(), pathBefore);
+    empty();
+  }
   // Raw CRLF survives the numeric field's target identity without HTML normalization.
   await load((n) => {
     n.text = 'AV\r\nAV';

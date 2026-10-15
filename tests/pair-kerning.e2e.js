@@ -76,8 +76,13 @@ try {
   };
   const input = () => page.locator('[data-character-kerning]');
   const edit = async (value) => {
-    await input().fill(String(value));
-    await input().press('Tab');
+    const previous = await input().elementHandle();
+    await previous.fill(String(value));
+    await previous.press('Tab');
+    // Both accepted values and rejected path edits render on the next task.
+    // Wait for that render before inspecting the committed numeric control.
+    await page.waitForFunction((el) => !el.isConnected, previous);
+    await previous.dispose();
   };
   const undo = () => page.locator('[data-action="undo"]').click();
   const empty = async () =>
