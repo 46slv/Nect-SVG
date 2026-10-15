@@ -122,9 +122,12 @@ try {
   assert.equal(await saved(), aligned);
   // Numeric source movement and transformed geometry refresh without changing text IDs.
   await inspect(ids.curve);
-  const field = controls().locator(
-    `[data-node="${ids.curve}"][data-key="${await page.evaluate((id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).points[0].id, ids.curve)}.position"]`,
-  );
+  // Curve points live in the expanded graph node, not in the Inspector.
+  const field = page
+    .locator('.graph')
+    .locator(
+      `[data-node="${ids.curve}"][data-key="${await page.evaluate((id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).points[0].id, ids.curve)}.position"]`,
+    );
   await field.locator('[data-value][data-axis="1"]').fill('260');
   await field.locator('[data-value][data-axis="1"]').press('Tab');
   const editedSource = await saved();
