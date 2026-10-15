@@ -208,7 +208,10 @@ try {
   ]) {
     await page.setViewportSize(size);
     await load(blank);
+    await click('new');
     await click('fit');
+    assert.equal(await page.locator('.inspector-body h3').innerText(), 'Empty composition');
+    assert.equal(await page.locator('.node.selected').count(), 0);
     const button = page.locator('[data-action="add-blank-layer"]'),
       box = await button.boundingBox();
     assert.ok(box.x >= 0 && box.x + box.width <= size.width && box.y + box.height <= size.height);

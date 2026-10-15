@@ -130,8 +130,7 @@ try {
   await edit(-125.5);
   assert.deepEqual(await pairs(), { 'c1:c2': -125.5 });
   let before = await saved();
-  await input().fill('100001');
-  await input().press('Tab');
+  await edit(100001);
   assert.equal(await saved(), before);
   await input().fill('80');
   await input().press('Escape');
