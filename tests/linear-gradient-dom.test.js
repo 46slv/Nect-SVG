@@ -7,7 +7,14 @@ import '../src/core.js';
 test('Linear Gradient Fill controls, typed sources, fallback, invalid endpoint rollback, scrub guards and history', async () => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
-  for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint', 'requestAnimationFrame'])
+  for (const key of [
+    'window',
+    'document',
+    'HTMLElement',
+    'DOMPoint',
+    'DOMParser',
+    'requestAnimationFrame',
+  ])
     globalThis[key] = key === 'requestAnimationFrame' ? () => 0 : win[key];
   globalThis.DOMPoint = class {
     constructor(x, y) {
@@ -78,6 +85,14 @@ test('Linear Gradient Fill controls, typed sources, fallback, invalid endpoint r
     new win.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 1 }),
   );
   assert.equal(field('path').dataset.type, 'PaintedPath');
+  assert.match(
+    document.querySelector('.inspector-body').textContent,
+    /Import SVG reopens our exported two-stop gradients/,
+  );
+  assert.doesNotMatch(
+    document.querySelector('.inspector-body').textContent,
+    /SVG gradient import is not supported/,
+  );
   assert.match(document.querySelector('.inspector-body').textContent, /absolute artboard/);
   assert.equal(document.querySelectorAll('.artboard linearGradient').length, 1);
   for (const key of ['start', 'end']) assert.equal(field(key).dataset.type, 'Vector2');
@@ -152,5 +167,39 @@ test('Linear Gradient Fill controls, typed sources, fallback, invalid endpoint r
   win.nect.load(json);
   assert.equal(saved(), json);
   assert.equal(win.nect.export(), svg);
+  // Exercise the real file-open handler, including one-step history and late
+  // rejection. A parser success alone must never imply the UI changed atomically.
+  const importFile = async (text) => {
+    const input = document.querySelector('#import-svg-file');
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [{ name: 'gradient.svg', size: text.length, text: async () => text }],
+    });
+    input.dispatchEvent(new win.Event('change', { bubbles: true }));
+    await tick();
+  };
+  await importFile(svg);
+  const imported = saved();
+  assert.notEqual(imported, json);
+  assert.ok(win.nect.document.layers[0].nodes.some((n) => n.type === 'Linear Gradient Fill'));
+  assert.equal(win.nect.export(), svg);
+  for (const invalid of [
+    svg.replace('spreadMethod="pad"', 'spreadMethod="reflect"'),
+    svg.replace('</svg>', '<rect onload="alert(1)"/></svg>'),
+    svg.replace('<linearGradient ', '<linearGradient href="#loop" '),
+    svg.replace('url(#nect-gradient-0)', 'url(#missing)'),
+  ]) {
+    await importFile(invalid);
+    assert.match(document.querySelector('.status .message').textContent, /Open rejected/);
+    assert.equal(saved(), imported);
+  }
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(saved(), json);
+  document.querySelector('[data-action="redo"]').click();
+  assert.equal(saved(), imported);
+  await importFile(svg);
+  assert.notEqual(saved(), imported); // Fresh node IDs, independently editable graph.
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(saved(), imported);
   win.close();
 });

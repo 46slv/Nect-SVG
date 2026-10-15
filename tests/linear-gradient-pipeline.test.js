@@ -234,7 +234,10 @@ test('gradient SVG carries absolute endpoints, stop alpha, sRGB and pad without 
   );
   assert.equal(dom.querySelector('path').hasAttribute('fill-opacity'), false);
   assert.equal(dom.querySelector('path').getAttribute('d'), pathData(evaluate(l).run(shape.id)));
-  assert.throws(() => importSVG(exportSVG(doc), Parser), /Unsupported|gradient|fill|element/i);
+  assert.deepEqual(
+    evaluate(importSVG(exportSVG(doc), Parser).layers[0]).path.fill,
+    evaluate(l).path.fill,
+  );
   const fill = append(l, 'Fill', shape);
   fill.params.color.value = { hex: '#12abEF', alpha: 0.375 };
   connect(l, fill.id, out.id, 'path');
@@ -245,9 +248,10 @@ test('gradient SVG carries absolute endpoints, stop alpha, sRGB and pad without 
 });
 
 test('gradient paint keeps text character identity and occurrence metadata unchanged', () => {
-  const { l, gradient } = scene(),
+  const { doc, l, gradient } = scene(),
     text = node('Text');
   text.text = 'AB';
+  doc.schemaVersion = 3;
   text.characterPositions = createCharacterPositions(text.text);
   l.nodes.push(text);
   connect(l, text.id, gradient.id, 'path');
@@ -260,6 +264,10 @@ test('gradient paint keeps text character identity and occurrence metadata uncha
   assert.deepEqual(r.path.characterOccurrences, source.characterOccurrences);
   assert.deepEqual(r.path.contours, source.contours);
   assert.equal(pathData(r.path), pathData(source));
+  const imported = importSVG(exportSVG(doc, { default: font }), Parser);
+  assert.ok(imported.layers[0].nodes.every((n) => n.type !== 'Text'));
+  assert.equal(pathData(evaluate(imported.layers[0]).path), pathData(r.path));
+  assert.deepEqual(evaluate(imported.layers[0]).path.fill, r.path.fill);
 });
 
 test('editable gradient sample roundtrips with byte-identical CLI SVG', () => {

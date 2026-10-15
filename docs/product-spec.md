@@ -322,4 +322,4 @@ Reference exposes one non-rendering Vector2 output selected by stable same-layer
 
 ## Linear Gradient Fill（2 点の線形グラデーション）
 
-Path / PaintedPath → Linear Gradient Fill → PaintedPath。start / end はアートボード座標 px の Vector2、startColor / endColor は既存の Color（HEX + alpha）。直接値・接続・切断時 fallback・ロック・履歴・JSON を保持する。形状操作はペイント前に置き、Repeater の全コピーで一つの空間的な色変化を共有する。塗りだけを置換し、線・形状・文字の識別情報を維持する。Canvas / SVG / 透過 PNG は同じ描画経路を使う。再編集は JSON を使用し、グラデーション SVG の読み込みは引き続き未対応。複数 stop、radial、gradient stroke、canvas endpoint handle は含めない。[詳しい仕様と検証](linear-gradient-fill.md)。
+Path / PaintedPath → Linear Gradient Fill → PaintedPath。start / end はアートボード座標 px の Vector2、startColor / endColor は既存の Color（HEX + alpha）。直接値・接続・切断時 fallback・ロック・履歴・JSON を保持する。形状操作はペイント前に置き、Repeater の全コピーで一つの空間的な色変化を共有する。塗りだけを置換し、線・形状・文字の識別情報を維持する。Canvas / SVG / 透過 PNG は同じ描画経路を使う。完全なグラフの再編集は JSON を使用する。自分で書き出した 2-stop / userSpaceOnUse / pad / sRGB の SVG は、安全なローカル定義のみを検証して編集可能なパスと塗りノードとして再読込できる。元の手続きグラフやアウトライン化前の編集可能なテキストは復元しない。複数 stop、radial、gradient stroke、canvas endpoint handle は含めない。[詳しい仕様と検証](linear-gradient-fill.md)。

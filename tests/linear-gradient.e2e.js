@@ -30,7 +30,14 @@ async function pixels(data, mime) {
       c.height = image.height;
       const x = c.getContext('2d');
       x.drawImage(image, 0, 0);
+      const digest = await crypto.subtle.digest(
+        'SHA-256',
+        x.getImageData(0, 0, c.width, c.height).data,
+      );
       return {
+        rgbaSha256: [...new Uint8Array(digest)]
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join(''),
         size: [c.width, c.height],
         points: [
           [30, 60],
@@ -247,16 +254,98 @@ try {
   assert.deepEqual(await page.evaluate(() => window.nect.document), JSON.parse(json));
   const reopened = await page.evaluate(() => window.nect.export());
   assert.equal(reopened, svg.toString());
-  // Safe SVG import deliberately refuses paint-server markup without replacing the document.
+  // Reopen our evaluated gradient artwork through the actual SVG file control.
   const saved = await page.evaluate(() => JSON.stringify(window.nect.document));
   await page
     .locator('#import-svg-file')
     .setInputFiles({ name: 'gradient.svg', mimeType: 'image/svg+xml', buffer: svg });
-  await page.waitForFunction(() => {
-    const status = document.querySelector('.status .message')?.textContent || '';
-    return status.includes('Open rejected') && status.includes('Unsupported SVG element');
+  await page.waitForFunction(() =>
+    window.nect.document.layers.every((l) => l.nodes.some((n) => n.type === 'Imported Path')),
+  );
+  const imported = await page.evaluate(() => JSON.stringify(window.nect.document));
+  const importedTypes = await page.evaluate(() =>
+    window.nect.document.layers.map((l) => l.nodes.map((n) => n.type)),
+  );
+  assert.equal(importedTypes.length, 2);
+  assert.ok(
+    importedTypes.every(
+      (types) => types.includes('Linear Gradient Fill') && types.includes('Join Geometry'),
+    ),
+  );
+  const importedSvg = await download('export', 'test-results/workflow-gradient-reopened.svg');
+  const importedPng = await download('export-png', 'test-results/workflow-gradient-reopened.png');
+  const reopenedSvgPixels = await pixels(importedSvg, 'image/svg+xml');
+  const reopenedPngPixels = await pixels(importedPng, 'image/png');
+  assert.deepEqual(reopenedSvgPixels, svgPixels); // Full RGBA digest, not just a few points.
+  assert.deepEqual(reopenedPngPixels, pngPixels);
+  const importedGradient = await page.evaluate(
+    () => window.nect.document.layers[0].nodes.find((n) => n.type === 'Linear Gradient Fill').id,
+  );
+  await inspect(importedGradient);
+  await field(importedGradient, 'endColor').locator('[data-color="hex"]').fill('#fedcba');
+  await field(importedGradient, 'endColor').locator('[data-color="hex"]').press('Tab');
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('.artboard linearGradient stop:last-child')
+        ?.getAttribute('stop-color') === '#fedcba',
+  );
+  await page.locator('[data-action="undo"]').click();
+  await page.waitForFunction(
+    (snapshot) => JSON.stringify(window.nect.document) === snapshot,
+    imported,
+  );
+  // Rejected imports create no history entry, never fetch a paint resource, and
+  // do not replace the document even when invalid content occurs after good paths.
+  const attemptedResources = [];
+  page.on('request', (request) => {
+    if (request.url().includes('example.invalid')) attemptedResources.push(request.url());
   });
-  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), saved);
+  const rejected = [
+    svg
+      .toString()
+      .replace(
+        '<linearGradient ',
+        '<linearGradient href="https://example.invalid/paint.svg#ramp" ',
+      ),
+    svg.toString().replace('<linearGradient ', '<linearGradient gradientTransform="scale(2)" '),
+    svg.toString().replace('url(#nect-gradient-0)', 'url(#missing)'),
+    svg.toString().replace('stop-opacity="0.75"', 'stop-opacity="2"'),
+    svg.toString().replace('spreadMethod="pad"', 'spreadMethod="repeat"'),
+    svg.toString().replace('offset="1"', 'offset="0.5"'),
+    svg.toString().replace('</svg>', '<rect onload="alert(1)"/></svg>'),
+    svg
+      .toString()
+      .replace('</svg>', '<defs><linearGradient href="#cycle" id="cycle"/></defs></svg>'),
+    svg.toString().replace('</svg>', '<g></svg>'),
+    svg.toString().replace('<linearGradient ', '<linearGradient id="duplicate" '),
+    svg.toString().replace('</svg>', '<unknown/></svg>'),
+  ];
+  for (const [index, invalid] of rejected.entries()) {
+    await page.evaluate(() => {
+      document.querySelector('.status .message').textContent = 'Checking rejected import';
+    });
+    await page.locator('#import-svg-file').setInputFiles({
+      name: `rejected-${index}.svg`,
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from(invalid),
+    });
+    await page.waitForFunction(() =>
+      document.querySelector('.status .message')?.textContent.includes('Open rejected'),
+    );
+    assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), imported);
+  }
+  assert.deepEqual(attemptedResources, []);
+  await page.locator('[data-action="undo"]').click();
+  await page.waitForFunction(
+    (snapshot) => JSON.stringify(window.nect.document) === snapshot,
+    saved,
+  );
+  await page.locator('[data-action="redo"]').click();
+  await page.waitForFunction(
+    (snapshot) => JSON.stringify(window.nect.document) === snapshot,
+    imported,
+  );
   await page
     .locator('#open-file')
     .setInputFiles({ name: 'gradient.json', mimeType: 'application/json', buffer: json });
@@ -280,7 +369,14 @@ try {
         disconnectFallback: true,
         locksHistory: true,
         jsonReload: true,
-        svgImportRejected: true,
+        svgReopened: true,
+        reopenedSvgPixels,
+        reopenedPngPixels,
+        importedTypes,
+        rejectedImportCases: rejected.length,
+        rejectedImportsAtomic: true,
+        importUndoRedo: true,
+        attemptedResources,
         pageErrors: errors,
       },
       null,
@@ -288,7 +384,7 @@ try {
     ),
   );
   console.log(
-    'Linear Gradient Fill: real controls, type guards, fallbacks, locks/history, JSON/SVG/PNG and alpha pixels verified.',
+    'Linear Gradient Fill: real controls, type guards, fallbacks, locks/history, JSON/SVG/PNG, safe gradient SVG reopen, atomic hostile rejection and full RGBA parity verified.',
   );
 } catch (error) {
   const diagnostic = await page.evaluate(() => ({

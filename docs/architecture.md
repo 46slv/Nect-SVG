@@ -55,9 +55,9 @@ An evaluation failure reports an error instead of overwriting stored source data
 
 ## SVG import scope
 
-Supported: zero-origin viewBox, pixel/unitless dimensions, nested groups with solid inherited fills/strokes, independent numeric paint alpha (0–1), and bounded pixel stroke widths, nonzero compound paths, circles, ellipses, unrounded rectangles. Each imported graphic becomes its own composition with Remap, explicit Fill/Stroke, and Output. Imported path geometry is retained as immutable source path data, with secondary editing through Remap. Own exported SVG metadata preserves layer names.
+Supported: zero-origin viewBox, pixel/unitless dimensions, nested groups with inherited solid fills/strokes and the explicit two-stop local linear-gradient fill subset, independent numeric paint alpha (0–1), and bounded pixel stroke widths, nonzero compound paths, circles, ellipses, unrounded rectangles. Each imported graphic becomes its own composition with Remap, explicit Fill/Linear Gradient Fill/Stroke, and Output. Imported path geometry is retained as immutable source path data, with secondary editing through Remap. Own exported SVG metadata preserves layer names.
 
-Rejected: scripts, external references, declarations/entities, styles/CSS/classes, transformations, nested viewports, clipping/masks/filters, group/object opacity, gradients, unsupported stroke styles/units, even-odd fill and rounded rectangles. Rejection preserves the currently open project. This is intentionally a subset, not arbitrary SVG fidelity.
+Rejected: scripts, external references, declarations/entities, styles/CSS/classes, transformations, nested viewports, clipping/masks/filters, group/object opacity, unsupported gradients, unsupported stroke styles/units, even-odd fill and rounded rectangles. Rejection preserves the currently open project. All gradient definitions, exact local references, namespaces and resource budgets are checked before graph construction; see [the safe reopening contract](linear-gradient-fill.md#safe-svg-reopening-contract). This is intentionally a subset, not arbitrary SVG fidelity.
 
 ## Individual Remap controls and graph layout
 
@@ -71,11 +71,11 @@ Node width (optional, 220–550 px) and position are editor state excluded from 
 
 Color is a separate socket type with a serializable `{hex: "#RRGGBB", alpha: 0..1}` value. Color inputs preserve the source/fallback/lock model and reject numeric expressions. Fill, Linear Gradient Fill and Stroke accept Path or PaintedPath and output PaintedPath. `socketCompatible` is shared by validation, evaluation, selectors, and drag highlighting. Boolean/Transform/Remap/conversion nodes accept only Path, keeping geometry before painting. Output accepts either Path or PaintedPath; an unpainted Path renders with `fill="none"`.
 
-Fill replaces only `fill`; Stroke replaces only `stroke` (`{hex,alpha,width,cap,join,dash,miterLimit,dashOffset}`), cloning upstream geometry before changing it. Repeated same-channel nodes use the last value. Width is a finite 0–100000 px Scalar; zero width and zero alpha are preserved. SVG uses standard fill-then-stroke order, and PNG rasterizes the identical scene. Solid fill/stroke colors, independent alpha inheritance, open paths and stroke-only shapes import explicitly. CSS, gradients, unsupported stroke styles/units, transforms and general/group opacity remain rejected.
+Fill replaces only `fill`; Stroke replaces only `stroke` (`{hex,alpha,width,cap,join,dash,miterLimit,dashOffset}`), cloning upstream geometry before changing it. Repeated same-channel nodes use the last value. Width is a finite 0–100000 px Scalar; zero width and zero alpha are preserved. SVG uses standard fill-then-stroke order, and PNG rasterizes the identical scene. Solid fill/stroke colors, independent alpha inheritance, open paths and stroke-only shapes import explicitly. CSS, unsupported gradients, unsupported stroke styles/units, transforms and general/group opacity remain rejected.
 
 Schema-v1 migration inserts a Fill before each old Output, copying the complete old Output.fill parameter including source, fallback, expression and lock. Missing fill becomes null; only Fill.color permits null to retain the old live layer.fill fallback. Layer fill remains serialized for legacy fidelity but has no editor control. Output owns only its path. Old geometry consumers of Output are redirected to its pre-paint geometry, preserving editing order. Existing node/layer/asset/guide IDs remain intact. Migration is idempotent, checks the 2000-node limit after insertion, never auto-saves, and the normal validator rejects malformed migrated values. New default layers, shape tools, Pen, and “Use as output” create explicit Fill nodes.
 
-Paint stacks with multiple fills/strokes, gradients, mixing and color-management conversion remain outside this implementation.
+Paint stacks with multiple fills/strokes, gradients beyond the two-stop linear fill, mixing and color-management conversion remain outside this implementation.
 
 ### Graph viewport navigation
 

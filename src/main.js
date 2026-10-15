@@ -407,7 +407,7 @@ function offsetControls(n) {
 }
 function gradientControls(n) {
   return n.type === 'Linear Gradient Fill'
-    ? '<p class="font-note">Two colors in absolute artboard coordinates (px). Start and end must differ. Geometry / Transform / Repeater go before paint; repeated copies share one ramp. Each stop keeps its alpha. Save JSON to reopen this editable gradient; SVG gradient import is not supported yet.</p>'
+    ? '<p class="font-note">Two colors in absolute artboard coordinates (px). Start and end must differ. Geometry / Transform / Repeater go before paint; repeated copies share one ramp. Each stop keeps its alpha. Save JSON to preserve the full procedural graph. Import SVG reopens our exported two-stop gradients as editable paths and paint nodes.</p>'
     : '';
 }
 function strokeControls(n) {
