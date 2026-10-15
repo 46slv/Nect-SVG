@@ -2,6 +2,7 @@ export { objectResizeHandles, resizedObjectValue } from './object-resize.js';
 import { validateImageAssets, imageURL } from './images.js';
 import { validateGuides } from './guides.js';
 import { createLinearGradientFill, renderLinearGradientFill } from './linear-gradient.js';
+import { createRadialGradientFill, renderRadialGradientFill } from './radial-gradient.js';
 export {
   guideDefaults,
   guideSettings,
@@ -124,6 +125,13 @@ export const definitions = {
     startColor: p('Color', { hex: '#ff6b35', alpha: 1 }),
     endColor: p('Color', { hex: '#6554c0', alpha: 1 }),
   },
+  'Radial Gradient Fill': {
+    path: p('PaintedPath', null),
+    center: p('Vector2', [350, 250]),
+    radius: p('Scalar', 150),
+    startColor: p('Color', { hex: '#fff3b0', alpha: 1 }),
+    endColor: p('Color', { hex: '#d94862', alpha: 1 }),
+  },
   Stroke: {
     path: p('PaintedPath', null),
     color: p('Color', { hex: '#36434e', alpha: 1 }),
@@ -156,6 +164,13 @@ export function closedOffsetSettings(read) {
 export function linearGradientSettings(read) {
   return createLinearGradientFill(
     Object.fromEntries(['start', 'end', 'startColor', 'endColor'].map((key) => [key, read(key)])),
+  );
+}
+export function radialGradientSettings(read) {
+  return createRadialGradientFill(
+    Object.fromEntries(
+      ['center', 'radius', 'startColor', 'endColor'].map((key) => [key, read(key)]),
+    ),
   );
 }
 // Keep count validation shared by JSON/direct input and resolved expression/socket input.
@@ -317,7 +332,8 @@ export function outputType(n, port) {
   if (port !== undefined) return undefined;
   if (n.type === 'Vector Math')
     return ['length', 'distance', 'dot'].includes(n.operation) ? 'Scalar' : 'Vector2';
-  if (['Fill', 'Linear Gradient Fill', 'Stroke', 'Output'].includes(n.type)) return 'PaintedPath';
+  if (['Fill', 'Linear Gradient Fill', 'Radial Gradient Fill', 'Stroke', 'Output'].includes(n.type))
+    return 'PaintedPath';
   if (n.type === 'Color') return 'Color';
   if (n.type === 'Image' || n.type === 'Image Output') return 'Image';
   return ['Value', 'Expression', 'Math'].includes(n.type)
@@ -1328,6 +1344,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         result = clone(result);
         if (n.type === 'Fill') result.fill = read('color');
         if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
+        if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
         if (n.type === 'Stroke') {
           const width = read('width');
           if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
@@ -1819,6 +1836,7 @@ export function validate(doc) {
       for (const [key, def] of Object.entries(definitions[n.type]))
         param(n.params[key], def.type, n.type === 'Fill' && key === 'color');
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
+      if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
       if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
       if (['Polygon', 'Star'].includes(n.type))
         radialSettings(n.type, (key) => n.params[key].value);
@@ -1918,7 +1936,12 @@ export function renderElement(
   }
   const fill = value.fill,
     stroke = value.stroke,
-    gradient = fill?.kind === 'linear-gradient' ? renderLinearGradientFill(fill, gradientId) : null;
+    gradient =
+      fill?.kind === 'linear-gradient'
+        ? renderLinearGradientFill(fill, gradientId)
+        : fill?.kind === 'radial-gradient'
+          ? renderRadialGradientFill(fill, gradientId)
+          : null;
   if (fill && !gradient) assertValue('Color', fill);
   if (stroke) {
     assertValue('Color', { hex: stroke.hex, alpha: stroke.alpha });

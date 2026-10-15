@@ -8,6 +8,7 @@ import {
   validateStrokeStyle,
 } from './core.js';
 import { createLinearGradientFill } from './linear-gradient.js';
+import { createRadialGradientFill } from './radial-gradient.js';
 
 // Bound work before geometry construction; referenced and unused definitions are
 // validated alike. These limits are deliberately lower than the project format.
@@ -36,7 +37,7 @@ const solidColor = (raw) => {
   raw = Object.hasOwn(named, raw) ? named[raw] : raw;
   if (!/^#[0-9a-f]{6}$/i.test(raw))
     throw Error(
-      'Import supports solid hex/basic named colors and supported local linear gradient fills only',
+      'Import supports solid hex/basic named colors and supported local gradient fills only',
     );
   return raw;
 };
@@ -67,6 +68,7 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
     'desc',
     'defs',
     'linearGradient',
+    'radialGradient',
     'stop',
   ]);
   const elements = [root, ...root.querySelectorAll('*')],
@@ -87,10 +89,10 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
       const validParent =
         tag === 'defs'
           ? el.parentElement === root
-          : tag === 'linearGradient'
+          : ['linearGradient', 'radialGradient'].includes(tag)
             ? parent === 'defs'
             : tag === 'stop'
-              ? parent === 'linearGradient'
+              ? ['linearGradient', 'radialGradient'].includes(parent)
               : ['title', 'desc'].includes(tag)
                 ? ['svg', 'g', 'path', 'circle', 'ellipse', 'rect'].includes(parent)
                 : ['svg', 'g'].includes(parent);
@@ -153,9 +155,21 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
         'spreadMethod',
         'color-interpolation',
       ],
+      radialGradient: [
+        'id',
+        'gradientUnits',
+        'cx',
+        'cy',
+        'r',
+        'fx',
+        'fy',
+        'fr',
+        'spreadMethod',
+        'color-interpolation',
+      ],
       stop: ['offset', 'stop-color', 'stop-opacity'],
     };
-    const permitted = ['defs', 'linearGradient', 'stop'].includes(tag)
+    const permitted = ['defs', 'linearGradient', 'radialGradient', 'stop'].includes(tag)
       ? attrs[tag]
       : [...common, ...attrs[tag]];
     for (const attr of el.attributes)
@@ -207,7 +221,9 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
   };
   // Collect definitions first so forward references work, without fetching URLs or
   // asking a browser/Paper importer to interpret untrusted paint-server markup.
-  for (const el of elements.filter((el) => el.localName === 'linearGradient')) {
+  for (const el of elements.filter((el) =>
+    ['linearGradient', 'radialGradient'].includes(el.localName),
+  )) {
     if (gradients.size >= SVG_IMPORT_LIMITS.gradients) throw Error('SVG exceeds gradient budget');
     const id = el.getAttribute('id');
     if (
@@ -217,7 +233,7 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
       el.getAttribute('spreadMethod') !== 'pad' ||
       el.getAttribute('color-interpolation') !== 'sRGB'
     )
-      throw Error('Unsupported linear gradient: require a local ID, userSpaceOnUse, pad and sRGB');
+      throw Error('Unsupported gradient: require a local ID, userSpaceOnUse, pad and sRGB');
     const stops = [...el.children];
     if (
       stops.length !== 2 ||
@@ -225,34 +241,48 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
         (stop, i) => stop.localName !== 'stop' || stop.getAttribute('offset') !== String(i),
       )
     )
-      throw Error('Linear gradient requires exactly two stops at 0 and 1');
+      throw Error('Gradient requires exactly two stops at 0 and 1');
     const colors = stops.map((stop) => {
       const hex = solidColor(stop.getAttribute('stop-color') || '');
-      if (!hex) throw Error('Linear gradient stop requires a solid color');
+      if (!hex) throw Error('Gradient stop requires a solid color');
       return { hex, alpha: number(stop, 'stop-opacity', 1) };
     });
     const endpoint = (key) => {
       const raw = el.getAttribute(key);
-      // No percentages, units, missing endpoints or inherited defaults.
+      // No percentages, units, missing coordinates or inherited defaults.
       if (raw === null || !/^[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?$/i.test(raw))
-        throw Error('Linear gradient requires explicit finite endpoints');
+        throw Error('Gradient requires explicit finite coordinates');
       return number(el, key);
     };
-    gradients.set(
-      id,
-      createLinearGradientFill({
+    let fill;
+    if (el.localName === 'radialGradient') {
+      const center = [endpoint('cx'), endpoint('cy')],
+        radius = endpoint('r');
+      // Our renderer always writes the concentric focal values explicitly.
+      // Reject omitted defaults, offset foci and expanding focal circles.
+      if (endpoint('fx') !== center[0] || endpoint('fy') !== center[1] || endpoint('fr') !== 0)
+        throw Error('Radial gradient requires concentric fx/cx, fy/cy and fr=0');
+      fill = createRadialGradientFill({
+        center,
+        radius,
+        startColor: colors[0],
+        endColor: colors[1],
+      });
+    } else {
+      fill = createLinearGradientFill({
         start: [endpoint('x1'), endpoint('y1')],
         end: [endpoint('x2'), endpoint('y2')],
         startColor: colors[0],
         endColor: colors[1],
-      }),
-    );
+      });
+    }
+    gradients.set(id, fill);
   }
   const paint = (raw, allowGradient) => {
     const reference = localGradient.exec(raw);
     if (reference && reference[0] === raw && allowGradient) {
       const fill = gradients.get(reference[1]);
-      if (!fill) throw Error('Missing local linear gradient definition');
+      if (!fill) throw Error('Missing local gradient definition');
       return fill;
     }
     return solidColor(raw);
@@ -350,16 +380,26 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
       ['Stroke', stroke, strokeAlpha],
     ]) {
       if (!hex) continue;
-      const isGradient = type === 'Fill' && hex.kind === 'linear-gradient';
+      const isGradient =
+        type === 'Fill' && ['linear-gradient', 'radial-gradient'].includes(hex.kind);
       const paint = node(
-        isGradient ? 'Linear Gradient Fill' : type,
+        isGradient
+          ? hex.kind === 'radial-gradient'
+            ? 'Radial Gradient Fill'
+            : 'Linear Gradient Fill'
+          : type,
         type === 'Fill' ? 650 : 950,
         40,
       );
       paint.params.path.source = source;
       if (isGradient) {
-        paint.params.start.value = [...hex.start];
-        paint.params.end.value = [...hex.end];
+        if (hex.kind === 'radial-gradient') {
+          paint.params.center.value = [...hex.center];
+          paint.params.radius.value = hex.radius;
+        } else {
+          paint.params.start.value = [...hex.start];
+          paint.params.end.value = [...hex.end];
+        }
         paint.params.startColor.value = {
           ...hex.startColor,
           alpha: hex.startColor.alpha * opacity,
@@ -386,7 +426,9 @@ export function importSVG(text, Parser = globalThis.DOMParser) {
     if (owner) l.name = owner.getAttribute('data-layer') || l.name;
     const paintKey = JSON.stringify(
       l.nodes
-        .filter((n) => ['Fill', 'Linear Gradient Fill', 'Stroke'].includes(n.type))
+        .filter((n) =>
+          ['Fill', 'Linear Gradient Fill', 'Radial Gradient Fill', 'Stroke'].includes(n.type),
+        )
         .map((n) => [
           n.type,
           ...Object.entries(n.params).filter(([key]) => key !== 'path'),

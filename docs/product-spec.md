@@ -322,4 +322,10 @@ Reference exposes one non-rendering Vector2 output selected by stable same-layer
 
 ## Linear Gradient Fill（2 点の線形グラデーション）
 
-Path / PaintedPath → Linear Gradient Fill → PaintedPath。start / end はアートボード座標 px の Vector2、startColor / endColor は既存の Color（HEX + alpha）。直接値・接続・切断時 fallback・ロック・履歴・JSON を保持する。形状操作はペイント前に置き、Repeater の全コピーで一つの空間的な色変化を共有する。塗りだけを置換し、線・形状・文字の識別情報を維持する。Canvas / SVG / 透過 PNG は同じ描画経路を使う。完全なグラフの再編集は JSON を使用する。自分で書き出した 2-stop / userSpaceOnUse / pad / sRGB の SVG は、安全なローカル定義のみを検証して編集可能なパスと塗りノードとして再読込できる。元の手続きグラフやアウトライン化前の編集可能なテキストは復元しない。複数 stop、radial、gradient stroke、canvas endpoint handle は含めない。[詳しい仕様と検証](linear-gradient-fill.md)。
+Path / PaintedPath → Linear Gradient Fill → PaintedPath。start / end はアートボード座標 px の Vector2、startColor / endColor は既存の Color（HEX + alpha）。直接値・接続・切断時 fallback・ロック・履歴・JSON を保持する。形状操作はペイント前に置き、Repeater の全コピーで一つの空間的な色変化を共有する。塗りだけを置換し、線・形状・文字の識別情報を維持する。Canvas / SVG / 透過 PNG は同じ描画経路を使う。完全なグラフの再編集は JSON を使用する。自分で書き出した 2-stop / userSpaceOnUse / pad / sRGB の SVG は、安全なローカル定義のみを検証して編集可能なパスと塗りノードとして再読込できる。元の手続きグラフやアウトライン化前の編集可能なテキストは復元しない。複数 stop、gradient stroke、canvas endpoint handle は含めない。円形の Radial Gradient Fill は以下の独立した限定仕様で扱う。[詳しい仕様と検証](linear-gradient-fill.md)。
+
+## Radial Gradient Fill（同心円のグラデーション）
+
+Path / PaintedPath → Radial Gradient Fill → PaintedPath。center はアートボード座標 px の Vector2（各成分 ±100000）、radius は Scalar（0.0001〜100000 px）、startColor / endColor は HEX + alpha の Color。2 stop を 0 / 1 に固定し、userSpaceOnUse / pad / sRGB と同心の fx=cx / fy=cy / fr=0 を明示する。中心・半径の表示は有効な最小値を丸めず保持する。直接値・接続・式・fallback・ロック・履歴・JSON に対応し、形状と独立した線を維持する。
+
+Canvas / SVG / 透過 PNG は同じ描画経路を使い、同一レイヤーのグループは一つの空間的な円を共有する。自分で書き出した限定 SVG は塗りとパスを編集可能な状態に再読込できる。元の手続きグラフ・テキストは JSON を使用する。既存の linear import、外部参照拒否、名前空間・資源上限と一括拒否を維持する。楕円変換・焦点移動・追加 stop・グラデーション線・perceptual interpolation は含めない。Illustrator での実機比較や、Nect ネイティブへの SVG 直接互換性を主張しない。[詳細・資料・検証](radial-gradient-fill.md)。

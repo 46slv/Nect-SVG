@@ -111,6 +111,18 @@ try {
   assert.deepEqual(errors, []);
   assert.deepEqual(await page.evaluate(() => window.cspViolations), []);
 
+  // Render both gradient types together through the production-only module graph.
+  const radialSample = await readFile('examples/radial-gradient-fill.json', 'utf8');
+  await page.evaluate((sample) => window.nect.load(sample), radialSample);
+  assert.equal(await page.evaluate(() => window.nect.evaluate().error), null);
+  await page.waitForFunction(
+    () => document.querySelectorAll('.artboard radialGradient').length === 2,
+  );
+  assert.equal(await page.locator('.artboard linearGradient').count(), 1);
+  assert.match(await page.evaluate(() => window.nect.export()), /<radialGradient/);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(await page.evaluate(() => window.cspViolations), []);
+
   // A same-origin script proves Chromium really enforces the eval restriction.
   await page.addScriptTag({ url: '/csp-probe.js' });
   assert.equal(await page.locator('body').getAttribute('data-eval-probe'), 'EvalError');
@@ -124,6 +136,7 @@ try {
         startup: 'rendered',
         closedOffset: 'miter, bevel, round and erosion sample rendered/exported',
         color: 'typed source with alpha rendered and exported',
+        radialGradient: 'two concentric radial ramps plus linear paint rendered/exported',
         pageErrors: errors,
         evalProbe: 'EvalError',
       },

@@ -30,6 +30,7 @@ import {
   validateStrokeStyle,
   radialSettings,
   linearGradientSettings,
+  radialGradientSettings,
   closedOffsetSettings,
   assertClosedOffsetChange,
   setTextPathAttachment,
@@ -224,6 +225,10 @@ function resetTransient() {
 }
 // Bounds are shared by rendered controls and pointer scrubbing.
 function numericLimits(n, key) {
+  if (n.type === 'Radial Gradient Fill') {
+    if (key === 'center') return [-100000, 100000];
+    if (key === 'radius') return [0.0001, 100000];
+  }
   if (n.type === 'Closed Path Offset') {
     if (key === 'miterLimit') return [1, 100];
     if (key === 'amount') return [-100000, 100000];
@@ -281,7 +286,7 @@ function field(n, key, q) {
     control = (q.type === 'Vector2' ? displayed : [displayed])
       .map(
         (v, i) =>
-          `<input type="number" step="any" ${numericAttributes(n, key)} aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(v.toFixed?.(3) ?? v)}" ${locked ? 'disabled' : ''}>`,
+          `<input type="number" step="any" ${numericAttributes(n, key)} aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(n.type === 'Radial Gradient Fill' ? v : (v.toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
   return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
@@ -406,6 +411,8 @@ function offsetControls(n) {
     : '';
 }
 function gradientControls(n) {
+  if (n.type === 'Radial Gradient Fill')
+    return '<p class="font-note">Two colors in absolute artboard coordinates (px). Concentric circular ramp with radius from 0.0001 to 100000 px; center coordinates ±100000 px. No focal offsets or elliptical transform. Geometry / Transform / Repeater go before paint; repeated copies share one ramp. Each stop keeps its alpha. Save JSON to preserve the full procedural graph. Import SVG reopens our exported two-stop gradients as editable paths and paint nodes.</p>';
   return n.type === 'Linear Gradient Fill'
     ? '<p class="font-note">Two colors in absolute artboard coordinates (px). Start and end must differ. Geometry / Transform / Repeater go before paint; repeated copies share one ramp. Each stop keeps its alpha. Save JSON to preserve the full procedural graph. Import SVG reopens our exported two-stop gradients as editable paths and paint nodes.</p>'
     : '';
@@ -2458,7 +2465,9 @@ app.addEventListener('change', async (e) => {
           if (
             q.type !== 'Boolean' &&
             (!Number.isFinite(value) ||
-              (['Linear Gradient Fill', 'Closed Path Offset'].includes(nn.type) &&
+              (['Linear Gradient Fill', 'Radial Gradient Fill', 'Closed Path Offset'].includes(
+                nn.type,
+              ) &&
                 !el.value.trim()))
           )
             throw Error('Expected a finite number');
@@ -2486,6 +2495,8 @@ app.addEventListener('change', async (e) => {
             radialSettings(nn.type, (key) => nn.params[key].value);
           if (nn.type === 'Linear Gradient Fill')
             linearGradientSettings((key) => nn.params[key].value);
+          if (nn.type === 'Radial Gradient Fill')
+            radialGradientSettings((key) => nn.params[key].value);
           if (nn.type === 'Closed Path Offset') closedOffsetSettings((key) => nn.params[key].value);
         }
       }
@@ -3355,6 +3366,7 @@ document.addEventListener('pointermove', (e) => {
     else if (q.type === 'Vector2') q.value[d.axis] = value;
     else q.value = value;
     try {
+      if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
       if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
       assertClosedOffsetChange(
         current(),
