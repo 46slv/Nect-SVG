@@ -102,6 +102,15 @@ try {
   assert.deepEqual(errors, []);
   assert.deepEqual(await page.evaluate(() => window.cspViolations), []);
 
+  // Execute the pinned geometry engine in the production bundle under native CSP.
+  const offsetSample = await readFile('examples/closed-path-offset.json', 'utf8');
+  await page.evaluate((sample) => window.nect.load(sample), offsetSample);
+  assert.equal(await page.evaluate(() => window.nect.evaluate().error), null);
+  assert.equal(await page.locator('.artboard .shape').count(), 4);
+  assert.match(await page.evaluate(() => window.nect.export()), /fill="#2f6fa3"/);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(await page.evaluate(() => window.cspViolations), []);
+
   // A same-origin script proves Chromium really enforces the eval restriction.
   await page.addScriptTag({ url: '/csp-probe.js' });
   assert.equal(await page.locator('body').getAttribute('data-eval-probe'), 'EvalError');
@@ -113,6 +122,7 @@ try {
       {
         csp,
         startup: 'rendered',
+        closedOffset: 'miter, bevel, round and erosion sample rendered/exported',
         color: 'typed source with alpha rendered and exported',
         pageErrors: errors,
         evalProbe: 'EvalError',

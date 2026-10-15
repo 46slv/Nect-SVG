@@ -132,3 +132,9 @@ New documents remain schema2. XY-only stable-character records require schema3; 
 ## Linear gradient paint
 
 `linear-gradient.js` validates and copies a bounded two-stop descriptor and emits a bare paint-server definition. Core owns the typed node and replaces only fill. `renderElement` emits one definition per top-level layer and reuses its URL through contour-group rendering. Canvas and export allocate deterministic scene-local IDs using the document layer index, independent of user layer names/IDs; PNG rasterizes that SVG. Solid rendering stays unchanged. Endpoint evaluation is artboard-space, after all geometry operations; upstream Repeater shares a ramp. See [the full contract and limitations](linear-gradient-fill.md).
+
+### Bounded Closed Path Offset
+
+`Closed Path Offset` consumes Path and emits unpainted Path before paint nodes. Numeric amount/miterLimit retain the ordinary Scalar source/expression/fallback contract; join uses node.operation. Node schemas remain additive under existing versions, and unknown nodes fail closed in older implementations. A zero amount preserves the evaluated input object. Nonzero output is derived polygon geometry, unstable for Remap: its fingerprint includes upstream node/edge identity, source contour/point identity and geometry, settings and output signature. Rerouting equal geometry therefore suspends existing edits. Evaluator caching includes dependencies and operation as usual.
+
+`closed-offset.js` holds the pure qualified kernel, and `clipper-adapter.js` supplies the pinned true-bevel policy. Graph evaluation tightens counted budgets through an optional fourth argument; it never expands the kernel constants. `assertClosedOffsetChange` prevents newly introduced Offset errors from being retained by UI transactions and gestures, while allowing ordinary missing-input wiring states and preserving pre-existing errors for repair. See [the numerical/dependency/work-limit contract](closed-path-offset.md).

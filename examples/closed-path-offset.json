@@ -1,0 +1,707 @@
+{
+  "schemaVersion": 2,
+  "name": "Closed Path Offset: signed distance and joins",
+  "width": 960,
+  "height": 540,
+  "layers": [
+    {
+      "id": "layer-c933976e-dc0f-477a-ad09-525c151942bc",
+      "name": "Miter +16",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-88bf8491-4b77-4d1a-be82-ba8474db26d9",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [240, 150],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [240, 120],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-dc7027b8-7648-47d3-a034-5bf715c73676",
+          "type": "Closed Path Offset",
+          "name": "Expand with miter",
+          "position": [350, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-88bf8491-4b77-4d1a-be82-ba8474db26d9"
+            },
+            "amount": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "miter",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-9004d06c-f182-452d-997e-3a5e1e5b1335",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [660, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-dc7027b8-7648-47d3-a034-5bf715c73676"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#2f6fa3",
+                "alpha": 0.8
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-695a008c-7ca7-4f2f-9003-daae6b892216",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [970, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-9004d06c-f182-452d-997e-3a5e1e5b1335"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 2,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-15bc9ac1-4fe4-4c27-a729-90e3f4633738",
+          "type": "Output",
+          "name": "Output",
+          "position": [1280, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-695a008c-7ca7-4f2f-9003-daae6b892216"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-15bc9ac1-4fe4-4c27-a729-90e3f4633738"
+    },
+    {
+      "id": "layer-43bc9d7b-c1b2-4470-ab8f-6fefe09afd0c",
+      "name": "Bevel +16",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-3cdc91ea-f213-4fd7-8fe5-7f2fa438f95b",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [720, 150],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [240, 120],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-ac359ac0-982f-43c2-aa27-65fff9039cf6",
+          "type": "Closed Path Offset",
+          "name": "Expand with true bevel",
+          "position": [350, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-3cdc91ea-f213-4fd7-8fe5-7f2fa438f95b"
+            },
+            "amount": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "bevel",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-a1757c55-b1d6-410c-9c9f-3b824cd88760",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [660, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-ac359ac0-982f-43c2-aa27-65fff9039cf6"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#ce6b39",
+                "alpha": 0.8
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-3cf86393-6102-4429-9481-902fd911343b",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [970, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-a1757c55-b1d6-410c-9c9f-3b824cd88760"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 2,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-312f9801-89ee-49f0-8c69-e6f27f4fa640",
+          "type": "Output",
+          "name": "Output",
+          "position": [1280, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-3cf86393-6102-4429-9481-902fd911343b"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-312f9801-89ee-49f0-8c69-e6f27f4fa640"
+    },
+    {
+      "id": "layer-c2c1d749-c648-49a5-bf2a-fb231616dbbe",
+      "name": "Round +16",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-c3534c2d-1d62-44dd-b00d-1fc88db638d7",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [240, 400],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [240, 120],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-1a841d47-e5d4-4d89-84a7-28bfc70c371c",
+          "type": "Closed Path Offset",
+          "name": "Expand with round joins",
+          "position": [350, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-c3534c2d-1d62-44dd-b00d-1fc88db638d7"
+            },
+            "amount": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "round",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-38a80739-c439-495b-bf73-d0134fa28c2c",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [660, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-1a841d47-e5d4-4d89-84a7-28bfc70c371c"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#5d8971",
+                "alpha": 0.8
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-c0280b8c-9ceb-4d10-b4c7-d44e2ac4adb4",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [970, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-38a80739-c439-495b-bf73-d0134fa28c2c"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 2,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-a9da119c-ea18-48ab-ba8f-5d42c5796a91",
+          "type": "Output",
+          "name": "Output",
+          "position": [1280, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-c0280b8c-9ceb-4d10-b4c7-d44e2ac4adb4"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-a9da119c-ea18-48ab-ba8f-5d42c5796a91"
+    },
+    {
+      "id": "layer-f268da22-b8ef-4bdf-91d4-1e9777ef093b",
+      "name": "Inset −12 with counter",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-273480f9-cdd1-48ee-aeeb-179f97701da0",
+          "type": "Imported Path",
+          "name": "Imported Path",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {},
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "M560 310H840V480H560Z M610 350V440H790V350Z"
+        },
+        {
+          "id": "node-4bb69e1a-8241-4be4-b6dc-1e7ad9079539",
+          "type": "Closed Path Offset",
+          "name": "Inset shell and expand counter",
+          "position": [350, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-273480f9-cdd1-48ee-aeeb-179f97701da0"
+            },
+            "amount": {
+              "type": "Scalar",
+              "value": -12,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "miter",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-0cc8d0fa-2eda-49cd-ba52-93ae5f61a8c8",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [660, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-4bb69e1a-8241-4be4-b6dc-1e7ad9079539"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#7e65ad",
+                "alpha": 0.8
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-0df0f60f-396e-4a15-b8ce-fef141b38d22",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [970, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-0cc8d0fa-2eda-49cd-ba52-93ae5f61a8c8"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 2,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-e42672e8-0a8e-4b3b-b6e2-013a042eaaad",
+          "type": "Output",
+          "name": "Output",
+          "position": [1280, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-0df0f60f-396e-4a15-b8ce-fef141b38d22"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-e42672e8-0a8e-4b3b-b6e2-013a042eaaad"
+    }
+  ]
+}

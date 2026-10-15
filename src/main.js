@@ -30,6 +30,8 @@ import {
   validateStrokeStyle,
   radialSettings,
   linearGradientSettings,
+  closedOffsetSettings,
+  assertClosedOffsetChange,
   parameter,
   outputType,
   outputPorts,
@@ -174,7 +176,20 @@ function change(fn, text, deferRender = false) {
   const previousUI = { selected, activeLayer, selection: new Set(selection), penId };
   try {
     if (current().locked) throw Error('Composition is locked');
-    history.apply(fn);
+    const previous = current().nodes.some((n) => n.type === 'Closed Path Offset')
+      ? clone(current())
+      : null;
+    const previousFonts = resolveFonts(history.doc, bundledFont ? { default: bundledFont } : {});
+    history.apply((doc) => {
+      fn(doc);
+      assertClosedOffsetChange(
+        current(),
+        previous,
+        resolveFonts(history.doc, bundledFont ? { default: bundledFont } : {}),
+        history.doc.imageAssets,
+        previousFonts,
+      );
+    });
     notify(text || 'Updated');
     if (deferRender) scheduleRender();
     else render();
@@ -205,6 +220,10 @@ function resetTransient() {
 }
 // Bounds are shared by rendered controls and pointer scrubbing.
 function numericLimits(n, key) {
+  if (n.type === 'Closed Path Offset') {
+    if (key === 'miterLimit') return [1, 100];
+    if (key === 'amount') return [-100000, 100000];
+  }
   if (n.type === 'Stroke') {
     if (key === 'width') return [0, 100000];
     if (key === 'miterLimit') return [1, 10000];
@@ -367,6 +386,11 @@ function referenceControls(n, result, compact = false) {
   if (compact) return status + jump;
   return `<div class="field"><label>Vector2 source · same layer</label><select data-reference-target="${n.id}" aria-label="Reference source and output" ${current().locked ? 'disabled' : ''}><option value="" ${!n.reference ? 'selected' : ''}>Choose Vector2 output…</option>${n.reference && !target ? `<option value="${esc(value)}" selected disabled>Missing: ${esc(label)}</option>` : ''}${targets.map((t) => `<option value="${esc(JSON.stringify([t.nodeId, t.portId]))}" ${t === target ? 'selected' : ''}>${esc(t.name + ' · ' + t.label + ' · ' + t.nodeId)}</option>`).join('')}</select></div>${status}${jump}<p class="font-note">Read-only value reference by stable node and output IDs. Rename keeps the link; deleting the source leaves an explicit missing target. Text Position is before downstream Transform. Vector values keep their source meaning; no world-coordinate conversion.</p>`;
 }
+function offsetControls(n) {
+  return n.type === 'Closed Path Offset'
+    ? '<p class="font-note">Closed, ungrouped nonzero regions only. Positive expands; negative insets (empty erosion is valid). Distance is artboard px after upstream Transform. Place before Fill / Stroke. Curves become polygons (0.1 px flatten/arc tolerances, 0.0001 px grid); these are component tolerances, not a final offset error bound. Interactive cap: 256 flattened input / 512 output vertices, 8 nonzero Offset nodes. Unsupported or over-budget edits roll back.</p>'
+    : '';
+}
 function gradientControls(n) {
   return n.type === 'Linear Gradient Fill'
     ? '<p class="font-note">Two colors in absolute artboard coordinates (px). Start and end must differ. Geometry / Transform / Repeater go before paint; repeated copies share one ramp. Each stop keeps its alpha. Save JSON to reopen this editable gradient; SVG gradient import is not supported yet.</p>'
@@ -379,10 +403,10 @@ function strokeControls(n) {
 function operationControls(n) {
   const options = operationOptions[n.type];
   if (!options) return '';
-  return `<div class="field"><label>Operation</label><select data-operation="${n.id}" aria-label="${esc(n.name)} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
+  return `<div class="field"><label>${n.type === 'Closed Path Offset' ? 'Join' : 'Operation'}</label><select data-operation="${n.id}" aria-label="${esc(n.name)} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
+  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${activeParameters(
     n,
   )
     .filter(([k]) => Object.hasOwn(n.params, k))
@@ -472,7 +496,7 @@ function render(resetView = false) {
       '',
     )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
     n
-      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
+      ? `<h3>${esc(n.name)}</h3><p>${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Canvas changes this selected generator directly. Connected or locked parameters cannot be moved.</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
           n,
         )
           .filter(
@@ -1081,8 +1105,22 @@ function updateCanvas() {
     canvasFrame = null;
     const svg = document.querySelector('.artboard');
     if (!svg) return;
-    const l = current(),
-      r = evaluate(l, fonts, history.doc.imageAssets);
+    const l = current();
+    if (drag?.before) {
+      try {
+        assertClosedOffsetChange(
+          l,
+          drag.before.layers.find((x) => x.id === l.id),
+          fonts,
+          history.doc.imageAssets,
+        );
+      } catch (error) {
+        cancelInteraction();
+        notify(error.message, true);
+        return;
+      }
+    }
+    const r = evaluate(l, fonts, history.doc.imageAssets);
     svg.innerHTML =
       gridOverlay() +
       history.doc.layers
@@ -2373,7 +2411,9 @@ app.addEventListener('change', async (e) => {
           let value = q.type === 'Boolean' ? el.checked : Number(el.value);
           if (
             q.type !== 'Boolean' &&
-            (!Number.isFinite(value) || (nn.type === 'Linear Gradient Fill' && !el.value.trim()))
+            (!Number.isFinite(value) ||
+              (['Linear Gradient Fill', 'Closed Path Offset'].includes(nn.type) &&
+                !el.value.trim()))
           )
             throw Error('Expected a finite number');
           if (
@@ -2400,6 +2440,7 @@ app.addEventListener('change', async (e) => {
             radialSettings(nn.type, (key) => nn.params[key].value);
           if (nn.type === 'Linear Gradient Fill')
             linearGradientSettings((key) => nn.params[key].value);
+          if (nn.type === 'Closed Path Offset') closedOffsetSettings((key) => nn.params[key].value);
         }
       }
     },
@@ -3256,9 +3297,23 @@ document.addEventListener('pointermove', (e) => {
         return;
       }
     }
+    const previousValue = clone(q.value);
     if (d.alpha) q.value.alpha = value;
     else if (q.type === 'Vector2') q.value[d.axis] = value;
     else q.value = value;
+    try {
+      if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
+      assertClosedOffsetChange(
+        current(),
+        d.before.layers.find((l) => l.id === current().id),
+        fonts,
+        history.doc.imageAssets,
+      );
+    } catch (error) {
+      q.value = previousValue;
+      notify(error.message, true);
+      return;
+    }
     d.capture.value = String(value);
     updateCanvas();
     return;
@@ -3401,6 +3456,19 @@ document.addEventListener('pointerup', (e) => {
         history.doc = d.before;
     }
     if (d.before && !sameDocument(d.before, history.doc)) {
+      try {
+        assertClosedOffsetChange(
+          current(),
+          d.before.layers.find((l) => l.id === current().id),
+          fonts,
+          history.doc.imageAssets,
+        );
+      } catch (error) {
+        history.doc = d.before;
+        notify(error.message, true);
+        render();
+        return;
+      }
       history.record(d.before);
       notify('Updated');
     }

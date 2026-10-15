@@ -16,6 +16,8 @@ export {
 import paper from 'paper/dist/paper-core.js';
 import { validateFontAssets, resolveFonts, MAX_PROJECT_BYTES, utf8ByteLength } from './fonts.js';
 import { layoutText, validateLeading } from './text-layout.js';
+import { offsetClosedPath, OFFSET_EDITOR_LIMITS, OffsetError } from './closed-offset.js';
+export { OFFSET_EDITOR_LIMITS } from './closed-offset.js';
 import { fingerprint } from './fingerprint.js';
 import { validateCharacterPositions } from './character-identity.js';
 import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
@@ -81,6 +83,11 @@ export const definitions = {
   Boolean: { a: p('Path', null), b: p('Path', null) },
   'Join Geometry': { a: p('Path', null), b: p('Path', null) },
   'Convert to Path': { path: p('Path', null) },
+  'Closed Path Offset': {
+    path: p('Path', null),
+    amount: p('Scalar', 10),
+    miterLimit: p('Scalar', 4),
+  },
   'Path Remap': { path: p('Path', null), offset: p('Vector2', [0, 0]) },
   Transform: {
     path: p('Path', null),
@@ -133,6 +140,18 @@ export const definitions = {
   'Text to Path': { path: p('Path', null) },
   'Imported Path': {},
 };
+export function closedOffsetSettings(read) {
+  const amount = read('amount'),
+    miterLimit = read('miterLimit');
+  if (!Number.isFinite(amount) || (amount !== 0 && Math.abs(amount) < 0.0001))
+    throw new OffsetError(
+      'OFFSET_AMOUNT',
+      'Offset amount must be zero or at least 0.0001 px in magnitude',
+    );
+  if (!Number.isFinite(miterLimit) || miterLimit < 1 || miterLimit > 100)
+    throw new OffsetError('OFFSET_OPTIONS', 'Offset miter limit must be between 1 and 100');
+  return { amount, miterLimit };
+}
 export function linearGradientSettings(read) {
   return createLinearGradientFill(
     Object.fromEntries(['start', 'end', 'startColor', 'endColor'].map((key) => [key, read(key)])),
@@ -222,11 +241,13 @@ export function node(type, x = 40, y = 40) {
     params: clone(definitions[type]),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation:
-      type === 'Geometry Repeater'
-        ? 'linear'
-        : ['Math', 'Vector Math'].includes(type)
-          ? 'add'
-          : 'subtract',
+      type === 'Closed Path Offset'
+        ? 'miter'
+        : type === 'Geometry Repeater'
+          ? 'linear'
+          : ['Math', 'Vector Math'].includes(type)
+            ? 'add'
+            : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -444,6 +465,7 @@ export function parameters(n) {
   return entries;
 }
 export const operationOptions = {
+  'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
   Math: ['add', 'subtract', 'multiply', 'divide', 'min', 'max', 'abs', 'clamp'],
@@ -799,6 +821,37 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   let computed = 0,
     reused = 0;
   const byId = new Map(layer.nodes.map((n) => [n.id, n]));
+  // Source identities matter even when two graphs produce identical coordinates.
+  const provenances = new Map();
+  function provenance(id, port) {
+    const key = outputKey(id, port);
+    if (!provenances.has(key)) {
+      const n = byId.get(id),
+        deps = (key !== id ? [['position', n.params.position]] : activeParameters(n)).filter(
+          ([, q]) => q.source,
+        ),
+        reference = key === id && referenceDependency(n);
+      if (reference) deps.push(['reference', reference]);
+      provenances.set(
+        key,
+        fingerprint(
+          JSON.stringify([
+            n.id,
+            n.type,
+            key !== id ? 'position' : null,
+            deps.map(([input, q]) => [
+              input,
+              q.source,
+              q.sourcePort,
+              provenance(q.source, q.sourcePort),
+            ]),
+          ]),
+        ),
+      );
+    }
+    return provenances.get(key);
+  }
+  const offsetComputations = new Set();
   // Separate shares one vector evaluation. Text's value output has its own cache entry
   // and dependencies, so reading Position never requires font/outline generation.
   const outputKey = (id, port) =>
@@ -892,6 +945,14 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               dependencyVersions,
             ],
       );
+      if (n.type === 'Closed Path Offset' && readParameter(n, 'amount') !== 0) {
+        offsetComputations.add(n.id);
+        if (offsetComputations.size > 8)
+          throw new OffsetError(
+            'OFFSET_LIMIT',
+            'At most 8 nonzero Offset nodes per evaluated graph; simplify the graph',
+          );
+      }
       const existing = cache.get(key);
       if (
         existing &&
@@ -901,7 +962,10 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         styleFonts.every((font, i) => font === existing.styleFonts[i])
       ) {
         reused++;
-        const result = clone(existing.value);
+        const result =
+          n.type === 'Closed Path Offset' && readParameter(n, 'amount') === 0
+            ? readParameter(n, 'path')
+            : clone(existing.value);
         values.set(key, result);
         versions.set(key, existing.version);
         active.delete(id);
@@ -1114,6 +1178,43 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Closed Path Offset') {
+        const source = read('path');
+        if (!source) throw Error('Connect a Path input');
+        const { amount, miterLimit } = closedOffsetSettings(read);
+        if (!operationOptions[n.type].includes(n.operation))
+          throw new OffsetError('OFFSET_OPTIONS', 'Invalid Offset join');
+        if (amount === 0) result = source;
+        else {
+          result = offsetClosedPath(
+            source,
+            amount,
+            {
+              join: n.operation,
+              miterLimit,
+              prefix: n.id,
+            },
+            OFFSET_EDITOR_LIMITS,
+          );
+          result.unstable = true;
+          result.fingerprint = fingerprint(
+            JSON.stringify([
+              provenance(n.id),
+              amount,
+              n.operation,
+              miterLimit,
+              source.fingerprint,
+              source.contours,
+              signature(result),
+            ]),
+          );
+          result.characterOccurrences = routeCharacters(
+            source,
+            n.id,
+            null,
+            'Canvas character editing is unavailable through Closed Path Offset',
+          );
+        }
       } else if (n.type === 'Imported Path') {
         result = parsePath(n.rawPath, n.id);
         result.unstable = true;
@@ -1330,6 +1431,37 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     stats: { computed, reused },
   };
 }
+export function assertClosedOffsetChange(
+  layer,
+  previousLayer,
+  fonts = {},
+  imageAssets = {},
+  previousFonts = fonts,
+) {
+  if (!layer.nodes.some((n) => n.type === 'Closed Path Offset' && n.params.path.source)) return;
+  const current = evaluate(layer, fonts, imageAssets);
+  let previous;
+  for (const n of layer.nodes.filter(
+    (n) => n.type === 'Closed Path Offset' && n.params.path.source,
+  )) {
+    try {
+      current.run(n.id);
+    } catch (error) {
+      // Missing inputs are an ordinary intermediate wiring state.
+      if (/^Connect (a |both )/.test(error.message)) continue;
+      const old = previousLayer?.nodes.find((x) => x.id === n.id && x.params.path?.source);
+      if (old) {
+        previous ??= evaluate(previousLayer, previousFonts, imageAssets);
+        try {
+          previous.run(n.id);
+        } catch (before) {
+          if (before.message === error.message) continue;
+        }
+      }
+      throw error;
+    }
+  }
+}
 export function connect(layer, sourceId, targetId, key, validating = false, sourcePort) {
   let from = layer.nodes.find((n) => n.id === sourceId),
     to = layer.nodes.find((n) => n.id === targetId),
@@ -1542,6 +1674,7 @@ export function validate(doc) {
       for (const [key, def] of Object.entries(definitions[n.type]))
         param(n.params[key], def.type, n.type === 'Fill' && key === 'color');
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
+      if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
       if (['Polygon', 'Star'].includes(n.type))
         radialSettings(n.type, (key) => n.params[key].value);
       if (

@@ -109,3 +109,9 @@ The 1600×1000 Japanese horizontal/vertical editor screenshot was visually inspe
 Downloaded artifact `11868791616` is 3,325,659 bytes. Its SHA256 matches GitHub's `3a896f4f1b5ec7eff800c8b9759f22dd44cd6ac5194d5af71a89e7f2feee109d`. It contains the unsigned NSIS installer, all screenshots, saved editable Japanese project JSON, outline SVG and the test font's OFL/provenance. The complete ZIP and representative screenshot were retained separately beyond GitHub's one-day expiry. No release or main merge occurred.
 
 The cancelled dependency-version update was not retried. Existing lockfile dependencies were installed locally using a writable temporary npm cache; package versions and lockfile remain unchanged. PR-body editing and Notion updates were not attempted. Native Windows interaction remains NOT RUN; successful Chrome and packaging are not a substitute for native file-dialog/close acceptance.
+
+## Closed Path Offset integration (2026-10-15)
+
+The independently qualified 31-test kernel is integrated as a bounded Path → Path node with an exact `clipper2-ts@2.0.1-18` pin and source-hash guards. Graph/DOM tests cover typed parameters, paint ordering, signed amount and joins, zero/empty erosion, provenance-safe Remap suspension, strict interactive work limits and failed/cancelled gesture history. The [contract](closed-path-offset.md) gives numerical and interaction boundaries.
+
+Local aggregate checks are recorded by the implementation lane. Browser assertions were not observed locally: Chromium exited before opening a page because the singleton socket was denied. The new real-Chrome script and production-CSP sample run are part of the existing Windows CI suite; until that exact commit succeeds, they are prepared coverage, not a passed browser/Windows claim. No main merge or release is implied.
