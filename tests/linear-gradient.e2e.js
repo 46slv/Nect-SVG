@@ -267,11 +267,25 @@ try {
     window.nect.document.layers.map((l) => l.nodes.map((n) => n.type)),
   );
   assert.equal(importedTypes.length, 2);
-  assert.ok(
-    importedTypes.every(
-      (types) => types.includes('Linear Gradient Fill') && types.includes('Join Geometry'),
-    ),
-  );
+  assert.ok(importedTypes.every((types) => types.includes('Linear Gradient Fill')));
+  assert.ok(importedTypes[0].includes('Join Geometry'));
+  // An ungrouped Repeater exports one compound path; only the explicit Join
+  // layer exports independently painted paths requiring an imported Join tree.
+  const importedGeometry = await page.evaluate(async () => {
+    const { evaluate } = await import('/src/core.js');
+    return window.nect.document.layers.map((l) => {
+      const path = evaluate(l).path;
+      return {
+        sources: l.nodes.filter((n) => n.type === 'Imported Path').length,
+        contours: path.contours.length,
+        groups: new Set(path.contours.map((c) => c.group)).size,
+      };
+    });
+  });
+  assert.deepEqual(importedGeometry, [
+    { sources: 2, contours: 2, groups: 2 },
+    { sources: 1, contours: 4, groups: 1 },
+  ]);
   const importedSvg = await download('export', 'test-results/workflow-gradient-reopened.svg');
   const importedPng = await download('export-png', 'test-results/workflow-gradient-reopened.png');
   const reopenedSvgPixels = await pixels(importedSvg, 'image/svg+xml');
@@ -373,6 +387,7 @@ try {
         reopenedSvgPixels,
         reopenedPngPixels,
         importedTypes,
+        importedGeometry,
         rejectedImportCases: rejected.length,
         rejectedImportsAtomic: true,
         importUndoRedo: true,
