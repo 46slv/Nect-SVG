@@ -118,6 +118,7 @@ const remapBatches = new Map();
 let characterEdit = null;
 const textDrafts = new Map();
 const textRanges = new Map();
+const textRangeKey = (el) => `${el.dataset.text}:${el.closest('.node') ? 'node' : 'inspector'}`;
 function remapBatch(id) {
   if (!remapBatches.has(id)) remapBatches.set(id, { selected: new Set(), delta: [0, 0] });
   return remapBatches.get(id);
@@ -1195,20 +1196,21 @@ app.addEventListener('click', async (e) => {
   const d = b.dataset,
     n = selectedNode();
   if (d.styleTextRange) {
-    const el = document.querySelector(`.inspector-body [data-text="${d.styleTextRange}"]`);
+    const el = b.closest('.text-controls')?.querySelector(`[data-text="${d.styleTextRange}"]`),
+      sourceNode = current().nodes.find((node) => node.id === d.styleTextRange);
     const range =
-      textRanges.get(d.styleTextRange) ||
+      (el && textRanges.get(textRangeKey(el))) ||
       (el && { raw: el.value, start: el.selectionStart, end: el.selectionEnd });
-    if (!el || !range || current().locked) return;
+    if (!el || !range || !sourceNode || current().locked) return;
     if (textDrafts.get(d.styleTextRange)?.composition) {
       notify('Finish or cancel text composition first', true);
       return;
     }
     const draft = textDrafts.get(d.styleTextRange);
-    if (el.value !== n.text || (draft && draft.record !== n.characterPositions))
+    if (el.value !== sourceNode.text || (draft && draft.record !== sourceNode.characterPositions))
       el.dispatchEvent(new Event('change', { bubbles: true }));
     try {
-      const target = selectedNode();
+      const target = current().nodes.find((node) => node.id === d.styleTextRange);
       if (range.raw !== target.text) throw Error('Text changed; select the range again');
       const ids = characterIdsInRange(
         target.text,
@@ -1217,6 +1219,8 @@ app.addEventListener('click', async (e) => {
         range.end,
       );
       if (!ids.length) throw Error('Highlight one or more complete characters in Text first');
+      selected = target.id;
+      selection = new Set([target.id]);
       characterEdit = {
         node: target.id,
         layer: current().id,
@@ -1876,7 +1880,7 @@ app.addEventListener(
   (e) => {
     const el = e.target;
     if (el.matches?.('textarea[data-text]'))
-      textRanges.set(el.dataset.text, {
+      textRanges.set(textRangeKey(el), {
         raw: el.value,
         start: el.selectionStart,
         end: el.selectionEnd,

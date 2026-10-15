@@ -84,7 +84,7 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
     const el = document.querySelector('.inspector-body [data-text]');
     el.setSelectionRange(from, to);
     el.dispatchEvent(new win.Event('select', { bubbles: true }));
-    document.querySelector('[data-style-text-range]').click();
+    document.querySelector('.inspector-body [data-style-text-range]').click();
   };
   const undo = () => document.querySelector('[data-action="undo"]').click(),
     redo = () => document.querySelector('[data-action="redo"]').click();
@@ -170,9 +170,23 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   const textarea = document.querySelector('.inspector-body [data-text]');
   textarea.setSelectionRange(1, 2);
   textarea.dispatchEvent(new win.Event('compositionstart', { bubbles: true }));
-  document.querySelector('[data-style-text-range]').click();
+  document.querySelector('.inspector-body [data-style-text-range]').click();
   assert.match(document.querySelector('.message').textContent, /Finish or cancel/);
   textarea.dispatchEvent(new win.Event('compositionend', { bubbles: true }));
+  // The graph's mirrored Text controls must read their own draft and range.
+  win.nect.load(beforeStale);
+  const graphText = document.querySelector('.node [data-text]');
+  graphText.setSelectionRange(0, 0);
+  graphText.dispatchEvent(
+    new win.InputEvent('beforeinput', { bubbles: true, inputType: 'insertText' }),
+  );
+  graphText.value = 'XABA';
+  graphText.dispatchEvent(new win.InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+  graphText.setSelectionRange(1, 2);
+  graphText.dispatchEvent(new win.Event('select', { bubbles: true }));
+  graphText.closest('.text-controls').querySelector('[data-style-text-range]').click();
+  assert.equal(get().text, 'XABA');
+  assert.equal(document.querySelector('[data-character-selection]').selectedOptions[0].value, 'c1');
   // Same-value paste is still an identity replacement, even without a native change event.
   win.nect.load(beforeStale);
   range(1, 2);
@@ -184,7 +198,7 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   equal.dispatchEvent(new win.InputEvent('input', { bubbles: true, inputType: 'insertFromPaste' }));
   equal.setSelectionRange(1, 2);
   equal.dispatchEvent(new win.Event('select', { bubbles: true }));
-  document.querySelector('[data-style-text-range]').click();
+  document.querySelector('.inspector-body [data-style-text-range]').click();
   assert.equal(get().characterPositions.units[1].id, 'c4');
   assert.equal(get().characterPositions.styles.c2, undefined);
   await edit('size', 90);
@@ -226,7 +240,7 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   const locked = structuredClone(win.nect.document);
   locked.layers[0].locked = true;
   win.nect.load(JSON.stringify(locked));
-  assert.equal(document.querySelector('[data-style-text-range]').disabled, true);
+  assert.equal(document.querySelector('.inspector-body [data-style-text-range]').disabled, true);
   assert.equal(document.querySelector('[data-character-mode]').disabled, true);
   await win.happyDOM.close();
 });

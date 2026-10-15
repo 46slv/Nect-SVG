@@ -35,7 +35,7 @@ try {
     const text = page.locator('.inspector-body [data-text]');
     await text.focus();
     await text.evaluate((el, [start, end]) => el.setSelectionRange(start, end), [start, end]);
-    await page.locator('[data-style-text-range]').click();
+    await page.locator('.inspector-body [data-style-text-range]').click();
   };
   const field = (key) => page.locator(`[data-character-style="${key}"]`);
   const edit = async (key, value) => {
@@ -133,7 +133,7 @@ try {
     el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste' }));
     el.setSelectionRange(1, 2);
   });
-  await page.locator('[data-style-text-range]').click();
+  await page.locator('.inspector-body [data-style-text-range]').click();
   assert.equal((await read()).characterPositions.units[1].id, 'c4');
   assert.equal((await read()).characterPositions.styles.c2, undefined);
   await edit('size', 96);
