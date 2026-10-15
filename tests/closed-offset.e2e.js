@@ -93,8 +93,18 @@ try {
     assert.equal(await page.evaluate(() => window.nect.evaluate().error), null);
   }
   await write('10');
+  // The numeric commit replaces controls asynchronously. Wait for the rendered
+  // value attribute (fill changes only the old property) before measuring a drag.
+  await page.waitForFunction(
+    (id) =>
+      document
+        .querySelector(`.inspector-body [data-node="${id}"][data-key="amount"] [data-value]`)
+        ?.getAttribute('value') === '10',
+    ids.o,
+  );
   const baseline = await saved(),
     bounds = await amount().boundingBox();
+  assert.ok(bounds, 'Committed Offset control is visible for cancellation drag');
   await page.mouse.move(bounds.x + 30, bounds.y + bounds.height / 2);
   await page.mouse.down();
   await page.mouse.move(bounds.x + 50, bounds.y + bounds.height / 2);
