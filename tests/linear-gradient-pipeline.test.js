@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Window } from 'happy-dom';
 import {
   document,
@@ -268,7 +269,7 @@ test('editable gradient sample roundtrips with byte-identical CLI SVG', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'nect-gradient-'));
   try {
     const out = path.join(temp, 'sample.svg');
-    execFileSync(process.execPath, ['cli/export.js', sample.pathname, out], {
+    execFileSync(process.execPath, ['cli/export.js', fileURLToPath(sample), out], {
       cwd: new URL('..', import.meta.url),
     });
     assert.equal(fs.readFileSync(out, 'utf8'), exportSVG(doc));
