@@ -7,7 +7,7 @@ import {
 import { characterTransform, transformCharacterPoint } from './character-geometry.js';
 
 const rotatePunctuation = new Set([
-  ...'ーｰ―��‐‑–−〜～…‥「」『』（）〔〕［］｛｝〈〉《》【】〖〗〘〙〚〛＝',
+  ...'ーｰ―—‐‑–−〜～…‥「」『』（）〔〕［］｛｝〈〉《》【】〖〗〘〙〚〛＝',
 ]);
 const cornerPunctuation = new Set([...'、。，．']);
 const smallKana = new Set([...'ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ']);
