@@ -144,8 +144,11 @@ try {
   const positionBefore = await page.evaluate(() => [
     ...window.nect.document.layers[0].nodes[0].params.center.value,
   ]);
-  const from = await point(280, 190),
-    to = await point(300, 200);
+  const marker = await page.locator('.node-stage-move rect').boundingBox(),
+    from = [marker.x + marker.width / 2, marker.y + marker.height / 2],
+    origin = await point(0, 0),
+    delta = await point(20, 10),
+    to = from.map((v, i) => v + delta[i] - origin[i]);
   await page.mouse.move(...from);
   await page.mouse.down();
   await page.mouse.move(...to);

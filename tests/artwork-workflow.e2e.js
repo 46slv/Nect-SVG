@@ -200,6 +200,22 @@ try {
     await page.keyboard.press('ArrowRight');
     assert.equal(await saved(), before);
   }
+  // Capture ordinary final-artwork selection separately from the intentional handle-overlap fixture.
+  const practical = await loadFixture();
+  await page.locator(`[data-select-layer="${practical.first.layerId}"]`).click();
+  await page.keyboard.press('ArrowRight');
+  await page.locator('[data-action="undo"]').click();
+  for (const viewport of [
+    { width: 1280, height: 800 },
+    { width: 1600, height: 1000 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.locator('[data-action="fit"]').click();
+    await page.screenshot({
+      path: `test-results/artwork-selection-${viewport.width}x${viewport.height}.png`,
+      fullPage: true,
+    });
+  }
   for (const kind of ['repeater', 'gradient', 'locked', 'driven']) {
     const { first } = await loadFixture(kind),
       before = await saved();

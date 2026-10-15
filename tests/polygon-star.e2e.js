@@ -77,10 +77,8 @@ try {
   const center = () =>
     page.evaluate(() => window.nect.document.layers[0].nodes[1].params.center.value);
   const drag = async () => {
-    const pt = await page.locator('.artboard').evaluate((el) => {
-      const p = new DOMPoint(290, 120).matrixTransform(el.getScreenCTM());
-      return { x: p.x, y: p.y };
-    });
+    const marker = await page.locator('.node-stage-move rect').boundingBox();
+    const pt = { x: marker.x + marker.width / 2, y: marker.y + marker.height / 2 };
     await page.mouse.move(pt.x, pt.y);
     await page.mouse.down();
     await page.mouse.move(pt.x + 25, pt.y + 10, { steps: 4 });
