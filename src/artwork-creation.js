@@ -1,4 +1,4 @@
-import { cloneDocument, connect, node, point, uid, validate } from './core.js';
+import { cloneDocument, connect, node, point, uid, validate, blankLayer } from './core.js';
 
 export const ARTWORK_TYPES = Object.freeze([
   'Circle',
@@ -106,4 +106,17 @@ export function appendPenArtwork(doc, draft) {
   validate(candidate);
   doc.layers.push(artwork);
   return { layerId: artwork.id, nodeId: curve.id };
+}
+
+/** Append an intentional blank composition with candidate-only validation. */
+export function appendBlankComposition(doc, { name } = {}) {
+  assertArtworkDocument(doc);
+  if (name === undefined) name = `Composition ${doc.layers.length + 1}`;
+  if (typeof name !== 'string' || name.length > 100000) throw Error('Invalid composition name');
+  const artwork = blankLayer(name),
+    candidate = candidateDocument(doc);
+  candidate.layers.push(artwork);
+  validate(candidate);
+  doc.layers.push(artwork);
+  return { layerId: artwork.id, nodeId: artwork.output };
 }

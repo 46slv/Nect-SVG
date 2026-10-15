@@ -7,7 +7,7 @@ The approved layout is a desktop-first white and silver workspace: top file cont
 - Dynamic sockets: unconnected inputs hidden, matching fields highlighted during output drag, connected socket shown at field left. New connection replaces old. Input drag to empty graph space and input context-menu disconnect are supported. Dropdown Path selection also provides a non-drag route.
 - Node header drag changes graph layout. Graph scroll and horizontal node resize are available. Curve points expand/collapse vertically, with position, relative handles and handle modes inside the generation node.
 - Pen click previews a corner in a detached independent layer; drag adds symmetric handles. Clicking the starting vertex closes; Enter, Escape or Finish path finishes open. Cancel path discards it. A finished path is one Undo; one-point finish discards. During a pressed point, pointer cancellation/capture loss/blur removes that point while retaining earlier released draft points. [Lifecycle and limits](pen-artwork.md). Vertex/handle editing of an explicitly selected Curve still writes the same model as the graph UI.
-- Each layer has independent output, visibility, lock, fill and ordering. New composition creates its own graph.
+- Each layer has independent output, visibility, lock, fill and ordering. New creates a blank document after confirmation; + Blank appends one intentional empty vector Output. + Demo composition and launch retain the starter demo. [Blank model, history and persistence](blank-artwork-start.md).
 - Numeric expressions support +, -, \*, /, %, parentheses, pi/e and sin/cos/tan/abs/sqrt/min/max/round. No variable references or arbitrary code. Dynamic node inputs provide external values.
 
 ## Deferred interaction work

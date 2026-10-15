@@ -316,6 +316,44 @@ export function document() {
     layers: [layer()],
   };
 }
+// Keep document()/layer() as the existing explicit Boolean demo factories.
+export function blankLayer(name = 'Composition 1') {
+  const output = node('Output', 40, 50);
+  return {
+    id: uid('layer'),
+    name,
+    visible: true,
+    locked: false,
+    fill: '#36434e',
+    allowEmptyOutput: true,
+    nodes: [output],
+    output: output.id,
+  };
+}
+export function blankDocument() {
+  return {
+    schemaVersion: 2,
+    name: 'Untitled composition',
+    width: 960,
+    height: 540,
+    layers: [blankLayer()],
+  };
+}
+// An intentional empty terminal, not a fallback for disconnected graph inputs.
+export function hasEmptyOutput(layer, output = layer.nodes?.find((n) => n.id === layer.output)) {
+  const q = output?.params?.path;
+  return (
+    layer.allowEmptyOutput === true &&
+    output?.id === layer.output &&
+    layer.nodes.includes(output) &&
+    output.type === 'Output' &&
+    q?.type === 'PaintedPath' &&
+    q.value === null &&
+    q.source === undefined &&
+    q.sourcePort === undefined &&
+    q.expression === ''
+  );
+}
 export function outputPorts(n) {
   return n.type === 'Separate Vector'
     ? [
@@ -1056,6 +1094,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               n.reference,
               inputs,
               n.type === 'Fill' ? layer.fill : null,
+              n.type === 'Output' ? [layer.output, layer.allowEmptyOutput] : null,
               n.points,
               n.operation,
               n.edits,
@@ -1429,7 +1468,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         pa.remove();
         pb.remove();
         r.remove();
-      } else {
+      } else if (hasEmptyOutput(layer, n)) result = { contours: [] };
+      else {
         result = read('path');
         if (!result) throw Error(`Connect a ${n.params.path.type} input`);
         result = clone(result);
@@ -1850,6 +1890,7 @@ export function validate(doc) {
       typeof l.visible !== 'boolean' ||
       typeof l.locked !== 'boolean' ||
       (l.guide !== undefined && typeof l.guide !== 'boolean') ||
+      (l.allowEmptyOutput !== undefined && typeof l.allowEmptyOutput !== 'boolean') ||
       !/^#[0-9a-fA-F]{6}$/.test(l.fill)
     )
       throw Error('Invalid layer state');
@@ -2000,6 +2041,8 @@ export function validate(doc) {
     }
     if (!l.nodes.some((n) => n.id === l.output && ['Output', 'Image Output'].includes(n.type)))
       throw Error('Missing Output node');
+    if (l.allowEmptyOutput === true && l.nodes.find((n) => n.id === l.output).type !== 'Output')
+      throw Error('Empty output requires a vector Output');
     for (const n of l.nodes)
       for (const [key, q] of parameters(n))
         if (q.source) connect(l, q.source, n.id, key, true, q.sourcePort);
@@ -2069,6 +2112,7 @@ export function renderElement(
     if (!Number.isFinite(stroke.width) || stroke.width < 0 || stroke.width > 100000)
       throw Error('Invalid stroke width');
   }
+  if (!value.contours.some((c) => c.points.length)) return '';
   function shape(path, attrs = '') {
     if (path.contours.some((c) => c.group !== undefined))
       return `<g ${attrs} data-layer="${escape(l.name)}">${contourGroups(path)

@@ -20,6 +20,7 @@ npm run check
 
 The workspace uses a white/silver interface, lower resizable graph, right Layers/Inspector and square artboard. Each layer owns a separate graph. Circle, Ellipse, Rectangle, Curve and Text feed Boolean, Transform and Path Remap, then explicit Fill / Stroke nodes and Output. Scalar/Vector/Boolean/Color value nodes connect to matching parameter fields. Expressions support arithmetic and a small numeric function allowlist, never JavaScript evaluation.
 
+- **New** creates a blank document; **+ Blank** appends an empty composition. Both preserve explicit graph editing, independent creation and Undo. Launch retains the starter demo, also available via **+ Demo composition**. [Blank-start contract](docs/blank-artwork-start.md).
 - Circle, Rectangle, Polygon, Star and Text toolbar tools append independent artwork at the artboard center, preserving every previous layer. Select final artwork on the canvas or in Layers, then drag or use Arrow keys (1 unit; Shift: 10). Unsupported graphs show why whole-artwork movement is unavailable. [Creation, selection and safe placement contract](docs/artwork-workflow.md).
 - Pen previews a new independent Curve artwork without rerouting earlier work. + Add node → Curve remains explicit current-composition graph editing; + Demo composition adds the starter Boolean example.
 - Pen: click corner points, drag Bézier handles, click the first point to close. Enter, Escape or Finish path finishes open; Cancel path discards the draft. Each finished path is one Undo. [Draft and editing contract](docs/pen-artwork.md).

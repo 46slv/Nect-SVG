@@ -1,8 +1,10 @@
 # Independent artwork and safe placement
 
+Use **New** for a blank document or **+ Blank** for a minimal empty composition. Application launch and **+ Demo composition** retain the explicit starter demo. [Empty Output and history contract](blank-artwork-start.md).
+
 The left toolbar’s **Circle, Rectangle, Polygon, Star and Text** buttons add a new independent artwork layer at the document center. Each new layer has a generator → solid Fill → Output graph. Existing layers, connections, paint, visibility, locks and assets stay intact, including when the previously active layer is hidden or locked. Creation is one Undo step. The pure creation helper also supports Ellipse; Ellipse remains available through graph node creation rather than a separate toolbar button.
 
-**+ Add node** adds an unconnected node to the current layer’s graph. **+ Demo composition** adds the existing starter Boolean example. **Pen / Curve** now previews and commits a new independent Curve → Fill → Output layer. Enter, Escape or Finish path finishes open; clicking the first anchor closes. Cancel path discards the detached draft. See [Pen lifecycle and limits](pen-artwork.md). This release does not add a blank-composition or scene/group model.
+**+ Add node** adds an unconnected node to the current layer’s graph. **+ Demo composition** adds the existing starter Boolean example. **Pen / Curve** now previews and commits a new independent Curve → Fill → Output layer. Enter, Escape or Finish path finishes open; clicking the first anchor closes. Cancel path discards the detached draft. See [Pen lifecycle and limits](pen-artwork.md). Blank compositions keep the existing one-layer/one-graph model; no scene/group model is added.
 
 ## Two explicit edit targets
 

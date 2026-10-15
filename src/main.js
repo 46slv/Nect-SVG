@@ -2,7 +2,12 @@ import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './ra
 import { validateImageAssets } from './images.js';
 import { captureFocus, restoreFocus } from './focus.js';
 import './style.css';
-import { appendArtwork, createPenArtworkDraft, appendPenArtwork } from './artwork-creation.js';
+import {
+  appendArtwork,
+  createPenArtworkDraft,
+  appendPenArtwork,
+  appendBlankComposition,
+} from './artwork-creation.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import {
   findFreeNodePosition,
@@ -23,6 +28,8 @@ import {
 } from './fonts.js';
 import {
   document as newDocument,
+  blankDocument,
+  hasEmptyOutput,
   layer,
   node,
   point,
@@ -181,7 +188,7 @@ const selectedNode = () =>
   artworkTarget ? undefined : current().nodes.find((n) => n.id === selected);
 function selectArtwork(layerId) {
   activeLayer = layerId;
-  artworkTarget = layerId;
+  artworkTarget = hasEmptyOutput(current()) ? null : layerId;
   selected = null;
   selection = new Set();
   characterEdit = null;
@@ -878,7 +885,7 @@ function render(resetView = false) {
     .map((x) => `<option>${x}</option>`)
     .join(
       '',
-    )}</select><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="graph-hint" id="graph-navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button></div>${[
+    )}</select><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="graph-hint" id="graph-navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -901,7 +908,9 @@ function render(resetView = false) {
           .join('')}`
       : artworkTarget
         ? `<h3>Artwork · ${esc(l.name)}</h3><p>Final evaluated Output in artboard coordinates.</p><p class="artwork-move-status">${esc(artworkMove().supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : artworkMove().reason)}</p>`
-        : '<p>Select artwork or a graph node.</p>'
+        : hasEmptyOutput(l)
+          ? '<h3>Empty composition</h3><p>Add independent artwork with a toolbar tool, or add graph nodes and explicitly Use as output. The empty Output renders nothing.</p>'
+          : '<p>Select artwork or a graph node.</p>'
   }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label>Artboard W</label><input type="number" data-dimension="width" value="${doc.width}" aria-label="Artboard width"></div><div class="field"><label>Artboard H</label><input type="number" data-dimension="height" value="${doc.height}" aria-label="Artboard height"></div>${results
     .filter(([, r]) => r.error || r.warnings.length)
     .map(
@@ -1548,7 +1557,13 @@ function transformOverlay(n, result) {
 function canvasOverlay(n, result) {
   if (characterEdit) return characterOverlay(result);
   if (artworkTarget) {
-    if (!layerShown(current()) || !result.path || result.error) return '';
+    if (
+      !layerShown(current()) ||
+      !result.path ||
+      result.error ||
+      (result.path.kind !== 'image' && !result.path.contours.some((c) => c.points.length))
+    )
+      return '';
     const b = pathBounds(result.path);
     return `<rect class="guide artwork-selection" x="${b[0][0]}" y="${b[1][0]}" width="${b[0][2] - b[0][0]}" height="${b[1][2] - b[1][0]}" stroke-dasharray="5 4"/>`;
   }
@@ -1588,7 +1603,8 @@ function canvasOverlay(n, result) {
   return out;
 }
 function nodeStageMoveMarker(n, path) {
-  if (penDraft) return '';
+  if (penDraft || (path.kind !== 'image' && !path.contours?.some((c) => c.points.length)))
+    return '';
   if (
     ![
       'Circle',
@@ -1931,6 +1947,12 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  // A cancelled New must not finish, discard or otherwise mutate a live Pen draft.
+  if (
+    d.action === 'new' &&
+    !confirm('Start a new document? Save your current JSON first to keep it.')
+  )
+    return;
   if (d.penCancel !== undefined) {
     discardPenDraft();
     tool = 'select';
@@ -2256,16 +2278,44 @@ app.addEventListener('click', async (e) => {
             }
           } else document.querySelector('#open-file').click();
           break;
-        case 'new':
-          if (confirm('Start a new document? Save your current JSON first to keep it.')) {
-            resetTransient();
-            history = new History(newDocument());
-            activeLayer = current().id;
-            selected = current().nodes[0].id;
-            artworkTarget = null;
-            render(true);
-          }
+        case 'new': {
+          const priorUI = selectionSnapshot();
+          resetTransient();
+          history.apply(() => {
+            history.doc = blankDocument();
+          });
+          activeLayer = history.doc.layers[0].id;
+          selected = null;
+          artworkTarget = null;
+          selection = new Set();
+          tool = 'select';
+          selectionHistory.set(history.past.at(-1), priorUI);
+          selectionHistory.set(history.doc, selectionSnapshot());
+          notify('New blank document · add artwork or graph nodes');
+          render(true);
+          document.querySelector('.canvas-stage').focus({ preventScroll: true });
           break;
+        }
+        case 'add-blank-layer': {
+          // Changing layer scope must not retain an old layer's drag/wire target.
+          cancelInteraction();
+          const priorUI = selectionSnapshot();
+          let created;
+          history.apply((doc) => {
+            created = appendBlankComposition(doc);
+          });
+          activeLayer = created.layerId;
+          selected = null;
+          artworkTarget = null;
+          selection = new Set();
+          tool = 'select';
+          selectionHistory.set(history.past.at(-1), priorUI);
+          selectionHistory.set(history.doc, selectionSnapshot());
+          notify('Added blank composition · Output is empty');
+          render(true);
+          document.querySelector('.canvas-stage').focus({ preventScroll: true });
+          break;
+        }
         case 'add-layer':
           history.apply((doc) => {
             let l = layer(`Composition ${doc.layers.length + 1}`);
@@ -2317,7 +2367,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>New creates a blank document; + Blank composition appends an empty vector Output. + Demo composition keeps the explicit starter Boolean example, which also remains the launch-time example. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => dialog.remove();
           document.body.append(dialog);
           dialog.showModal();
