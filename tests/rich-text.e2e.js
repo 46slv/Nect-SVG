@@ -81,6 +81,11 @@ try {
       .characters.map((c) => c.base),
   );
   assert.ok(afterBases[2][0] > beforeBases[2][0]);
+  // Numeric changes defer the structural render. Start cancellation on the new
+  // field, not a draft-bearing element about to be replaced and blurred.
+  await page.waitForFunction(
+    () => document.querySelector('[data-character-style="width"]')?.getAttribute('value') === '150',
+  );
   const wide = await saved();
   await field('width').fill('220');
   await field('width').press('Escape');
@@ -102,6 +107,10 @@ try {
   assert.equal((await read()).characterPositions.styles.c1.height, 1.35);
   assert.equal((await read()).characterPositions.styles.c2.tracking, 12);
   assert.equal((await read()).characterPositions.styles.c3, undefined);
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[data-character-style="height"]')?.getAttribute('value') === '135',
+  );
   const spacing = await saved();
   await field('height').fill('220');
   await field('height').press('Escape');
