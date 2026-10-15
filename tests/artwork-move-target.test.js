@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { document, node, connect, evaluate, pathBounds } from '../src/core.js';
+import { document, node, point, connect, evaluate, pathBounds } from '../src/core.js';
 import { parseFont } from '../src/fonts.js';
-import { resolveArtworkMoveTarget } from '../src/artwork-move-target.js';
+import {
+  resolveArtworkMoveTarget,
+  CURVE_ARTWORK_MOVE_POINT_LIMIT,
+} from '../src/artwork-move-target.js';
 
 const bytes = fs.readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url));
 const fonts = {
@@ -58,7 +61,13 @@ function translatedDocument(doc, target, delta) {
   const copy = structuredClone(doc),
     layer = copy.layers.find((l) => l.id === target.layerId),
     n = layer.nodes.find((n) => n.id === target.nodeId);
-  n.params[target.parameter].value = target.value.map((v, axis) => v + delta[axis]);
+  if (target.kind === 'curve-point-positions')
+    target.pointIds.forEach((id, i) => {
+      n.points.find((pt) => pt.id === id).position.value = target.positions[i].map(
+        (v, axis) => v + delta[axis],
+      );
+    });
+  else n.params[target.parameter].value = target.value.map((v, axis) => v + delta[axis]);
   return copy;
 }
 function proveTranslation(f, delta = [17.25, -31.5]) {
@@ -94,9 +103,12 @@ function proveTranslation(f, delta = [17.25, -31.5]) {
     pathBounds(before)[axis].forEach((v, i) => near(pathBounds(after)[axis][i], v + delta[axis]));
   // Revert the one described value, then prove all graph cards, connections,
   // authored paint, unrelated layers and every other field stayed identical.
-  afterLayer.nodes.find((n) => n.id === result.target.nodeId).params[
-    result.target.parameter
-  ].value = [...result.target.value];
+  const restored = afterLayer.nodes.find((n) => n.id === result.target.nodeId);
+  if (result.target.kind === 'curve-point-positions')
+    restored.points.forEach((pt, i) => {
+      pt.position.value = [...result.target.positions[i]];
+    });
+  else restored.params[result.target.parameter].value = [...result.target.value];
   assert.deepEqual(afterDoc, beforeDoc);
   assert.deepEqual(f.doc, beforeDoc);
   return result.target;
@@ -232,7 +244,7 @@ test('locked, driven and expression target positions refuse instead of editing f
 });
 
 test('non-finite, malformed, stale source-port and missing positions fail closed', () => {
-  for (const value of [[NaN, 1], [1, Infinity], [1], '1,2', [1, 2, 3]]) {
+  for (const value of [[NaN, 1], [1, Infinity], [, 1], [1], '1,2', [1, 2, 3]]) {
     const f = fixture();
     f.generator.params.center.value = value;
     refuse(f, 'invalid-position');
@@ -439,4 +451,237 @@ test('a resolved descriptor is observational only; exact zero has no automatic w
   assert.deepEqual(f.doc, before);
   assert.equal(result.apply, undefined);
   assert.equal(result.history, undefined);
+});
+
+function curveFixture(closed = false) {
+  const f = fixture('Curve');
+  f.generator.points = [point(120, 100), point(330, 140), point(260, 310)];
+  f.generator.points[0].handleB.value = [45, -30];
+  f.generator.points[1].handleA.value = [-20, -35];
+  f.generator.points[1].handleB.value = [20, 35];
+  f.generator.points[1].handleType = 'symmetric';
+  f.generator.points[2].handleA.value = [15, -40];
+  f.generator.params.closed.value = closed;
+  return f;
+}
+
+test('direct open/closed Bezier artwork describes all ordered anchor Positions and translates rigidly', () => {
+  for (const closed of [false, true]) {
+    const f = curveFixture(closed),
+      before = structuredClone(f.doc);
+    f.layer.nodes.reverse();
+    const target = proveTranslation(f);
+    assert.equal(target.kind, 'curve-point-positions');
+    assert.equal(target.nodeId, f.generator.id);
+    assert.deepEqual(
+      target.pointIds,
+      f.generator.points.map((pt) => pt.id),
+    );
+    assert.deepEqual(
+      target.positions,
+      f.generator.points.map((pt) => pt.position.value),
+    );
+    assert.deepEqual(target.closed, f.generator.params.closed);
+    assert.equal(target.parameter, undefined);
+    assert.equal(target.value, undefined);
+    target.pointIds.reverse();
+    target.positions[0][0] = -999;
+    target.closed.value = !closed;
+    assert.deepEqual(f.generator, before.layers[0].nodes[0]);
+    proveTranslation(f, [-92, 67]);
+    freeze(f.doc);
+    assert.equal(resolve(f).supported, true);
+  }
+});
+
+test('every Curve anchor Position is required literal, finite and unlocked', () => {
+  for (const index of [0, 1, 2])
+    for (const [code, mutate] of [
+      [
+        'invalid-position',
+        (p) => {
+          p.position.value = [Infinity, 0];
+        },
+      ],
+      [
+        'invalid-position',
+        (p) => {
+          p.position.value = [1, NaN];
+        },
+      ],
+      [
+        'invalid-position',
+        (p) => {
+          p.position.value = [1];
+        },
+      ],
+      [
+        'invalid-position',
+        (p) => {
+          p.position.type = 'Number';
+        },
+      ],
+      [
+        'invalid-position',
+        (p) => {
+          delete p.position;
+        },
+      ],
+      [
+        'locked-position',
+        (p) => {
+          p.position.locked = true;
+        },
+      ],
+      [
+        'locked-position',
+        (p) => {
+          delete p.position.locked;
+        },
+      ],
+      [
+        'driven-position',
+        (p) => {
+          p.position.source = 'node-controller';
+        },
+      ],
+      [
+        'driven-position',
+        (p) => {
+          p.position.sourcePort = 'position';
+        },
+      ],
+      [
+        'expression-position',
+        (p) => {
+          p.position.expression = '10; 20';
+        },
+      ],
+      [
+        'expression-position',
+        (p) => {
+          delete p.position.expression;
+        },
+      ],
+    ]) {
+      const f = curveFixture();
+      mutate(f.generator.points[index]);
+      refuse(f, code);
+    }
+});
+
+test('Curve point identity, handles, modes and bounded direct route fail closed without mutation', () => {
+  for (const mutate of [
+    (f) => {
+      delete f.generator.points[1].id;
+    },
+    (f) => {
+      f.generator.points[1].id = '';
+    },
+    (f) => {
+      f.generator.points[1].id = f.generator.points[0].id;
+    },
+    (f) => {
+      f.generator.points[1].id = f.fill.id;
+    },
+    (f) => {
+      f.generator.points[1] = null;
+    },
+    (f) => {
+      f.generator.points[1].handleType = 'unknown';
+    },
+    (f) => {
+      f.generator.points[1].handleA.value = [0, Infinity];
+    },
+    (f) => {
+      f.generator.points = [];
+    },
+    (f) => {
+      delete f.generator.points;
+    },
+    (f) => {
+      f.generator.points = Array(10001).fill(f.generator.points[0]);
+    },
+  ]) {
+    const f = curveFixture();
+    mutate(f);
+    refuse(f, 'invalid-points');
+  }
+  const dependent = curveFixture();
+  dependent.generator.points[2].handleA.source = 'node-controller';
+  refuse(dependent, 'side-dependency');
+  const transformed = fixture('Curve', true);
+  refuse(transformed, 'unsupported-graph');
+  for (const [code, mutate] of [
+    [
+      'hidden-artwork',
+      (f) => {
+        f.layer.visible = false;
+      },
+    ],
+    [
+      'locked-artwork',
+      (f) => {
+        f.layer.locked = true;
+      },
+    ],
+    [
+      'bypassed-route',
+      (f) => {
+        f.fill.bypassed = true;
+      },
+    ],
+    [
+      'locked-node',
+      (f) => {
+        f.generator.locked = true;
+      },
+    ],
+    [
+      'side-dependency',
+      (f) => {
+        f.generator.params.closed.source = 'node-controller';
+      },
+    ],
+    [
+      'side-dependency',
+      (f) => {
+        f.fill.params.color.source = 'node-controller';
+      },
+    ],
+  ]) {
+    const f = curveFixture();
+    mutate(f);
+    refuse(f, code);
+  }
+  const sparse = curveFixture();
+  sparse.generator.points[1].position.value = [, 10];
+  refuse(sparse, 'invalid-position');
+  sparse.generator.points[1].position.value = [10, 10];
+  sparse.generator.points[2].handleA.value = [, 10];
+  refuse(sparse, 'invalid-points');
+});
+
+test('Curve movement-only budget is explicit at 128/129 and never truncates larger curves', () => {
+  assert.equal(CURVE_ARTWORK_MOVE_POINT_LIMIT, 128);
+  const boundary = curveFixture(true);
+  boundary.generator.points = Array.from({ length: 128 }, (_, i) =>
+    point(
+      200 + Math.cos((i * Math.PI * 2) / 128) * 100,
+      200 + Math.sin((i * Math.PI * 2) / 128) * 100,
+    ),
+  );
+  assert.equal(proveTranslation(boundary).pointIds.length, 128);
+  boundary.generator.points.push(point(200, 100));
+  refuse(boundary, 'curve-move-limit');
+  assert.match(resolve(boundary).reason, /128 anchors.*graph Curve.*Save\/export/);
+  boundary.fill.params.color.expression = 'must_not_evaluate';
+  refuse(boundary, 'curve-move-limit');
+  const maximum = curveFixture();
+  maximum.generator.points = Array.from({ length: 10000 }, (_, i) => {
+    const p = point(i, i % 2);
+    p.id = 'point-bound-' + i;
+    return p;
+  });
+  refuse(maximum, 'curve-move-limit');
 });

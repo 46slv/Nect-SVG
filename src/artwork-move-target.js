@@ -2,15 +2,22 @@ import { definitions, evaluate, outputType, pathBounds, socketCompatible } from 
 
 const shapes = new Set(['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star']);
 const gradients = new Set(['Linear Gradient Fill', 'Radial Gradient Fill']);
+// Movement-only budget: larger authored Curves remain intact and source-editable.
+export const CURVE_ARTWORK_MOVE_POINT_LIMIT = 128;
 const finitePoint = (value) =>
-  Array.isArray(value) && value.length === 2 && value.every(Number.isFinite);
+  Array.isArray(value) &&
+  value.length === 2 &&
+  Number.isFinite(value[0]) &&
+  Number.isFinite(value[1]);
 const unsupported = (code, reason) => ({ supported: false, code, reason });
 
 /**
  * Resolve a final artwork layer, never the currently selected graph node.
  *
  * Deliberately bounded to generator -> Fill -> Output, optionally with ONE
- * existing Transform immediately before Fill, or Image -> Image Output.
+ * existing Transform immediately before Fill, direct Curve -> Fill -> Output,
+ * or Image -> Image Output. Curve moves are a batch of authored anchor Positions;
+ * their relative handles and topology are never rewritten.
  * All non-path inputs in that capsule must be literal, so no reference/data
  * branch can turn a translation into a simultaneous size, pivot or paint edit.
  * Disconnected nodes do not choose the target and are never modified.
@@ -19,7 +26,8 @@ const unsupported = (code, reason) => ({ supported: false, code, reason });
  * other paint stacks and arbitrary geometry graphs are selection-only here.
  * Parameter locks protect the edited parameter; unchanged parameters may be locked.
  *
- * Success describes adding an ARTBOARD-SPACE XY delta to one Vector2 value.
+ * Success describes adding an ARTBOARD-SPACE XY delta to one Vector2 value,
+ * or every Position identified by a Curve's complete ordered point ID list.
  * Transform offset is applied AFTER scale/rotation by core, including negative
  * scale. No inverse matrix or source-stage movement is involved. Zero scale /
  * other empty outputs are refused. This does not insert nodes, apply a delta,
@@ -99,10 +107,14 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
       transform = generator;
       generator = pathSource(transform, 'Path');
     }
-    if (!generator || (!shapes.has(generator.type) && generator.type !== 'Text'))
+    if (
+      !generator ||
+      (!shapes.has(generator.type) && generator.type !== 'Text' && generator.type !== 'Curve') ||
+      (generator.type === 'Curve' && transform)
+    )
       return unsupported(
         'unsupported-graph',
-        'Move is supported only for a direct shape or unattached Text, optionally through one terminal Transform.',
+        'Move supports direct Curve, shape or unattached Text artwork; only shapes/Text may use one terminal Transform.',
       );
     if (generator.type === 'Text' && generator.pathAttachment != null)
       return unsupported('attached-text', 'Detach Type on Path before using this artwork move.');
@@ -112,7 +124,9 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
       ? 'terminal-transform-offset'
       : generator.type === 'Text'
         ? 'text-position'
-        : 'shape-center';
+        : generator.type === 'Curve'
+          ? 'curve-point-positions'
+          : 'shape-center';
     route = transform ? [generator, transform, last, output] : [generator, last, output];
   }
 
@@ -127,15 +141,59 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
         'Restore bypassed artwork nodes before moving the artwork.',
       );
   }
-  const q = target.params?.[parameter];
-  if (!q || q.type !== 'Vector2' || !finitePoint(q.value))
-    return unsupported('invalid-position', 'The artwork position must be a finite Vector2.');
-  if (q.locked !== false)
-    return unsupported('locked-position', 'The artwork move parameter is locked.');
-  if (q.source !== undefined || q.sourcePort !== undefined)
-    return unsupported('driven-position', 'The artwork move parameter is connected to a source.');
-  if (q.expression !== '')
-    return unsupported('expression-position', 'The artwork move parameter has an expression.');
+  const batch = kind === 'curve-point-positions';
+  if (batch) {
+    if (!Array.isArray(target.points) || target.points.length < 2 || target.points.length > 10000)
+      return unsupported('invalid-points', 'Curve movement needs 2–10000 authored anchors.');
+    if (target.points.length > CURVE_ARTWORK_MOVE_POINT_LIMIT)
+      return unsupported(
+        'curve-move-limit',
+        `Whole-artwork Curve movement supports up to ${CURVE_ARTWORK_MOVE_POINT_LIMIT} anchors. Select the graph Curve for point/handle edits or Move node stage; Save/export retains every anchor.`,
+      );
+    const ids = new Set(byId.keys());
+    for (const pt of target.points) {
+      if (
+        !pt ||
+        typeof pt.id !== 'string' ||
+        !/^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,180}$/.test(pt.id) ||
+        ids.has(pt.id)
+      )
+        return unsupported('invalid-points', 'Curve anchor IDs must be present and unique.');
+      ids.add(pt.id);
+      if (!['corner', 'smooth', 'symmetric'].includes(pt.handleType))
+        return unsupported('invalid-points', 'The Curve has an invalid handle mode.');
+      for (const key of ['handleA', 'handleB']) {
+        const input = pt[key];
+        if (
+          !input ||
+          input.type !== 'Vector2' ||
+          !finitePoint(input.value) ||
+          typeof input.locked !== 'boolean' ||
+          typeof input.expression !== 'string'
+        )
+          return unsupported(
+            'invalid-points',
+            'Curve handles must be valid relative Vector2 inputs.',
+          );
+        if (input.source !== undefined || input.sourcePort !== undefined)
+          return unsupported(
+            'side-dependency',
+            'Connected Curve handles are outside this safe move capsule.',
+          );
+      }
+    }
+  }
+  const positions = batch ? target.points.map((pt) => pt.position) : [target.params?.[parameter]];
+  for (const q of positions) {
+    if (!q || q.type !== 'Vector2' || !finitePoint(q.value))
+      return unsupported('invalid-position', 'Every artwork position must be a finite Vector2.');
+    if (q.locked !== false)
+      return unsupported('locked-position', 'An artwork move parameter is locked.');
+    if (q.source !== undefined || q.sourcePort !== undefined)
+      return unsupported('driven-position', 'An artwork move parameter is connected to a source.');
+    if (q.expression !== '')
+      return unsupported('expression-position', 'An artwork move parameter has an expression.');
+  }
 
   // This exact slice deliberately refuses ALL output-affecting non-path
   // connections, including Reference -> Separate/Math -> a size/pivot/paint
@@ -195,11 +253,19 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
       layerId,
       outputNodeId: output.id,
       nodeId: target.id,
-      parameter,
-      parameterType: 'Vector2',
-      parameterPath: ['params', parameter, 'value'],
+      ...(batch
+        ? {
+            pointIds: target.points.map((pt) => pt.id),
+            positions: positions.map((q) => [...q.value]),
+            closed: structuredClone(target.params.closed),
+          }
+        : {
+            parameter,
+            parameterType: 'Vector2',
+            parameterPath: ['params', parameter, 'value'],
+            value: [...positions[0].value],
+          }),
       coordinateSpace: 'artboard',
-      value: [...q.value],
       route: route.map((n) => ({ nodeId: n.id, type: n.type })),
     },
   };

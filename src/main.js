@@ -200,16 +200,59 @@ function artworkMove() {
 function sameArtworkMove(target, expected) {
   return (
     target?.layerId === expected.layerId &&
+    target?.kind === expected.kind &&
     target?.nodeId === expected.nodeId &&
     target?.parameter === expected.parameter &&
     target?.outputNodeId === expected.outputNodeId &&
+    (target.kind !== 'curve-point-positions' ||
+      (JSON.stringify(target.pointIds) === JSON.stringify(expected.pointIds) &&
+        JSON.stringify(target.closed) === JSON.stringify(expected.closed))) &&
     JSON.stringify(target.route) === JSON.stringify(expected.route)
   );
 }
 function writeArtworkMove(target, delta) {
   const l = history.doc.layers.find((l) => l.id === target.layerId),
-    q = l.nodes.find((n) => n.id === target.nodeId).params[target.parameter];
-  q.value = target.value.map((v, axis) => v + delta[axis]);
+    n = l?.nodes.find((n) => n.id === target.nodeId);
+  if (
+    !n ||
+    !Array.isArray(delta) ||
+    delta.length !== 2 ||
+    !Number.isFinite(delta[0]) ||
+    !Number.isFinite(delta[1])
+  )
+    throw Error('Artwork target or delta is unavailable');
+  const batch = target.kind === 'curve-point-positions';
+  if (
+    batch &&
+    (n.points.length !== target.pointIds.length ||
+      n.points.some((pt, i) => pt.id !== target.pointIds[i]))
+  )
+    throw Error('Artwork anchor topology changed');
+  const inputs = batch ? n.points.map((pt) => pt.position) : [n.params[target.parameter]],
+    values = batch ? target.positions : [target.value];
+  // Plan the entire batch before writing. A late invalid anchor/overflow must
+  // never leave earlier Positions moved, including when nudging inside History.
+  if (!Array.isArray(values) || values.length !== inputs.length)
+    throw Error('Artwork translation needs every finite starting position');
+  const next = [];
+  for (let i = 0; i < inputs.length; i++) {
+    const value = values[i];
+    if (
+      !inputs[i] ||
+      !Array.isArray(value) ||
+      value.length !== 2 ||
+      !Number.isFinite(value[0]) ||
+      !Number.isFinite(value[1])
+    )
+      throw Error('Artwork translation needs every finite starting position');
+    const position = [value[0] + delta[0], value[1] + delta[1]];
+    if (!Number.isFinite(position[0]) || !Number.isFinite(position[1]))
+      throw Error('Artwork translation must keep every position finite');
+    next.push(position);
+  }
+  inputs.forEach((q, i) => {
+    q.value = next[i];
+  });
 }
 function notify(text, bad = false) {
   message = text;
@@ -816,7 +859,7 @@ function nodeHTML(n, result) {
     : expandedNodeBody(n, result);
   return `<section class="node ${n.bypassed ? 'bypassed' : ''} ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
-function render(resetView = false) {
+function render(resetView = false, artworkResolution = null) {
   if (composing || nameEdit?.composing) {
     needsRender = true;
     return;
@@ -857,6 +900,9 @@ function render(resetView = false) {
   let results = canvasLayers().map((x) => [x, evaluate(x, fonts, history.doc.imageAssets)]),
     result = results.find(([x]) => x.id === l.id)[1];
   renderEvaluation = result;
+  // One synchronous status resolution for both hint and Inspector; callers may
+  // reuse a just-resolved unchanged document, never a persistent cached target.
+  const move = artworkTarget ? artworkResolution || artworkMove() : null;
   snapLayerBounds = collectSnapLayerBounds(doc, results, l.id, pathBounds);
   app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New</button><button data-action="open">Open</button><button data-action="import-svg">Import SVG</button><button data-action="import-image">Import image</button><button data-action="save">Save JSON</button><button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['select', '↖', 'Select / move'],
@@ -878,7 +924,7 @@ function render(resetView = false) {
     .map(([x, r]) => layerShape(x, r.path))
     .join(
       '',
-    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen: click for corners, drag for handles; click first point to close. Enter / Escape: finish · Cancel path: discard.' : artworkTarget ? `Artwork · ${esc(l.name)} · ${esc(artworkMove().supported ? 'Drag to move · Arrow: 1 unit · Shift+Arrow: 10' : artworkMove().reason)}` : n ? `Node · ${esc(n.name)} · ${n.type === 'Transform' ? 'Selected Transform output · ' : ''}before downstream nodes${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork on the canvas or a layer; select a graph node for source-stage editing'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node" ${penDraft ? 'disabled' : ''}><option value="">+ Add node</option>${Object.keys(
+    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen: click for corners, drag for handles; click first point to close. Enter / Escape: finish · Cancel path: discard.' : artworkTarget ? `Artwork · ${esc(l.name)} · ${esc(move.supported ? 'Drag to move · Arrow: 1 unit · Shift+Arrow: 10' : move.reason)}` : n ? `Node · ${esc(n.name)} · ${n.type === 'Transform' ? 'Selected Transform output · ' : ''}before downstream nodes${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork on the canvas or a layer; select a graph node for source-stage editing'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node" ${penDraft ? 'disabled' : ''}><option value="">+ Add node</option>${Object.keys(
     definitions,
   )
     .filter((x) => !['Output', 'Image Output', 'Image'].includes(x))
@@ -907,7 +953,7 @@ function render(resetView = false) {
           .map(([k, q]) => field(n, k, q))
           .join('')}`
       : artworkTarget
-        ? `<h3>Artwork · ${esc(l.name)}</h3><p>Final evaluated Output in artboard coordinates.</p><p class="artwork-move-status">${esc(artworkMove().supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : artworkMove().reason)}</p>`
+        ? `<h3>Artwork · ${esc(l.name)}</h3><p>Final evaluated Output in artboard coordinates.</p><p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : move.reason)}</p>`
         : hasEmptyOutput(l)
           ? '<h3>Empty composition</h3><p>Add independent artwork with a toolbar tool, or add graph nodes and explicitly Use as output. The empty Output renders nothing.</p>'
           : '<p>Select artwork or a graph node.</p>'
@@ -3860,7 +3906,7 @@ app.addEventListener('pointerdown', (e) => {
     }
     selectArtwork(layerId);
     const resolved = artworkMove();
-    render();
+    render(false, resolved);
     const capture = document.querySelector('.canvas-stage');
     capture.focus({ preventScroll: true });
     if (!resolved.supported) {
@@ -4227,7 +4273,13 @@ function movePointer(e) {
         e,
       );
     if (!delta.every(Number.isFinite)) return;
-    writeArtworkMove(drag.target, delta);
+    try {
+      writeArtworkMove(drag.target, delta);
+    } catch (error) {
+      cancelInteraction();
+      notify(error.message, true);
+      return;
+    }
     drag.started = true;
     drag.lastDelta = delta;
     updateCanvas();
@@ -4589,11 +4641,12 @@ document.addEventListener('pointerup', (e) => {
       return;
     }
   }
+  let artworkResolution = null;
   if (drag?.type === 'artwork') {
-    const resolved = artworkMove();
-    if (!resolved.supported || !sameArtworkMove(resolved.target, drag.target)) {
+    artworkResolution = artworkMove();
+    if (!artworkResolution.supported || !sameArtworkMove(artworkResolution.target, drag.target)) {
       cancelInteraction();
-      notify(resolved.reason || 'Artwork target changed', true);
+      notify(artworkResolution.reason || 'Artwork target changed', true);
       return;
     }
   }
@@ -4673,7 +4726,7 @@ document.addEventListener('pointerup', (e) => {
       history.record(d.before);
       notify('Updated');
     }
-    render();
+    render(false, d.type === 'artwork' ? artworkResolution : null);
   }
 });
 app.addEventListener('contextmenu', (e) => {
@@ -4915,12 +4968,9 @@ document.addEventListener('keydown', (e) => {
         e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0,
         e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0,
       ];
-    change(() => {
-      const fresh = artworkMove();
-      if (!fresh.supported || !sameArtworkMove(fresh.target, resolved.target))
-        throw Error(fresh.reason || 'Artwork target changed');
-      writeArtworkMove(fresh.target, delta);
-    }, 'Artwork position updated');
+    // No asynchronous work or document mutation intervenes before this write.
+    // The next preview/key/commit still resolves independently from live state.
+    change(() => writeArtworkMove(resolved.target, delta), 'Artwork position updated');
     document.querySelector('.canvas-stage').focus({ preventScroll: true });
     return;
   }

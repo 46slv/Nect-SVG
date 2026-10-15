@@ -15,11 +15,11 @@ The left toolbar’s **Circle, Rectangle, Polygon, Star and Text** buttons add a
 
 ## Supported whole-artwork movement
 
-Artwork drag and focused-artboard Arrow keys use the same conservative resolver. The supported graph is one Circle/Ellipse/Rectangle/Polygon/Star or unattached Text → solid Fill → Output, optionally with one existing Transform immediately before Fill. A direct Image → Image Output is also supported. Disconnected nodes do not affect target choice.
+Artwork drag and focused-artboard Arrow keys use the same conservative resolver. The supported graph is one Circle/Ellipse/Rectangle/Polygon/Star or unattached Text → solid Fill → Output, optionally with one existing Transform immediately before Fill. Direct Curve → solid Fill → Output and Image → Image Output are also supported. Disconnected nodes do not affect target choice.
 
 Dragging translates the final artwork in artboard units through the current canvas transform. Hold Shift to constrain one axis; release Shift to move freely. Existing snapping and Alt bypass apply to pointer placement. Arrows move 1 document unit, or 10 with Shift, without snapping and independently of zoom. Each accepted keydown is one Undo step. Character editing takes priority. Fields, IME, dialogs, graph focus and active gestures do not invoke artwork nudging.
 
-A terminal Transform edits only its Offset in final artboard axes, including under rotation and negative scale. Direct shapes edit Center; direct Text/Image edit Position. No node is inserted and no input is disconnected.
+A terminal Transform edits only its Offset in final artboard axes, including under rotation and negative scale. Direct shapes edit Center; direct Text/Image edit Position. Direct Curve moves all authored anchor Positions by one common delta, retaining relative handles, modes and closure. Its full ordered point IDs and all literal/unlocked Positions must remain valid. Whole-artwork Curve movement supports up to 128 anchors; larger curves show a reason and retain existing graph source editing, Save and export without truncation. No node is inserted and no input is disconnected. See [Curve placement boundaries](pen-artwork.md).
 
 Other graphs remain selectable with a visible movement-unavailable reason. In particular, Boolean, Repeater, Remap, extra paint stacks, gradients, Type on Path, output-affecting non-path dependencies, bypassed routes, empty output and locked/driven positions are outside the safe capsule. Gradient coordinates are artboard-space, so moving geometry alone would change its paint.
 

@@ -352,9 +352,224 @@ try {
     });
     await page.locator('[data-pen-cancel]').click();
   }
+
+  const proveRigidPlacement = async (before, delta) => {
+    const after = JSON.parse(await snapshot()),
+      original = before.layers.at(-1).nodes[0].points,
+      points = after.layers.at(-1).nodes[0].points;
+    for (let i = 0; i < points.length; i++) {
+      for (let axis = 0; axis < 2; axis++)
+        assert.ok(
+          Math.abs(
+            points[i].position.value[axis] - original[i].position.value[axis] - delta[axis],
+          ) < 0.00001,
+        );
+      points[i].position.value = [...original[i].position.value];
+    }
+    assert.deepEqual(after, before, 'only authored Positions may change');
+  };
+  const hitCurve = async (id) => {
+    const p = await xy([420, 210]);
+    assert.equal(
+      await page.evaluate(
+        ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-layer]')?.dataset.layer,
+        p,
+      ),
+      id,
+    );
+    await page.mouse.move(...p);
+    await page.mouse.down();
+  };
+  for (const isClosed of [false, true]) {
+    await load(initial.json);
+    await begin();
+    await point([330, 120], [350, 90]);
+    await point([500, 170], [530, 200]);
+    await point([400, 320], [380, 335]);
+    if (isClosed) await page.locator('.vertex').first().click();
+    else await page.keyboard.press('Enter');
+    const beforeJSON = await snapshot(),
+      before = JSON.parse(beforeJSON),
+      id = before.layers.at(-1).id;
+    assert.equal(await page.locator('.inspector-body h3').innerText(), 'Artwork · Curve');
+    assert.match(await page.locator('.artwork-move-status').innerText(), /Drag artwork/);
+    // No selection workaround: the freshly finished path accepts both native arrow steps.
+    await page.keyboard.press('ArrowRight');
+    await proveRigidPlacement(before, [1, 0]);
+    await page.keyboard.press('Shift+ArrowDown');
+    await proveRigidPlacement(before, [1, 10]);
+    await page.locator('[data-action="undo"]').click();
+    await page.locator('[data-action="undo"]').click();
+    assert.equal(await snapshot(), beforeJSON);
+    // Real zoom and middle pan must change only the view; pointer deltas stay artboard-space.
+    await page.locator('[data-action="actual-size"]').click();
+    await page.locator('[data-action="zoom-out"]').click();
+    const pan = await xy([720, 350]);
+    await page.mouse.move(...pan);
+    await page.mouse.down({ button: 'middle' });
+    await page.mouse.move(pan[0] + 25, pan[1] - 15, { steps: 3 });
+    await page.mouse.up({ button: 'middle' });
+    assert.equal(await snapshot(), beforeJSON);
+    await page.keyboard.down('Alt');
+    await hitCurve(id);
+    await page.mouse.move(...(await xy([437.5, 197.75])), { steps: 5 });
+    await page.mouse.up();
+    await page.keyboard.up('Alt');
+    await proveRigidPlacement(before, [17.5, -12.25]);
+    const movedJSON = await snapshot();
+    await page.locator('[data-action="undo"]').click();
+    assert.equal(await snapshot(), beforeJSON);
+    await page.locator('[data-action="undo"]').click();
+    assert.equal(await snapshot(), initial.json);
+    await page.locator('[data-action="redo"]').click();
+    await page.locator('[data-action="redo"]').click();
+    assert.equal(await snapshot(), movedJSON);
+    const label = isClosed ? 'closed' : 'open',
+      svg = await download('export', 'svg', 'workflow-curve-placement-' + label),
+      png = await download('export-png', 'png', 'workflow-curve-placement-' + label),
+      json = await download('save', 'json', 'workflow-curve-placement-' + label),
+      rendered = await pixels(svg);
+    assert.deepEqual(await pixels(png, 'image/png'), rendered);
+    assert.equal(rendered.old, oldPixels.old);
+    assert.equal(JSON.stringify(JSON.parse(json.toString())), movedJSON);
+    await page.reload();
+    await page.waitForSelector('.shape');
+    await load(json.toString());
+    assert.equal(await snapshot(), movedJSON);
+    assert.deepEqual(await pixels(await page.evaluate(() => window.nect.export())), rendered);
+    // Actual pressed-pointer interruption cannot leave part of the batch moved or resume later.
+    for (const interrupt of [
+      'Escape',
+      'pointercancel',
+      'lostpointercapture',
+      'blur',
+      'out-and-back',
+    ]) {
+      await load(beforeJSON);
+      await page.locator(`[data-select-layer="${id}"]`).click();
+      await page.evaluate(() =>
+        document.addEventListener(
+          'pointerdown',
+          (e) => {
+            window.curvePointerId = e.pointerId;
+          },
+          { once: true },
+        ),
+      );
+      await page.keyboard.down('Alt');
+      await hitCurve(id);
+      await page.mouse.move(...(await xy([445, 230])), { steps: 3 });
+      assert.notEqual(await snapshot(), beforeJSON);
+      if (interrupt === 'Escape') await page.keyboard.press('Escape');
+      else if (interrupt === 'out-and-back')
+        await page.mouse.move(...(await xy([420, 210])), { steps: 3 });
+      else
+        await page.evaluate((kind) => {
+          if (kind === 'blur') window.dispatchEvent(new Event('blur'));
+          else
+            (kind === 'pointercancel'
+              ? document
+              : document.querySelector('.canvas-stage')
+            ).dispatchEvent(
+              new PointerEvent(kind, { bubbles: true, pointerId: window.curvePointerId }),
+            );
+        }, interrupt);
+      await page.mouse.up();
+      await page.keyboard.up('Alt');
+      await page.mouse.move(...(await xy([460, 250])));
+      assert.equal(await snapshot(), beforeJSON, interrupt);
+      assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
+    }
+    await load(beforeJSON);
+    await page.locator(`[data-select-layer="${id}"]`).click();
+    await page.keyboard.down('Alt');
+    await hitCurve(id);
+    await page.mouse.move(...(await xy([435, 220])), { steps: 3 });
+    await page.evaluate(() => window.nect.document.layers.at(-1).nodes[0].points.reverse());
+    await page.mouse.up();
+    await page.keyboard.up('Alt');
+    assert.equal(
+      await snapshot(),
+      beforeJSON,
+      'ordered anchor identity is rechecked before commit',
+    );
+    await load(movedJSON);
+    await page.locator(`[data-select-layer="${id}"]`).click();
+    await page.screenshot({ path: `test-results/pen-placement-${label}.png`, fullPage: true });
+  }
+
+  // The movement-only resource boundary is visible and never removes authored points.
+  for (const count of [128, 129]) {
+    const id = await page.evaluate(
+      async ({ base, count }) => {
+        const { point } = await import('/src/core.js'),
+          { createPenArtworkDraft, appendPenArtwork } = await import('/src/artwork-creation.js'),
+          d = JSON.parse(base),
+          layer = createPenArtworkDraft(d, [400, 160]);
+        layer.nodes[0].points = Array.from({ length: count }, (_, i) =>
+          point(
+            400 + Math.cos((i * Math.PI * 2) / count) * 80,
+            240 + Math.sin((i * Math.PI * 2) / count) * 80,
+          ),
+        );
+        layer.nodes[0].params.closed.value = true;
+        layer.nodes.forEach((n) => {
+          n.collapsed = true;
+        });
+        appendPenArtwork(d, layer);
+        window.nect.load(JSON.stringify(d));
+        return layer.id;
+      },
+      { base: initial.json, count },
+    );
+    await page.locator(`[data-select-layer="${id}"]`).click();
+    const beforeJSON = await snapshot(),
+      before = JSON.parse(beforeJSON);
+    if (count === 128) {
+      assert.match(await page.locator('.artwork-move-status').innerText(), /Drag artwork/);
+      await page.locator('.canvas-stage').press('ArrowRight');
+      await proveRigidPlacement(before, [1, 0]);
+      await page.locator('[data-action="undo"]').click();
+      assert.equal(await snapshot(), beforeJSON);
+    } else {
+      assert.match(
+        await page.locator('.artwork-move-status').innerText(),
+        /128 anchors.*graph Curve.*Save\/export/,
+      );
+      await page.locator('.canvas-stage').press('ArrowRight');
+      assert.equal(await snapshot(), beforeJSON);
+      assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
+      const svg = await download('export', 'svg', 'workflow-curve-limit-129'),
+        png = await download('export-png', 'png', 'workflow-curve-limit-129'),
+        json = await download('save', 'json', 'workflow-curve-limit-129');
+      assert.deepEqual(await pixels(svg), await pixels(png, 'image/png'));
+      assert.equal(JSON.parse(json.toString()).layers.at(-1).nodes[0].points.length, 129);
+      await load(json.toString());
+      assert.equal(await snapshot(), beforeJSON);
+      const nodeId = before.layers.at(-1).nodes[0].id;
+      await page.locator(`[data-select-layer="${id}"]`).click();
+      await page.locator(`.node[data-id="${nodeId}"] .node-head strong`).click();
+      const handle = page.locator('.node-stage-move rect'),
+        box = await handle.boundingBox(),
+        scale = await page.locator('.artboard').evaluate((el) => el.getScreenCTM().a);
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.keyboard.down('Alt');
+      await page.mouse.move(
+        box.x + box.width / 2 + 10 * scale,
+        box.y + box.height / 2 + 20 * scale,
+        { steps: 3 },
+      );
+      await page.mouse.up();
+      await page.keyboard.up('Alt');
+      await proveRigidPlacement(before, [10, 20]);
+      await page.locator('[data-action="undo"]').click();
+      assert.equal(await snapshot(), beforeJSON);
+    }
+  }
   assert.deepEqual(errors, []);
   console.log(
-    'PASS independent Pen: actual open/closed Bezier pointers, hidden/locked/image/output protection, one-path Undo/Redo, cold JSON/SVG/PNG exact pixels, cancellation/interruptions, explicit Curve edits, navigation and 1280/1600 draft affordances',
+    'PASS independent Pen: actual open/closed Bezier pointers, hidden/locked/image/output protection, one-path Undo/Redo, cold JSON/SVG/PNG exact pixels, cancellation/interruptions, rigid Curve placement/nudge after finish, visible128/129 movement boundary with larger source editing/save/export, move/creation Undo, cancellation/topology guards, explicit Curve edits, navigation and 1280/1600 draft affordances',
   );
 } finally {
   await browser.close();
