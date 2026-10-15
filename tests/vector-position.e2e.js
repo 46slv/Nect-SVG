@@ -122,18 +122,21 @@ try {
     assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
   }
   // Point screen size is stable at different zoom, and pan still wins over its handle.
-  const diameter = await page
-    .locator('.vector-marker polygon')
-    .evaluate((el) => el.getBoundingClientRect().width);
+  const settledDiameter = async () => {
+    // fitCanvas schedules a canvas refresh; read the compensated marker only
+    // once that live geometry reaches its specified 24 px screen width.
+    await page.waitForFunction(() => {
+      const marker = document.querySelector('.vector-marker polygon');
+      return marker && Math.abs(marker.getBoundingClientRect().width - 24) < 0.01;
+    });
+    return page
+      .locator('.vector-marker polygon')
+      .evaluate((el) => el.getBoundingClientRect().width);
+  };
+  const diameter = await settledDiameter();
   await page.locator('[data-action="zoom-in"]').click();
   await page.locator('[data-action="zoom-in"]').click();
-  assert.ok(
-    Math.abs(
-      (await page
-        .locator('.vector-marker polygon')
-        .evaluate((el) => el.getBoundingClientRect().width)) - diameter,
-    ) < 0.01,
-  );
+  assert.ok(Math.abs((await settledDiameter()) - diameter) < 0.01);
   before = await saved();
   p = await screen(await pos());
   await page.mouse.move(...p);
