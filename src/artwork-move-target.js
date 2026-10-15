@@ -114,7 +114,7 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
     )
       return unsupported(
         'unsupported-graph',
-        'Move supports direct Curve, shape or unattached Text artwork; only shapes/Text may use one terminal Transform.',
+        'Move is supported for direct Curve, shape or unattached Text artwork; only shapes/Text may use one terminal Transform.',
       );
     if (generator.type === 'Text' && generator.pathAttachment != null)
       return unsupported('attached-text', 'Detach Type on Path before using this artwork move.');
