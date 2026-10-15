@@ -105,17 +105,16 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   pointer(document, 'pointerup', 330, 130);
   pointer(document.querySelector('.artboard'), 'pointerdown', 200, 300);
   pointer(document, 'pointerup', 200, 300);
-  let curve = win.nect.document.layers[1].nodes.find((n) => n.type === 'Curve');
+  assert.equal(win.nect.document.layers.length, 2, 'unfinished Pen stays detached');
+  const firstVertex = document.querySelector('.vertex').dataset.point;
+  pointer(document.querySelector(`.vertex[data-point="${firstVertex}"]`), 'pointerdown', 100, 100);
+  pointer(document, 'pointerup', 100, 100);
+  let curve = win.nect.document.layers.at(-1).nodes[0];
   assert.equal(curve.points.length, 3);
   assert.deepEqual(curve.points[1].handleB.value, [30, 30]);
-  pointer(
-    document.querySelector(`.vertex[data-point="${curve.points[0].id}"]`),
-    'pointerdown',
-    100,
-    100,
-  );
-  pointer(document, 'pointerup', 100, 100);
   assert.equal(curve.params.closed.value, true);
+  pointer(document.querySelector(`.node[data-id="${curve.id}"] .node-head`), 'pointerdown');
+  pointer(document, 'pointerup');
   curve.points[0].position.locked = true;
   pointer(
     document.querySelector(`.vertex[data-point="${curve.points[0].id}"]`),
@@ -126,6 +125,7 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   pointer(document, 'pointermove', 150, 150);
   pointer(document, 'pointerup', 150, 150);
   assert.deepEqual(curve.points[0].position.value, [100, 100]);
+  document.querySelector(`[data-select-layer="${win.nect.document.layers[1].id}"]`).click();
   let [circle2, rectangle2] = win.nect.document.layers[1].nodes;
   pointer(document.querySelector(`.node[data-id="${circle2.id}"] .node-head`), 'pointerdown');
   pointer(document, 'pointerup');
@@ -157,12 +157,10 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   document.querySelector('[data-action="undo"]').click();
   pointer(document.querySelector('.artboard'), 'pointerdown', 410, 110);
   pointer(document, 'pointerup', 410, 110);
-  assert.deepEqual(
-    win.nect.document.layers[1].nodes.filter((n) => n.type === 'Curve').at(-1).points[0].position
-      .value,
-    [410, 110],
-  );
-  document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(document.querySelector('.vertex').getAttribute('cx'), '410');
+  document
+    .querySelector('.canvas-stage')
+    .dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   add = document.querySelector('#add-node');
   add.value = 'Fill';
   add.dispatchEvent(new win.Event('change', { bubbles: true }));
@@ -192,6 +190,7 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
 
   // Cancellation rolls back provisional edits without consuming undo or redo history.
   win.nect.load(serialized);
+  document.querySelector('[data-tool="select"]').click();
   radius = document.querySelector(
     `.graph [data-node="${circle.id}"][data-key="radius"] [data-value]`,
   );
@@ -232,22 +231,26 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   cancelAndCheck(serialized);
   pointer(document.querySelector('.artboard'), 'pointerdown', 200, 100);
   pointer(document, 'pointerup', 200, 100);
+  assert.equal(JSON.stringify(win.nect.document), serialized, 'released point is still a draft');
+  pointer(document.querySelector('.artboard'), 'pointerdown', 300, 150);
+  pointer(document, 'pointerup', 300, 150);
+  document
+    .querySelector('.canvas-stage')
+    .dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   const firstPoint = JSON.stringify(win.nect.document);
-  assert.deepEqual(
-    win.nect.document.layers[0].nodes.filter((n) => n.type === 'Curve').at(-1).points[0].position
-      .value,
-    [200, 100],
-  );
+  assert.deepEqual(win.nect.document.layers.at(-1).nodes[0].points[0].position.value, [200, 100]);
   document.querySelector('[data-action="undo"]').click();
   assert.equal(JSON.stringify(win.nect.document), serialized);
   document.querySelector('[data-action="redo"]').click();
   assert.equal(JSON.stringify(win.nect.document), firstPoint);
 
   // Cancelling a vertex move preserves the prior committed Pen history.
-  const penNodeId = win.nect.document.layers[0].nodes.filter((n) => n.type === 'Curve').at(-1).id;
+  const penNodeId = win.nect.document.layers.at(-1).nodes[0].id;
   pointer(document.querySelector(`.node[data-id="${penNodeId}"] .node-head`), 'pointerdown');
   pointer(document, 'pointerup');
-  document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  document
+    .querySelector('.canvas-stage')
+    .dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   const vertex = document.querySelector('.vertex');
   pointer(vertex, 'pointerdown', 200, 100);
   pointer(document, 'pointermove', 230, 140);

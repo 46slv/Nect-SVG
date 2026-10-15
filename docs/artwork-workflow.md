@@ -2,7 +2,7 @@
 
 The left toolbar’s **Circle, Rectangle, Polygon, Star and Text** buttons add a new independent artwork layer at the document center. Each new layer has a generator → solid Fill → Output graph. Existing layers, connections, paint, visibility, locks and assets stay intact, including when the previously active layer is hidden or locked. Creation is one Undo step. The pure creation helper also supports Ellipse; Ellipse remains available through graph node creation rather than a separate toolbar button.
 
-**+ Add node** adds an unconnected node to the current layer’s graph. **+ Demo composition** adds the existing starter Boolean example. **Pen / Curve** remains the legacy current-composition graph tool: starting a curve routes that composition’s Output to the new curve’s Fill. This release does not add a blank-composition or scene/group model.
+**+ Add node** adds an unconnected node to the current layer’s graph. **+ Demo composition** adds the existing starter Boolean example. **Pen / Curve** now previews and commits a new independent Curve → Fill → Output layer. Enter, Escape or Finish path finishes open; clicking the first anchor closes. Cancel path discards the detached draft. See [Pen lifecycle and limits](pen-artwork.md). This release does not add a blank-composition or scene/group model.
 
 ## Two explicit edit targets
 

@@ -1293,3 +1293,8 @@ input[data-scrub-step].scrubbing {
   pointer-events: stroke;
   cursor: move;
 }
+
+.pen-graph-preview,
+.inspector-body [inert] {
+  opacity: 0.6;
+}

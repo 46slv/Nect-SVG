@@ -1,4 +1,4 @@
-import { cloneDocument, connect, node, uid, validate } from './core.js';
+import { cloneDocument, connect, node, point, uid, validate } from './core.js';
 
 export const ARTWORK_TYPES = Object.freeze([
   'Circle',
@@ -39,16 +39,31 @@ export function appendArtwork(doc, type, { at, name = type } = {}) {
   if (!Array.isArray(at) || at.length !== 2 || !Number.isFinite(at[0]) || !Number.isFinite(at[1]))
     throw Error('Artwork position must be an explicit finite artboard point');
   if (typeof name !== 'string' || name.length > 100000) throw Error('Invalid artwork name');
+  assertArtworkDocument(doc);
+
+  const candidate = candidateDocument(doc),
+    generator = node(type, 40, 50),
+    artwork = artworkLayer(generator, name);
+  generator.params[type === 'Text' ? 'position' : 'center'].value = [...at];
+  candidate.layers.push(artwork);
+  validate(candidate);
+
+  // Preserve existing objects and any legacy fields normalized on the candidate.
+  doc.layers.push(artwork);
+  return { layerId: artwork.id, nodeId: generator.id };
+}
+
+function assertArtworkDocument(doc) {
   if (!doc || !Array.isArray(doc.layers) || doc.layers.length < 1)
     throw Error('Invalid artwork document');
   if (doc.layers.length >= 100) throw Error('Artwork requires fewer than 100 existing layers');
   // Validation migrates version 1 in place. Creation must never silently upgrade
   // the existing document; its normal open/import path owns that migration.
   if (doc.schemaVersion === 1) throw Error('Upgrade schemaVersion 1 before creating artwork');
+}
 
-  const candidate = candidateDocument(doc),
-    generator = node(type, 40, 50),
-    fill = node('Fill', 350, 50),
+function artworkLayer(generator, name) {
+  const fill = node('Fill', 350, 50),
     output = node('Output', 660, 50),
     artwork = {
       id: uid('layer'),
@@ -59,14 +74,36 @@ export function appendArtwork(doc, type, { at, name = type } = {}) {
       nodes: [generator, fill, output],
       output: output.id,
     };
-  generator.params[type === 'Text' ? 'position' : 'center'].value = [...at];
   connect(artwork, generator.id, fill.id, 'path');
   connect(artwork, fill.id, output.id, 'path');
+  return artwork;
+}
+
+/** Detached preview: it is never part of document persistence or history. */
+export function createPenArtworkDraft(doc, at) {
+  assertArtworkDocument(doc);
+  if (!Array.isArray(at) || at.length !== 2 || !at.every(Number.isFinite))
+    throw Error('Pen position must be an explicit finite artboard point');
+  const curve = node('Curve', 40, 50);
+  curve.points = [point(...at)];
+  curve.params.closed.value = false;
+  const artwork = artworkLayer(curve, 'Curve'),
+    candidate = candidateDocument(doc);
   candidate.layers.push(artwork);
   validate(candidate);
+  return artwork;
+}
 
-  // Do not replace the document, its layers array, existing layers or assets
-  // with the validated clone: core validation may normalize legacy fields.
+/** One caller-owned History.apply commits a finished, detached Pen path. */
+export function appendPenArtwork(doc, draft) {
+  assertArtworkDocument(doc);
+  const artwork = structuredClone(draft),
+    curve = artwork?.nodes?.[0];
+  if (curve?.type !== 'Curve' || curve.points.length < 2)
+    throw Error('A finished Pen path needs at least two points');
+  const candidate = candidateDocument(doc);
+  candidate.layers.push(artwork);
+  validate(candidate);
   doc.layers.push(artwork);
-  return { layerId: artwork.id, nodeId: generator.id };
+  return { layerId: artwork.id, nodeId: curve.id };
 }

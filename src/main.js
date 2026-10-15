@@ -2,7 +2,7 @@ import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './ra
 import { validateImageAssets } from './images.js';
 import { captureFocus, restoreFocus } from './focus.js';
 import './style.css';
-import { appendArtwork } from './artwork-creation.js';
+import { appendArtwork, createPenArtworkDraft, appendPenArtwork } from './artwork-creation.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import {
   findFreeNodePosition,
@@ -131,7 +131,8 @@ let history = new History(newDocument()),
   systemFontStatus = desktop ? 'Reading Windows fonts…' : '',
   wiring = null,
   drag = null,
-  penId = null;
+  penId = null,
+  penDraft = null;
 let savedSnapshot = serialize(history.doc),
   saveInFlight = false,
   openRequest = 0,
@@ -172,7 +173,10 @@ const esc = (s) =>
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   );
-const current = () => history.doc.layers.find((l) => l.id === activeLayer) || history.doc.layers[0];
+const current = () =>
+  penDraft?.layer || history.doc.layers.find((l) => l.id === activeLayer) || history.doc.layers[0];
+const canvasLayers = () =>
+  penDraft ? [...history.doc.layers, penDraft.layer] : history.doc.layers;
 const selectedNode = () =>
   artworkTarget ? undefined : current().nodes.find((n) => n.id === selected);
 function selectArtwork(layerId) {
@@ -249,6 +253,10 @@ function scheduleRender() {
     }, 0);
 }
 function change(fn, text, deferRender = false) {
+  if (penDraft) {
+    notify('Finish or cancel the draft path before editing properties', true);
+    return;
+  }
   const previousUI = { selected, activeLayer, artworkTarget, selection: new Set(selection), penId };
   try {
     if (current().locked) throw Error('Composition is locked');
@@ -279,6 +287,7 @@ function change(fn, text, deferRender = false) {
   }
 }
 function resetTransient() {
+  discardPenDraft();
   composing = false;
   nameEdit = null;
   lastNameClick = null;
@@ -619,6 +628,7 @@ function nameInput(kind, id) {
   return `<input class="inline-name" data-rename-name="${id}" aria-label="${kind === 'node' ? 'Node' : 'Layer'} name" value="${esc(nameEdit.value)}" maxlength="100000" spellcheck="false">`;
 }
 function beginNameEdit(layerId, nodeId = null) {
+  if (penDraft && !finishPenDraft()) return;
   const l = history.doc.layers.find((l) => l.id === layerId),
     target = nodeId ? l?.nodes.find((n) => n.id === nodeId) : l;
   if (!target || l.locked) {
@@ -837,11 +847,11 @@ function render(resetView = false) {
   )
     characterEdit = null;
   fonts = resolveFonts(doc, bundledFont ? { default: bundledFont } : {});
-  let results = doc.layers.map((x) => [x, evaluate(x, fonts, history.doc.imageAssets)]),
+  let results = canvasLayers().map((x) => [x, evaluate(x, fonts, history.doc.imageAssets)]),
     result = results.find(([x]) => x.id === l.id)[1];
   renderEvaluation = result;
   snapLayerBounds = collectSnapLayerBounds(doc, results, l.id, pathBounds);
-  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New</button><button data-action="open">Open</button><button data-action="import-svg">Import SVG</button><button data-action="import-image">Import image</button><button data-action="save">Save JSON</button><button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New</button><button data-action="open">Open</button><button data-action="import-svg">Import SVG</button><button data-action="import-image">Import image</button><button data-action="save">Save JSON</button><button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
     ['Circle', '○', 'Add Circle'],
@@ -856,19 +866,19 @@ function render(resetView = false) {
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard and grid; hold Alt to bypass">Snap</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span></div>${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard and grid; hold Alt to bypass">Snap</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => layerShown(x) && r.path && !r.error)
     .map(([x, r]) => layerShape(x, r.path))
     .join(
       '',
-    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : artworkTarget ? `Artwork · ${esc(l.name)} · ${esc(artworkMove().supported ? 'Drag to move · Arrow: 1 unit · Shift+Arrow: 10' : artworkMove().reason)}` : n ? `Node · ${esc(n.name)} · ${n.type === 'Transform' ? 'Selected Transform output · ' : ''}before downstream nodes${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork on the canvas or a layer; select a graph node for source-stage editing'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
+    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen: click for corners, drag for handles; click first point to close. Enter / Escape: finish · Cancel path: discard.' : artworkTarget ? `Artwork · ${esc(l.name)} · ${esc(artworkMove().supported ? 'Drag to move · Arrow: 1 unit · Shift+Arrow: 10' : artworkMove().reason)}` : n ? `Node · ${esc(n.name)} · ${n.type === 'Transform' ? 'Selected Transform output · ' : ''}before downstream nodes${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork on the canvas or a layer; select a graph node for source-stage editing'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node" ${penDraft ? 'disabled' : ''}><option value="">+ Add node</option>${Object.keys(
     definitions,
   )
     .filter((x) => !['Output', 'Image Output', 'Image'].includes(x))
     .map((x) => `<option>${x}</option>`)
     .join(
       '',
-    )}</select><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg>${l.nodes.map((x) => nodeHTML(x, result)).join('')}</div></div><div class="graph-hint" id="graph-navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button></div>${[
+    )}</select><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="graph-hint" id="graph-navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -878,7 +888,7 @@ function render(resetView = false) {
     )
     .join(
       '',
-    )}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${
+    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
       ? `<h3>${esc(n.name)}</h3>${bypassControl(n)}<p>Node · ${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Before downstream nodes. Use the source-stage move marker or dedicated handles to edit this node directly. Connected or locked parameters cannot be moved.</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
           n,
@@ -899,7 +909,7 @@ function render(resetView = false) {
     )
     .join(
       '',
-    )}<p>Dynamic sockets<br>Drag a node output onto a compatible field. Drag a connected input into empty graph space to disconnect. Right-click an input also disconnects.</p><p>Expressions: arithmetic, pi, sin, cos, sqrt, min/max. Vector2: x expression; y expression.</p></div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+    )}<p>Dynamic sockets<br>Drag a node output onto a compatible field. Drag a connected input into empty graph space to disconnect. Right-click an input also disconnects.</p><p>Expressions: arithmetic, pi, sin, cos, sqrt, min/max. Vector2: x expression; y expression.</p>${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
   const instanceControl = document.querySelector('[data-character-instance]');
   if (instanceControl && characterEdit) instanceControl.value = characterEdit.route || '';
   const characterList = document.querySelector('[data-character-selection]');
@@ -1578,6 +1588,7 @@ function canvasOverlay(n, result) {
   return out;
 }
 function nodeStageMoveMarker(n, path) {
+  if (penDraft) return '';
   if (
     ![
       'Circle',
@@ -1627,7 +1638,7 @@ function drawCanvas() {
   const r = evaluate(l, fonts, history.doc.imageAssets);
   svg.innerHTML =
     gridOverlay() +
-    history.doc.layers
+    canvasLayers()
       .filter((x) => layerShown(x))
       .map((x) => {
         const value = x === l ? r : evaluate(x, fonts, history.doc.imageAssets);
@@ -1840,6 +1851,66 @@ function createArtwork(type) {
     notify(error.message, true);
   }
 }
+// Pen previews stay detached from history.doc. Only Finish appends a layer.
+function restorePenSelection(state) {
+  ({ activeLayer, selected, artworkTarget } = state);
+  selection = new Set(state.selection);
+}
+function releasePenPointer() {
+  if (drag?.type !== 'pen') return;
+  const old = drag;
+  drag = null;
+  if (old.capture?.hasPointerCapture?.(old.pointerId))
+    old.capture.releasePointerCapture(old.pointerId);
+  pointerActive = false;
+  snapMatches = [];
+}
+function discardPenDraft() {
+  if (!penDraft) return;
+  releasePenPointer();
+  const prior = penDraft.priorUI;
+  penDraft = null;
+  penId = null;
+  restorePenSelection(prior);
+}
+function finishPenDraft(closed = false, redraw = true) {
+  // A key or tool change during a pressed point never commits its partial handles.
+  if (drag?.type === 'pen') cancelInteraction();
+  const draft = penDraft;
+  if (!draft) return true;
+  const curve = draft.layer.nodes[0];
+  if (curve.points.length < 2) {
+    discardPenDraft();
+    tool = 'select';
+    notify('One-point draft discarded; a path needs two points');
+  } else {
+    curve.params.closed.value = closed;
+    try {
+      let created;
+      history.apply((doc) => {
+        created = appendPenArtwork(doc, draft.layer);
+      });
+      penDraft = null;
+      penId = null;
+      tool = 'select';
+      selectArtwork(created.layerId);
+      selectionHistory.set(history.past.at(-1), draft.priorUI);
+      selectionHistory.set(history.doc, selectionSnapshot());
+      notify(`Added independent ${closed ? 'closed' : 'open'} Curve artwork`);
+    } catch (error) {
+      curve.params.closed.value = false;
+      notify(error.message, true);
+      if (redraw) render();
+      return false;
+    }
+  }
+  if (redraw) {
+    render();
+    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+  }
+  return true;
+}
+
 function confirmReplace() {
   return (
     serialize(history.doc) === savedSnapshot ||
@@ -1859,8 +1930,30 @@ function download(text, name, type) {
 app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
-  const d = b.dataset,
-    n = selectedNode();
+  const d = b.dataset;
+  if (d.penCancel !== undefined) {
+    discardPenDraft();
+    tool = 'select';
+    notify('Draft path cancelled');
+    render();
+    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+    return;
+  }
+  if (d.penFinish !== undefined) {
+    finishPenDraft();
+    return;
+  }
+  if (penDraft && d.action === 'undo') {
+    discardPenDraft();
+    notify('Draft path cancelled');
+    render();
+    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+    return;
+  }
+  const viewAction = /^(zoom-|graph-|fit$|actual-size$|help$)/.test(d.action || '');
+  if (penDraft && !viewAction && !b.closest('[inert]') && !finishPenDraft()) return;
+  if (b.closest('[inert]')) return;
+  const n = selectedNode();
   if (d.bypass) {
     cancelInteraction();
     change(() => {
@@ -2224,7 +2317,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => dialog.remove();
           document.body.append(dialog);
           dialog.showModal();
@@ -2704,6 +2797,8 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (penDraft && el.closest('[inert], #add-node')) return;
+  if (penDraft && !finishPenDraft()) return;
   if (d.renameName !== undefined) return;
   if (d.text && textDrafts.get(d.text)?.composition) {
     textDrafts.get(d.text).pendingCommit = true;
@@ -3307,6 +3402,19 @@ function graphAutoPan(time) {
   graphFrame = requestAnimationFrame(graphAutoPan);
 }
 function cancelInteraction() {
+  if (drag?.type === 'pen') {
+    penDraft.layer.nodes[0].points.pop();
+    releasePenPointer();
+    if (!penDraft.layer.nodes[0].points.length) discardPenDraft();
+    notify(
+      penDraft
+        ? 'Point cancelled; draft retained. Finish or Cancel path.'
+        : 'First point cancelled',
+    );
+    render();
+    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+    return;
+  }
   if (!drag && !wiring) return;
   const before = drag?.before;
   const old = drag;
@@ -3413,6 +3521,7 @@ app.addEventListener('lostpointercapture', (e) => {
 
 app.addEventListener('pointerdown', (e) => {
   if (drag) return;
+  if (penDraft && e.target.closest('[inert]')) return;
   const viewport = e.target.closest('.graph-scroll');
   const control = editingControl(e.target);
   const numeric = e.target.closest('input[type="number"][data-scrub-step]');
@@ -3663,7 +3772,7 @@ app.addEventListener('pointerdown', (e) => {
   }
   if (!stage || wiring) return;
   const guideId = e.target.dataset.guide;
-  if (guideId) {
+  if (guideId && tool !== 'pen') {
     selectedGuide = guideId;
     const a = guideSettings(history.doc),
       g = a.guides.find((g) => g.id === guideId);
@@ -3722,6 +3831,58 @@ app.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     return;
   }
+  if (tool === 'pen') {
+    let pos = canvasPoint(e);
+    // A new independent layer must include the old active layer as a snap target.
+    if (!penDraft)
+      snapLayerBounds = collectSnapLayerBounds(
+        history.doc,
+        canvasLayers().map((l) => [l, evaluate(l, fonts, history.doc.imageAssets)]),
+        null,
+        pathBounds,
+      );
+    pos = snapped([[pos[0]], [pos[1]]], [0, 0], e).map((v, i) => v + pos[i]);
+    if (!pos.every(Number.isFinite)) return;
+    if (
+      penDraft &&
+      e.target.dataset.point === penDraft.layer.nodes[0].points[0]?.id &&
+      !e.target.dataset.handle
+    ) {
+      finishPenDraft(true);
+      return;
+    }
+    try {
+      let pt;
+      if (!penDraft) {
+        const priorUI = selectionSnapshot(),
+          layer = createPenArtworkDraft(history.doc, pos);
+        penDraft = { layer, priorUI };
+        penId = layer.nodes[0].id;
+        activeLayer = layer.id;
+        artworkTarget = null;
+        selected = penId;
+        selection = new Set([selected]);
+        pt = layer.nodes[0].points[0];
+      } else {
+        const curve = penDraft.layer.nodes[0];
+        if (curve.points.length >= 10000) throw Error('Pen paths are limited to 10000 points');
+        pt = point(...pos);
+        curve.points.push(pt);
+      }
+      drag = { type: 'pen', pointId: pt.id, nodeId: penId, start: pos, pointerId: e.pointerId };
+      render();
+      const capture = document.querySelector('.canvas-stage');
+      drag.capture = capture;
+      capture.focus({ preventScroll: true });
+      capture.setPointerCapture?.(e.pointerId);
+      e.preventDefault();
+      if (penDraft.layer.nodes[0].points.length === 1) revealNode(penId);
+      notify('Draft path · Enter / Escape: finish · Cancel path: discard');
+    } catch (error) {
+      notify(error.message, true);
+    }
+    return;
+  }
   if (!layerShown(current())) {
     notify('Show the active layer before editing it on the canvas', true);
     return;
@@ -3732,54 +3893,6 @@ app.addEventListener('pointerdown', (e) => {
   }
   let pos = canvasPoint(e),
     n = selectedNode();
-  if (tool === 'pen') {
-    if (current().nodes.find((x) => x.id === current().output).params.path.type === 'Image') {
-      notify('Pen needs a vector composition; add or select a vector layer first', true);
-      return;
-    }
-    pos = snapped([[pos[0]], [pos[1]]], [0, 0], e).map((v, i) => v + pos[i]);
-    if (
-      penId &&
-      e.target.dataset.point === current().nodes.find((x) => x.id === penId)?.points[0]?.id
-    ) {
-      change(() => {
-        const q = current().nodes.find((x) => x.id === penId).params.closed;
-        if (q.locked || q.source || q.expression)
-          throw Error('Closed parameter is locked or driven');
-        q.value = true;
-      }, 'Curve closed');
-      penId = null;
-      tool = 'select';
-      render();
-      return;
-    }
-    let before = cloneDocument(history.doc);
-    if (!penId) {
-      if (current().nodes.find((x) => x.id === current().output).params.path.locked) {
-        notify('Output Path is locked; unlock it before starting a new pen path', true);
-        return;
-      }
-      let nn = node('Curve', ...freePosition('Curve'));
-      nn.points = [];
-      nn.params.closed.value = false;
-      current().nodes.push(nn);
-      penId = nn.id;
-      artworkTarget = null;
-      selected = nn.id;
-      selection = new Set([selected]);
-      const paint = node('Fill', ...freePosition('Fill'));
-      paint.params.path.source = nn.id;
-      current().nodes.push(paint);
-      connect(current(), paint.id, current().output, 'path');
-    }
-    let nn = current().nodes.find((x) => x.id === penId),
-      pt = point(...pos);
-    nn.points.push(pt);
-    drag = { type: 'pen', pointId: pt.id, nodeId: nn.id, start: pos, before };
-    render();
-    if (nn.points.length === 1) revealNode(nn.id);
-    return;
-  }
   const resizeHandle = e.target.closest('[data-object-resize]');
   if (resizeHandle) {
     e.preventDefault();
@@ -4471,6 +4584,12 @@ document.addEventListener('pointerup', (e) => {
     graphFrame = null;
     if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
     snapMatches = [];
+    if (d.type === 'pen') {
+      notify('Draft path · Enter / Escape: finish · Cancel path: discard');
+      render();
+      document.querySelector('.canvas-stage').focus({ preventScroll: true });
+      return;
+    }
     if (d.type === 'numeric' && !d.started) return;
     if (d.type === 'node' && !d.started && d.nameTarget) {
       if (nameClicked(current().id, d.nameTarget, e)) return;
@@ -4587,7 +4706,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
-  if (drag?.type === 'pan' && e.key === 'Escape') {
+  if (['pan', 'graph-pan'].includes(drag?.type) && e.key === 'Escape') {
     // Navigation is view-only: stop at the current offset without undo or selection changes.
     e.preventDefault();
     cancelInteraction();
@@ -4671,6 +4790,30 @@ document.addEventListener('keydown', (e) => {
     composing
   )
     return;
+  if (
+    penDraft &&
+    (e.key === 'Escape' || (e.key === 'Enter' && !e.target.closest('button,[role="button"],a')))
+  ) {
+    e.preventDefault();
+    finishPenDraft();
+    return;
+  }
+  if (penDraft && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    if (e.shiftKey) {
+      notify('Finish or cancel the draft path before Redo');
+      return;
+    }
+    discardPenDraft();
+    notify('Draft path cancelled');
+    render();
+    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+    return;
+  }
+  if (penDraft && e.key === 'Delete') {
+    e.preventDefault();
+    return;
+  }
   if (
     characterEdit &&
     e.target.closest('.canvas-stage') &&
@@ -4815,7 +4958,7 @@ document.addEventListener('keyup', (e) => {
 });
 window.addEventListener('resize', fitCanvas);
 window.addEventListener('beforeunload', (e) => {
-  if (serialize(history.doc) !== savedSnapshot) {
+  if (penDraft || serialize(history.doc) !== savedSnapshot) {
     e.preventDefault();
     e.returnValue = '';
   }

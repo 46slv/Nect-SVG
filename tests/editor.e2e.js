@@ -284,13 +284,16 @@ try {
   await page.mouse.up();
   await page.mouse.click(...c);
   await page.mouse.click(...a);
-  let curve = await page.evaluate(() =>
-    window.nect.document.layers[0].nodes.findLast((n) => n.type === 'Curve'),
-  );
+  let curve = await page.evaluate(() => window.nect.document.layers.at(-1).nodes[0]);
   assert.equal(curve.points.length, 3);
   assert.equal(curve.params.closed.value, true);
   assert.ok(curve.points[1].handleB.value[0] > 0);
-  // Connect the freshly drawn curve through Boolean and Remap with form controls.
+  // Pen retains the old composition. Explicit graph editing remains available separately.
+  const oldLayer = await page.evaluate(() => window.nect.document.layers[0].id);
+  await page.locator(`[data-select-layer="${oldLayer}"]`).click();
+  await page.getByLabel('Add node', { exact: true }).selectOption('Curve');
+  curve = await page.evaluate(() => window.nect.document.layers[0].nodes.at(-1));
+  // Connect the explicitly added source curve through Boolean and Remap with form controls.
   let boolId = await page.evaluate(
       () => window.nect.document.layers[0].nodes.find((n) => n.type === 'Boolean').id,
     ),
@@ -300,7 +303,7 @@ try {
   await page.locator(`.node[data-id="${boolId}"] [data-key="a"] select`).selectOption(curve.id);
   await page.locator(`[data-preview="${remapId}"]`).click();
   assert.equal(await page.evaluate(() => window.nect.evaluate().error), null);
-  // New-card placement must not overlap, including the tall Pen-created Curve.
+  // New-card placement must not overlap, including the tall explicit source Curve.
   const curveBox = await page.locator(`.node[data-id="${curve.id}"]`).boundingBox();
   const otherBoxes = await page.locator(`.node:not([data-id="${curve.id}"])`).evaluateAll((els) =>
     els.map((el) => {

@@ -16,7 +16,12 @@ import {
   validate,
 } from '../src/core.js';
 import { parseFont } from '../src/fonts.js';
-import { ARTWORK_TYPES, appendArtwork } from '../src/artwork-creation.js';
+import {
+  ARTWORK_TYPES,
+  appendArtwork,
+  createPenArtworkDraft,
+  appendPenArtwork,
+} from '../src/artwork-creation.js';
 
 const fontBytes = fs.readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url)),
   fonts = {
@@ -342,4 +347,91 @@ test('malformed asset containers and records reject without freezing source reco
       assert.strictEqual(doc[key], value);
       assert.ok(objects.every((asset) => !Object.isFrozen(asset)));
     }
+});
+
+test('Pen preview is detached and finished paths append atomically as one independent layer', () => {
+  const doc = oldArtwork(),
+    before = serialize(doc),
+    oldLayer = doc.layers[0],
+    draft = createPenArtworkDraft(doc, [72.25, 81.5]),
+    curve = draft.nodes[0];
+  assert.equal(serialize(doc), before);
+  assert.strictEqual(doc.layers[0], oldLayer);
+  assert.equal(curve.params.closed.value, false);
+  assert.deepEqual(curve.points[0].position.value, [72.25, 81.5]);
+  assert.throws(() => appendPenArtwork(doc, draft), /two points/);
+  assert.equal(serialize(doc), before);
+  curve.points.push(node('Curve').points[1]);
+  curve.points[0].handleA.value = [-12, -15];
+  curve.points[0].handleB.value = [12, 15];
+  const h = new History(doc);
+  let ids;
+  h.apply((d) => {
+    ids = appendPenArtwork(d, draft);
+  });
+  const after = serialize(h.doc);
+  assert.equal(withoutLast(h.doc), before);
+  assert.strictEqual(doc.layers[0], oldLayer);
+  assert.equal(h.past.length, 1);
+  assert.equal(layerFor(h.doc, ids).nodes.length, 3);
+  assert.notStrictEqual(layerFor(h.doc, ids), draft);
+  curve.points[0].position.value[0] = 999;
+  assert.equal(serialize(h.doc), after, 'detached preview cannot mutate committed artwork');
+  h.undo();
+  assert.equal(serialize(h.doc), before);
+  h.redo();
+  assert.equal(serialize(h.doc), after);
+  assert.equal(serialize(deserialize(after)), after);
+});
+
+test('Pen rejects capacity, duplicate IDs, invalid points and over-budget drafts without mutation', () => {
+  const doc = oldArtwork(),
+    draft = createPenArtworkDraft(doc, [10, 20]);
+  draft.nodes[0].points.push(node('Curve').points[1]);
+  for (const breakDraft of [
+    (d) => {
+      d.nodes[0].points[1].id = d.nodes[0].points[0].id;
+    },
+    (d) => {
+      d.nodes[0].points[1].position.value[0] = Infinity;
+    },
+    (d) => {
+      d.nodes[0].points = Array.from({ length: 10001 }, () => node('Curve').points[0]);
+    },
+    (d) => {
+      d.id = doc.layers[0].id;
+    },
+  ]) {
+    const broken = structuredClone(draft),
+      before = serialize(doc);
+    breakDraft(broken);
+    assert.throws(() => appendPenArtwork(doc, broken));
+    assert.equal(serialize(doc), before);
+  }
+  const atCapacity = oldArtwork();
+  while (atCapacity.layers.length < 100) appendArtwork(atCapacity, 'Circle', { at: [20, 30] });
+  const before = serialize(atCapacity);
+  assert.throws(() => createPenArtworkDraft(atCapacity, [10, 20]), /100/);
+  assert.throws(() => appendPenArtwork(atCapacity, draft), /100/);
+  assert.equal(serialize(atCapacity), before);
+});
+
+test('Pen creation keeps mutable asset records and locked/hidden outputs untouched', () => {
+  const doc = oldArtwork();
+  doc.layers[0].visible = false;
+  doc.layers[0].nodes.at(-2).params.path.locked = true;
+  doc.imageAssets = {
+    'image-existing': { name: 'red', mime: 'image/png', width: 1, height: 1, data: png },
+  };
+  const asset = doc.imageAssets['image-existing'],
+    before = serialize(doc),
+    draft = createPenArtworkDraft(doc, [100, 100]);
+  draft.nodes[0].points.push(node('Curve').points[1]);
+  draft.nodes[0].params.closed.value = true;
+  appendPenArtwork(doc, draft);
+  assert.equal(withoutLast(doc), before);
+  assert.strictEqual(doc.imageAssets['image-existing'], asset);
+  assert.equal(Object.isFrozen(asset), false);
+  assert.equal(doc.layers.at(-1).visible, true);
+  assert.equal(doc.layers.at(-1).locked, false);
 });
