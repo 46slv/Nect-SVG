@@ -89,3 +89,11 @@ Guides → **Snap artwork** optionally aligns canvas moves to other visible laye
 ## Vector2 Reference
 
 Add **Reference**, choose a same-layer Vector2 source/output in its card or Inspector, then wire the Reference output normally. Names are labels; IDs keep the link through renames. Target/value/error labels remain visible in collapsed cards. **Jump to source** selects and reveals the source, including in locked layers. Deleted targets remain explicitly missing until Undo or retargeting; no zero or cached fallback is shown as valid. Shift-select source and Reference graph headers, then **Duplicate** to remap their internal link as one Undo step. Edited Path Remap + source group copies are refused to preserve point bindings. [Usage, scope and sample](vector-reference.md).
+
+## Shift-constrained artwork movement
+
+Shift-drag chooses and holds the dominant artboard axis after 3 screen pixels. Release Shift for free movement; repress it to choose again from the total gesture delta. Snapping applies only on the allowed axis, and Alt bypasses snapping without disabling the constraint. Shift-click character and graph selection remain available. Graph layout, pan, rotation and resize behavior are unchanged. See [supported targets, cancellation and tests](shift-axis-movement.md).
+
+## Character and typography number dragging
+
+Drag inside the floating or Inspector **ΔX**, **ΔY**, **Rotate °** and **Scale ×** fields to adjust them. Selected character size, width, vertical scale, tracking and baseline shift, plus manual leading and Wrap width, use the same transaction. Click still permits typing; the native spinner remains available. A mixed selection receives a common delta instead of being flattened to one value. Each successful gesture is one Undo; jitter, returning to the origin and motion blocked at a bound are no-ops. Escape, pointer cancellation, capture loss and window blur roll back. See [units, bounds, protections and verification](numeric-scrubbing.md).

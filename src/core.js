@@ -1,3 +1,5 @@
+export { scrubNumericValues } from './numeric-scrub.js';
+export { constrainAxisDrag } from './axis-drag.js';
 export { objectResizeHandles, resizedObjectValue } from './object-resize.js';
 import { validateImageAssets, imageURL } from './images.js';
 import { validateGuides } from './guides.js';

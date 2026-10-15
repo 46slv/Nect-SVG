@@ -114,12 +114,14 @@ test('Character position UI: transformed selection/drag, mixed fields, cancel, l
   const floatingInput = document.querySelector('.character-floating input');
   floatingInput.focus();
   pointer(floatingInput, 'pointerdown', 20, 20);
-  pointer(document, 'pointermove', 50, 30);
-  pointer(document, 'pointerup', 50, 30);
+  // A click with vertical/text-selection jitter must not start canvas movement.
+  // Activated horizontal number scrubbing is covered by character-numeric-scrub-dom.
+  pointer(document, 'pointermove', 22, 30);
+  pointer(document, 'pointerup', 22, 30);
   assert.equal(
     JSON.stringify(win.nect.document),
     before,
-    'dragging floating input text is never a whole-Text move',
+    'subthreshold floating input movement is never a whole-Text move',
   );
   assert.equal(
     document.activeElement,

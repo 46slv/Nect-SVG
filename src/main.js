@@ -58,6 +58,8 @@ import {
   exportSVG,
   renderElement,
   History,
+  constrainAxisDrag,
+  scrubNumericValues,
   guideDefaults,
   guideSettings,
   snapTranslation,
@@ -251,6 +253,191 @@ function numericLimits(n, key) {
 function numericAttributes(n, key) {
   const [min, max] = numericLimits(n, key);
   return `${min === -Number.MAX_VALUE ? '' : `min="${min}" max="${max}"`} data-scrub-step="${key === 'scale' ? 0.01 : 1}" title="Drag horizontally to adjust; click to type"`;
+}
+// Character and layout controls are source edits, not graph parameter fields.
+// Resolve their real targets explicitly; the floating palette has no .field wrapper.
+function textNumericTarget(input) {
+  const data = input.dataset;
+  if (data.textLeadingValue || data.textWrapWidth)
+    return {
+      textKind: data.textLeadingValue ? 'leading' : 'wrap',
+      nodeId: data.textLeadingValue || data.textWrapWidth,
+    };
+  const context = characterContext();
+  if (!context) return null;
+  const textKind =
+      data.characterAxis !== undefined
+        ? 'offset'
+        : data.characterTransform
+          ? 'transform'
+          : data.characterStyle && data.characterStyle !== 'font'
+            ? 'style'
+            : null,
+    rows = textKind === 'style' ? context.typographySelected : context.selected;
+  if (
+    !textKind ||
+    !rows.length ||
+    (textKind === 'style' ? context.typographyReason : context.layout.reason)
+  )
+    return null;
+  return {
+    textKind,
+    nodeId: context.n.id,
+    ids: rows.map((g) => g.id),
+    key: data.characterTransform || data.characterStyle,
+    axis: Number(data.characterAxis || 0),
+    factor: ['width', 'height'].includes(data.characterStyle) ? 100 : 1,
+  };
+}
+function textNumericState(d) {
+  const n = current().nodes.find((n) => n.id === d.nodeId);
+  if (n?.type !== 'Text' || (d.started && n.text !== d.sourceText)) return null;
+  if (d.textKind === 'leading')
+    return n.leading?.mode === 'manual' ? { n, values: [n.leading.value] } : null;
+  if (d.textKind === 'wrap') return n.textWrap ? { n, values: [n.textWrap.width] } : null;
+  const context = characterContext(evaluate(current(), fonts, history.doc.imageAssets));
+  if (
+    context?.n.id !== d.nodeId ||
+    (d.textKind === 'style' ? context.typographyReason : context.layout.reason) ||
+    characterEdit.selected.size !== d.ids.length ||
+    !d.ids.every((id) => characterEdit.selected.has(id))
+  )
+    return null;
+  const selectedRows = d.textKind === 'style' ? context.typographySelected : context.selected,
+    rows = d.ids.map((id) => selectedRows.find((g) => g.id === id));
+  if (rows.some((g) => !g)) return null;
+  return {
+    n,
+    rows,
+    values: rows.map((g) => (d.textKind === 'offset' ? g.offset[d.axis] : g[d.key] * d.factor)),
+  };
+}
+function moveTextNumeric(d, event, dx) {
+  let state = textNumericState(d);
+  if (!state) {
+    cancelInteraction();
+    return;
+  }
+  // Commit a pending typed value first, then base the gesture on that exact result.
+  if (!d.started && d.capture.value !== d.capture.defaultValue) {
+    const text = d.capture.value,
+      expected = Number(text);
+    d.capture.dispatchEvent(new window.Event('change', { bubbles: true }));
+    state = textNumericState(d);
+    if (
+      !text.trim() ||
+      !Number.isFinite(expected) ||
+      !state ||
+      !state.values.every(
+        (value) => Math.abs(value - expected) <= 1e-12 * Math.max(1, Math.abs(expected)),
+      )
+    ) {
+      cancelInteraction();
+      return;
+    }
+  }
+  if (!d.started) {
+    d.before = cloneDocument(history.doc);
+    d.sourceText = state.n.text;
+    d.originalValues = state.values;
+    d.originalRows = state.rows;
+    d.originalInput = mixedNumericDisplay(state.values);
+    d.started = true;
+    d.capture.setPointerCapture?.(event.pointerId);
+    d.capture.classList.add('scrubbing');
+  }
+  event.preventDefault();
+  const values = scrubNumericValues(
+      d.originalValues,
+      dx,
+      Number(d.capture.dataset.scrubStep),
+      Number(d.capture.min),
+      Number(d.capture.max),
+    ),
+    n = state.n,
+    base = d.before.layers.find((l) => l.id === d.layerId).nodes.find((n) => n.id === d.nodeId),
+    property =
+      d.textKind === 'leading'
+        ? 'leading'
+        : d.textKind === 'wrap'
+          ? 'textWrap'
+          : 'characterPositions',
+    previous = n[property],
+    schema = history.doc.schemaVersion;
+  const restore = (value) => {
+    if (value === undefined) delete n[property];
+    else n[property] = value;
+  };
+  try {
+    // Derive every preview from the gesture start, retaining sparse inheritance and schema
+    // exactly when the pointer returns to its origin or a bound prevents any change.
+    restore(base[property]);
+    history.doc.schemaVersion = d.before.schemaVersion;
+    if (values.some((value, i) => value !== d.originalValues[i])) {
+      if (d.textKind === 'offset') {
+        n.characterPositions = setCharacterOffsets(
+          n.text,
+          base.characterPositions,
+          Object.fromEntries(
+            d.originalRows.map((g, i) => [
+              g.id,
+              g.offset.map((v, axis) => (axis === d.axis ? values[i] : v)),
+            ]),
+          ),
+        );
+        history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 3);
+      } else if (d.textKind === 'transform') {
+        n.characterPositions = setCharacterTransforms(
+          n.text,
+          base.characterPositions,
+          Object.fromEntries(
+            d.originalRows.map((g, i) => [
+              g.id,
+              { rotation: g.rotation, scale: g.scale, [d.key]: values[i] },
+            ]),
+          ),
+        );
+        history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 4);
+      } else if (d.textKind === 'style') {
+        n.characterPositions = setCharacterStyles(
+          n.text,
+          base.characterPositions,
+          Object.fromEntries(d.ids.map((id, i) => [id, { [d.key]: values[i] / d.factor }])),
+        );
+        history.doc.schemaVersion = Math.max(
+          history.doc.schemaVersion,
+          n.characterPositions.version >= 4 ? 6 : 5,
+        );
+      } else if (d.textKind === 'leading') {
+        n.leading = { mode: 'manual', value: values[0] };
+        history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 6);
+      } else {
+        setTextWrap(current(), n.id, { width: values[0] }, fonts, history.doc.imageAssets);
+        history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 8);
+      }
+      validate(history.doc);
+      const result = evaluate({ ...current(), output: n.id }, fonts, history.doc.imageAssets);
+      if (result.error) throw Error(result.error);
+      const layout = result.textLayout(n.id);
+      if (layout.reason) throw Error(layout.reason);
+      assertClosedOffsetChange(
+        current(),
+        d.before.layers.find((l) => l.id === d.layerId),
+        fonts,
+        history.doc.imageAssets,
+      );
+    }
+  } catch (error) {
+    restore(previous);
+    history.doc.schemaVersion = schema;
+    notify(error.message, true);
+    return;
+  }
+  d.capture.value = mixedNumericDisplay(values);
+  updateCanvas();
+}
+function mixedNumericDisplay(values) {
+  return values.some((value) => value !== values[0]) ? '' : String(values[0]);
 }
 function field(n, key, q) {
   let source = current().nodes.find((x) => x.id === q.source),
@@ -728,6 +915,28 @@ function snapped(sources, delta, event, excludedGuide = null) {
   snapMatches = result.matches;
   return result.delta;
 }
+// Apply the constraint before snapping and suppress every forbidden-axis target.
+// Character drags call this before their inverse output-transform conversion.
+function artworkDelta(sources, delta, event) {
+  const constraint = constrainAxisDrag(
+    drag,
+    delta,
+    [event.clientX - drag.startClient[0], event.clientY - drag.startClient[1]],
+    event.shiftKey,
+  );
+  const allowed = sources.map((values, axis) =>
+    constraint.pending || (constraint.axis !== null && constraint.axis !== axis) ? [] : values,
+  );
+  return snapped(allowed, constraint.delta, event);
+}
+const artworkDrag = () =>
+  ['character', 'position-controller', 'shape', 'point', 'remap'].includes(drag?.type);
+function captureArtworkPointer(event, capture) {
+  drag.startClient = [event.clientX, event.clientY];
+  drag.pointerId = event.pointerId;
+  drag.capture = capture;
+  capture.setPointerCapture?.(event.pointerId);
+}
 // Character position is a source edit, with an explicit final-output occurrence.
 function characterContext(result = renderEvaluation) {
   const n = selectedNode();
@@ -809,7 +1018,7 @@ function characterFields(context, floating = false) {
     .map((axis, i) => {
       const values = context.selected.map((g) => g.offset[i]),
         mixed = values.some((v) => v !== values[0]);
-      return `<label>Δ${axis}<input type="number" step="any" min="-100000" max="100000" data-character-axis="${i}" aria-label="${floating ? 'Floating ' : ''}Character delta ${axis}" placeholder="${mixed ? 'Mixed' : '0'}" value="${mixed ? '' : (values[0] ?? 0)}" ${disabled ? 'disabled' : ''}></label>`;
+      return `<label>Δ${axis}<input type="number" step="any" min="-100000" max="100000" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-character-axis="${i}" aria-label="${floating ? 'Floating ' : ''}Character delta ${axis}" placeholder="${mixed ? 'Mixed' : '0'}" value="${mixed ? '' : (values[0] ?? 0)}" ${disabled ? 'disabled' : ''}></label>`;
     })
     .join(
       '',
@@ -820,7 +1029,7 @@ function characterFields(context, floating = false) {
     .map(([key, label, min, max, fallback]) => {
       const values = context.selected.map((g) => g[key]),
         mixed = values.some((v) => v !== values[0]);
-      return `<label>${label}<input type="number" step="${key === 'scale' ? '0.01' : '1'}" min="${min}" max="${max}" data-character-transform="${key}" aria-label="${floating ? 'Floating ' : ''}Character ${key}" placeholder="${mixed ? 'Mixed' : fallback}" value="${mixed ? '' : (values[0] ?? fallback)}" ${disabled ? 'disabled' : ''}></label>`;
+      return `<label>${label}<input type="number" step="${key === 'scale' ? '0.01' : '1'}" min="${min}" max="${max}" data-scrub-step="${key === 'scale' ? 0.01 : 1}" title="Drag horizontally to adjust; click to type" data-character-transform="${key}" aria-label="${floating ? 'Floating ' : ''}Character ${key}" placeholder="${mixed ? 'Mixed' : fallback}" value="${mixed ? '' : (values[0] ?? fallback)}" ${disabled ? 'disabled' : ''}></label>`;
     })
     .join(
       '',
@@ -841,7 +1050,7 @@ function initialManualLeading(n) {
 }
 function wrapControls(n) {
   const disabled = current().locked ? 'disabled' : '';
-  return `<section class="text-wrap-controls" aria-label="Wrap width"><label>Horizontal line composition<select data-text-wrap="${n.id}" aria-label="Text wrap mode" ${disabled}><option value="off" ${n.textWrap ? '' : 'selected'}>Off · explicit newlines</option><option value="width" ${n.textWrap ? 'selected' : ''}>Wrap width · auto height</option></select></label>${n.textWrap ? `<label>Wrap width px<input type="number" step="any" min="0.01" max="100000" data-text-wrap-width="${n.id}" aria-label="Text wrap width" value="${n.textWrap.width}" ${disabled}></label>` : ''}<p class="font-note">Horizontal text only; detach Type on Path first. Width reflows whole Latin words and a bounded Japanese punctuation subset. Height grows automatically. Long unbreakable spans overflow visibly and export intact. Position stays fixed; no clipping or font scaling.</p></section>`;
+  return `<section class="text-wrap-controls" aria-label="Wrap width"><label>Horizontal line composition<select data-text-wrap="${n.id}" aria-label="Text wrap mode" ${disabled}><option value="off" ${n.textWrap ? '' : 'selected'}>Off · explicit newlines</option><option value="width" ${n.textWrap ? 'selected' : ''}>Wrap width · auto height</option></select></label>${n.textWrap ? `<label>Wrap width px<input type="number" step="any" min="0.01" max="100000" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-text-wrap-width="${n.id}" aria-label="Text wrap width" value="${n.textWrap.width}" ${disabled}></label>` : ''}<p class="font-note">Horizontal text only; detach Type on Path first. Width reflows whole Latin words and a bounded Japanese punctuation subset. Height grows automatically. Long unbreakable spans overflow visibly and export intact. Position stays fixed; no clipping or font scaling.</p></section>`;
 }
 function leadingControls(n) {
   const mode = n.leading?.mode || 'legacy';
@@ -856,7 +1065,7 @@ function leadingControls(n) {
     )
     .join(
       '',
-    )}</select></label>${mode === 'manual' ? `<label>Baseline / column distance px<input type="number" step="any" min="0.01" max="100000" data-text-leading-value="${n.id}" aria-label="Text manual leading" value="${n.leading.value}" ${current().locked ? 'disabled' : ''}></label>` : ''}<p class="font-note">Auto uses adjacent font metrics and lineSpacing. Manual sets the exact baseline or column distance and can overlap. This is not paragraph spacing.</p></div>`;
+    )}</select></label>${mode === 'manual' ? `<label>Baseline / column distance px<input type="number" step="any" min="0.01" max="100000" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-text-leading-value="${n.id}" aria-label="Text manual leading" value="${n.leading.value}" ${current().locked ? 'disabled' : ''}></label>` : ''}<p class="font-note">Auto uses adjacent font metrics and lineSpacing. Manual sets the exact baseline or column distance and can overlap. This is not paragraph spacing.</p></div>`;
 }
 function typographyControls(context) {
   const disabled =
@@ -886,7 +1095,7 @@ function typographyControls(context) {
       .map(([key, label, min, max, factor]) => {
         const vals = context.typographySelected.map((g) => g[key] * factor),
           isMixed = vals.some((v) => v !== vals[0]);
-        return `<div class="typography-field"><label>${label}<input type="number" step="any" min="${min}" max="${max}" data-character-style="${key}" aria-label="Selected character ${key}" placeholder="${isMixed ? 'Mixed' : ''}" value="${isMixed ? '' : (vals[0] ?? '')}" ${disabled ? 'disabled' : ''}></label><button data-character-style-inherit="${key}" ${disabled ? 'disabled' : ''} title="Remove selected ${label} overrides" aria-label="Inherit selected ${key}">Inherit</button></div>`;
+        return `<div class="typography-field"><label>${label}<input type="number" step="any" min="${min}" max="${max}" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-character-style="${key}" aria-label="Selected character ${key}" placeholder="${isMixed ? 'Mixed' : ''}" value="${isMixed ? '' : (vals[0] ?? '')}" ${disabled ? 'disabled' : ''}></label><button data-character-style-inherit="${key}" ${disabled ? 'disabled' : ''} title="Remove selected ${label} overrides" aria-label="Inherit selected ${key}">Inherit</button></div>`;
       })
       .join(
         '',
@@ -914,7 +1123,7 @@ function characterControls(n) {
   const context = characterContext();
   return `<section class="character-panel" aria-label="Character position"><div class="character-actions"><button data-character-mode="${n.id}" aria-pressed="${!!context}" ${current().locked ? 'disabled' : ''}>${context ? 'Finish character position' : 'Character position'}</button><button data-edit-text="${n.id}">Edit text</button></div>${
     context
-      ? `<p>Click a character, then drag. Shift-click selects several. Arrows move 1 px; Shift moves 10 px.</p>${context.layout.reason ? `<p class="warning">${esc(context.layout.reason)}. Undo, restore the prior text, or reset all adjustments.</p>` : ''}${!context.editable.length ? `<p class="warning">${esc(context.occurrences[0]?.reason || 'This Text does not reach the visible Output.')} Local numeric editing remains available when character mapping is valid.</p>` : ''}${context.occurrences.length > 1 ? `<p>Editing shared Text: affects ${context.occurrences.length} displayed instances.</p>` : ''}${
+      ? `<p>Click a character, then drag. Shift-click selects several; Shift-drag locks horizontal or vertical. Arrows move 1 px; Shift moves 10 px.</p>${context.layout.reason ? `<p class="warning">${esc(context.layout.reason)}. Undo, restore the prior text, or reset all adjustments.</p>` : ''}${!context.editable.length ? `<p class="warning">${esc(context.occurrences[0]?.reason || 'This Text does not reach the visible Output.')} Local numeric editing remains available when character mapping is valid.</p>` : ''}${context.occurrences.length > 1 ? `<p>Editing shared Text: affects ${context.occurrences.length} displayed instances.</p>` : ''}${
           context.editable.length > 1
             ? `<label>Displayed instance<select data-character-instance aria-label="Character displayed instance"><option value="">Choose an instance</option>${context.editable
                 .map(
@@ -973,12 +1182,15 @@ function positionCharacterFloating() {
     Math.max(0, Math.min(x + width, box[2]) - Math.max(x, box[0])) *
     Math.max(0, Math.min(y + height, box[3]) - Math.max(y, box[1]));
   candidates.sort((a, b) => overlap(a) - overlap(b));
-  toolbar.style.left = candidates[0][0] + 'px';
-  toolbar.style.top = candidates[0][1] + 'px';
+  // Keep the palette under the pointer while its own numeric input is captured.
+  if (!(drag?.type === 'numeric' && drag.started && toolbar.contains(drag.capture))) {
+    toolbar.style.left = candidates[0][0] + 'px';
+    toolbar.style.top = candidates[0][1] + 'px';
+  }
   for (const input of document.querySelectorAll(
     '[data-character-axis], [data-character-transform]',
   ))
-    if (input !== document.activeElement) {
+    if (input !== document.activeElement && input !== drag?.capture) {
       const property = input.dataset.characterTransform,
         fallback = property === 'scale' ? 1 : 0;
       const values = context.selected.map((g) =>
@@ -1616,7 +1828,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Select a node to edit its parameters or move its source shape on the canvas.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Space + drag or middle drag: pan. Use Fit to reset.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (25–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Home resets the graph view.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Select a node to edit its parameters or move its source shape on the canvas. Shift-drag locks horizontal or vertical; release Shift to move freely.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Space + drag or middle drag: pan. Use Fit to reset.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (25–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Home resets the graph view.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => dialog.remove();
           document.body.append(dialog);
           dialog.showModal();
@@ -2609,7 +2821,8 @@ function cancelInteraction() {
     old.capture.releasePointerCapture(old.pointerId);
   if (before) history.doc = before;
   // Do not let focus restoration retain the cancelled scrub preview as a typed draft.
-  if (old?.type === 'numeric' && old.started) old.capture.value = String(old.original);
+  if (old?.type === 'numeric' && old.started)
+    old.capture.value = old.originalInput ?? String(old.original);
   pointerActive = false;
   snapMatches = [];
   wiring = null;
@@ -2661,19 +2874,26 @@ app.addEventListener('pointerdown', (e) => {
   const viewport = e.target.closest('.graph-scroll');
   const control = editingControl(e.target);
   const numeric = e.target.closest('input[type="number"][data-scrub-step]');
-  if (numeric && e.button === 0 && !current().locked && !numeric.disabled) {
-    const field = numeric.closest('.field'),
-      n = current().nodes.find((n) => n.id === field.dataset.node),
-      q = parameter(n, field.dataset.key),
+  if (numeric && e.button === 0 && !current().locked && !numeric.disabled && !numeric.readOnly) {
+    const field = numeric.closest('.field[data-node]'),
+      n = field && current().nodes.find((n) => n.id === field.dataset.node),
+      q = n && parameter(n, field.dataset.key),
+      textTarget = !field && textNumericTarget(numeric),
       rect = numeric.getBoundingClientRect();
     // Leave the native spinner hit area alone. A click elsewhere still focuses/selects text.
-    if (!q.locked && !q.source && !q.expression && (!rect.width || e.clientX < rect.right - 18)) {
+    if (
+      ((q && !q.locked && !q.source && !q.expression) || textTarget) &&
+      (!rect.width || e.clientX < rect.right - 18)
+    ) {
       drag = {
         type: 'numeric',
-        nodeId: n.id,
-        key: field.dataset.key,
-        axis: Number(numeric.dataset.axis || 0),
-        alpha: numeric.dataset.color === 'alpha',
+        ...(textTarget || {
+          nodeId: n.id,
+          key: field.dataset.key,
+          axis: Number(numeric.dataset.axis || 0),
+          alpha: numeric.dataset.color === 'alpha',
+        }),
+        layerId: current().id,
         startX: e.clientX,
         pointerId: e.pointerId,
         capture: numeric,
@@ -2753,15 +2973,20 @@ app.addEventListener('pointerdown', (e) => {
       return;
     }
     const hit = hits.length === 1 ? hits[0] : already[0];
-    chooseCharacter(hit, e.shiftKey);
+    // A Shift-click still toggles membership. Delay removing a selected character
+    // until release, so Shift-drag can move the current selection instead.
+    const toggleOnClick = e.shiftKey && characterEdit.selected.has(hit.glyph.id);
+    characterEdit.route = hit.occurrence.route;
+    if (!toggleOnClick) chooseCharacter(hit, e.shiftKey);
     render();
     const capture = document.querySelector('.canvas-stage');
     capture.focus({ preventScroll: true });
-    if (e.shiftKey || !characterEdit.selected.size) return;
+    if (!characterEdit.selected.size) return;
     const next = characterContext(),
       points = next.selected.flatMap((g) => characterBoxPoints(g, hit.occurrence.matrix));
     drag = {
       type: 'character',
+      toggleOnClick: toggleOnClick ? hit : null,
       nodeId: next.n.id,
       route: hit.occurrence.route,
       matrix: hit.occurrence.matrix,
@@ -3070,6 +3295,8 @@ app.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     return;
   }
+  stage.focus({ preventScroll: true });
+  n = selectedNode();
   if (e.target.dataset.point && n?.type === 'Path Remap') {
     const input = evaluate(current(), fonts, history.doc.imageAssets).run(n.params.path.source),
       pointId = e.target.dataset.point,
@@ -3109,6 +3336,7 @@ app.addEventListener('pointerdown', (e) => {
       })(),
       before,
     };
+    captureArtworkPointer(e, stage);
     const contour = input.contours.find((c) => c.points.some((p) => p.id === pointId));
     for (const key of [`contour-${contour.id}`, `remap-${pointId}`]) {
       const detail = document.querySelector(
@@ -3142,6 +3370,7 @@ app.addEventListener('pointerdown', (e) => {
       })(),
       before: cloneDocument(history.doc),
     };
+    captureArtworkPointer(e, stage);
     return;
   }
   const generators = current().nodes.filter((n) => selection.has(n.id));
@@ -3197,9 +3426,10 @@ app.addEventListener('pointerdown', (e) => {
       return [low, (low + high) / 2, high];
     });
     drag = { type: 'shape', targets, anchors, start: pos, before: cloneDocument(history.doc) };
+    captureArtworkPointer(e, stage);
   } else notify('Select generators, or one Transform to move its whole group');
 });
-document.addEventListener('pointermove', (e) => {
+function movePointer(e) {
   if (characterEdit && !drag && !wiring) {
     const target = e.target.closest?.('[data-character]');
     const route = target?.closest('[data-character-route]')?.dataset.characterRoute;
@@ -3216,6 +3446,14 @@ document.addEventListener('pointermove', (e) => {
     return;
   }
   if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
+  if (artworkDrag())
+    drag.lastPointer = {
+      clientX: e.clientX,
+      clientY: e.clientY,
+      pointerId: e.pointerId,
+      altKey: e.altKey,
+      shiftKey: e.shiftKey,
+    };
   if (['transform', 'object-resize'].includes(drag.type)) {
     const n = selectedNode(),
       q = n?.params[drag.key];
@@ -3286,7 +3524,7 @@ document.addEventListener('pointermove', (e) => {
     )
       return;
     const pos = canvasPoint(e),
-      delta = snapped(
+      delta = artworkDelta(
         [[drag.original[0]], [drag.original[1]]],
         pos.map((v, i) => v - drag.start[i]),
         e,
@@ -3299,7 +3537,12 @@ document.addEventListener('pointermove', (e) => {
     return;
   }
   if (drag.type === 'character') {
-    if (current().locked || characterEdit?.node !== drag.nodeId || selected !== drag.nodeId) {
+    if (
+      current().locked ||
+      !layerShown(current()) ||
+      characterEdit?.node !== drag.nodeId ||
+      selected !== drag.nodeId
+    ) {
       cancelInteraction();
       return;
     }
@@ -3310,7 +3553,7 @@ document.addEventListener('pointermove', (e) => {
       return;
     try {
       const pos = canvasPoint(e),
-        displayed = snapped(
+        displayed = artworkDelta(
           drag.anchors,
           pos.map((v, i) => v - drag.start[i]),
           e,
@@ -3331,6 +3574,20 @@ document.addEventListener('pointermove', (e) => {
     const d = drag,
       dx = e.clientX - d.startX;
     if (!d.started && Math.abs(dx) < 4) return;
+    if (
+      current().id !== d.layerId ||
+      current().locked ||
+      !d.capture.isConnected ||
+      d.capture.disabled ||
+      d.capture.readOnly
+    ) {
+      cancelInteraction();
+      return;
+    }
+    if (d.textKind) {
+      moveTextNumeric(d, e, dx);
+      return;
+    }
     // Finish any typed draft before taking the drag snapshot. It remains its own edit.
     if (!d.started && d.capture.value !== d.capture.defaultValue) {
       const text = d.capture.value,
@@ -3345,8 +3602,8 @@ document.addEventListener('pointermove', (e) => {
       }
     }
     const n = current().nodes.find((n) => n.id === d.nodeId),
-      q = parameter(n, d.key);
-    if (current().locked || q.locked || q.source || q.expression) {
+      q = n && parameter(n, d.key);
+    if (!q || current().locked || q.locked || q.source || q.expression) {
       cancelInteraction();
       return;
     }
@@ -3454,7 +3711,41 @@ document.addEventListener('pointermove', (e) => {
     return;
   }
   const anchor = drag.anchor || drag.start;
-  delta = snapped(drag.anchors || [[anchor[0]], [anchor[1]]], delta, e);
+  if (artworkDrag()) {
+    const targets =
+      drag.type === 'shape'
+        ? drag.targets
+        : [
+            {
+              nodeId: drag.nodeId,
+              keys: [`${drag.type === 'remap' ? 'remap.' : ''}${drag.pointId}.${drag.key}`],
+            },
+          ];
+    const editable = targets.every((target) => {
+      const node = current().nodes.find((n) => n.id === target.nodeId);
+      return (
+        node &&
+        !node.pathAttachment &&
+        target.keys.every((key) => {
+          const q = parameter(node, key);
+          return q && !q.locked && !q.source && !q.expression;
+        })
+      );
+    });
+    if (current().locked || !layerShown(current()) || !editable) {
+      cancelInteraction();
+      return;
+    }
+    if (
+      e.shiftKey &&
+      !drag.started &&
+      Math.hypot(e.clientX - drag.startClient[0], e.clientY - drag.startClient[1]) < 3
+    )
+      return;
+    delta = artworkDelta(drag.anchors || [[anchor[0]], [anchor[1]]], delta, e);
+    drag.started = true;
+    drag.lastDelta = delta;
+  } else delta = snapped(drag.anchors || [[anchor[0]], [anchor[1]]], delta, e);
   if (drag.type === 'remap') {
     n.edits.find((e) => e.pointId === drag.pointId).params[drag.key].value = drag.original.map(
       (v, i) => v + delta[i],
@@ -3486,7 +3777,8 @@ document.addEventListener('pointermove', (e) => {
     }
   }
   updateCanvas();
-});
+}
+document.addEventListener('pointermove', movePointer);
 document.addEventListener('pointercancel', (e) => {
   const pointerId = wiring?.pointerId ?? drag?.pointerId;
   if (pointerId !== undefined && pointerId !== e.pointerId) return;
@@ -3494,6 +3786,21 @@ document.addEventListener('pointercancel', (e) => {
 });
 document.addEventListener('pointerup', (e) => {
   if (drag?.pointerId !== undefined && drag.pointerId !== e.pointerId) return;
+  if (drag?.type === 'numeric' && drag.started) {
+    const n = current().nodes.find((n) => n.id === drag.nodeId),
+      q = !drag.textKind && n && parameter(n, drag.key);
+    if (
+      current().id !== drag.layerId ||
+      current().locked ||
+      !drag.capture.isConnected ||
+      drag.capture.disabled ||
+      drag.capture.readOnly ||
+      (drag.textKind ? !textNumericState(drag) : !q || q.locked || q.source || q.expression)
+    ) {
+      cancelInteraction();
+      return;
+    }
+  }
   if (wiring) {
     if (wiring.pointerId !== undefined && wiring.pointerId !== e.pointerId) return;
     let w = wiring;
@@ -3532,7 +3839,13 @@ document.addEventListener('pointerup', (e) => {
     if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
     snapMatches = [];
     if (d.type === 'numeric' && !d.started) return;
+    if (
+      ['shape', 'point', 'remap'].includes(d.type) &&
+      (!d.started || d.lastDelta?.every((v) => v === 0))
+    )
+      history.doc = d.before;
     if (d.type === 'character' && d.before) {
+      if (d.toggleOnClick && !d.started) chooseCharacter(d.toggleOnClick, true);
       const offsets =
         current().nodes.find((n) => n.id === d.nodeId)?.characterPositions?.offsets || {};
       if (d.originals.every((g) => g.offset.every((v, i) => v === (offsets[g.id]?.[i] || 0))))
@@ -3583,6 +3896,10 @@ app.addEventListener(
   true,
 );
 document.addEventListener('keydown', (e) => {
+  if (artworkDrag() && e.key === 'Shift') {
+    if (drag.lastPointer) movePointer({ ...drag.lastPointer, shiftKey: true, altKey: e.altKey });
+    return;
+  }
   if (drag?.type === 'numeric' && e.key === 'Escape') {
     e.preventDefault();
     cancelInteraction();
@@ -3599,16 +3916,28 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (
-    ['character', 'position-controller', 'transform', 'object-resize'].includes(drag?.type) &&
+    [
+      'character',
+      'position-controller',
+      'shape',
+      'point',
+      'remap',
+      'transform',
+      'object-resize',
+    ].includes(drag?.type) &&
     e.key === 'Escape'
   ) {
     e.preventDefault();
     cancelInteraction();
     return;
   }
-  if (['transform', 'object-resize'].includes(drag?.type)) {
+  if (
+    (artworkDrag() && e.key === 'Delete') ||
+    ['transform', 'object-resize'].includes(drag?.type)
+  ) {
     // A pending direct manipulation owns its document snapshot. Do not let
-    // Delete, history or tool shortcuts interleave a second document action.
+    // Delete interleave a second document action. Transform handles also block
+    // history/tool shortcuts; artwork tools keep their existing cancel-and-switch behavior.
     e.preventDefault();
     e.stopImmediatePropagation();
     return;
@@ -3751,6 +4080,10 @@ app.addEventListener('keydown', (e) => {
   }
 });
 document.addEventListener('keyup', (e) => {
+  if (artworkDrag() && e.key === 'Shift') {
+    drag.axis = null;
+    if (drag.lastPointer) movePointer({ ...drag.lastPointer, shiftKey: false, altKey: e.altKey });
+  }
   if (e.code === 'Space') space = false;
 });
 window.addEventListener('resize', fitCanvas);
