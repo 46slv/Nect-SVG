@@ -20,3 +20,35 @@ export function findFreeNodePosition(nodes, measurements = {}, size = { width: 2
     }
   return [40, Math.max(0, ...boxes.map((b) => b.y + b.height)) + 40];
 }
+
+// View geometry is in CSS pixels. None of these helpers mutate document coordinates.
+export function fitScale(bounds, viewport, padding = 32, limits = [0.05, 2]) {
+  const available = viewport.map((size) => Math.max(1, size - padding * 2));
+  const ideal = Math.min(
+    available[0] / Math.max(1, bounds.width),
+    available[1] / Math.max(1, bounds.height),
+  );
+  return { scale: Math.max(limits[0], Math.min(limits[1], ideal)), limited: ideal < limits[0] };
+}
+export function unionBounds(boxes) {
+  if (!boxes.length) return null;
+  const x = Math.min(...boxes.map((b) => b.x)),
+    y = Math.min(...boxes.map((b) => b.y));
+  return {
+    x,
+    y,
+    width: Math.max(...boxes.map((b) => b.x + b.width)) - x,
+    height: Math.max(...boxes.map((b) => b.y + b.height)) - y,
+  };
+}
+export function anchoredPan(pan, anchorFromCenter, ratio) {
+  return pan.map((value, axis) => value + anchorFromCenter[axis] * (1 - ratio));
+}
+export function anchoredScroll(scroll, anchor, ratio) {
+  return scroll.map((value, axis) => (value + anchor[axis]) * ratio - anchor[axis]);
+}
+export function wheelPixels(event, viewport) {
+  const unit = event.deltaMode === 1 ? [16, 16] : event.deltaMode === 2 ? viewport : [1, 1];
+  const delta = [event.deltaX * unit[0], event.deltaY * unit[1]];
+  return event.shiftKey && !delta[0] ? [delta[1], 0] : delta;
+}

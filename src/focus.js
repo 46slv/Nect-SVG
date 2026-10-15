@@ -13,7 +13,8 @@ function identity(el) {
 }
 export function captureFocus(root) {
   const el = root.ownerDocument.activeElement;
-  if (!el || !root.contains(el) || !el.matches('input,select,textarea,button')) return null;
+  if (!el || !root.contains(el) || !el.matches('input,select,textarea,button,[tabindex="0"]'))
+    return null;
   return {
     identity: identity(el),
     value: el.value,
@@ -24,7 +25,7 @@ export function captureFocus(root) {
 }
 export function restoreFocus(root, state) {
   if (!state) return;
-  const el = [...root.querySelectorAll('input,select,textarea,button')].find(
+  const el = [...root.querySelectorAll('input,select,textarea,button,[tabindex="0"]')].find(
     (candidate) => identity(candidate) === state.identity && !candidate.disabled,
   );
   if (!el) return;

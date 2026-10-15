@@ -126,8 +126,8 @@ try {
   assert.equal((await model()).layers[0].nodes[0].params.center.value[0], 360);
   await page.getByTitle('Ctrl+Z', { exact: true }).click();
   // Screen-pixel threshold remains constant after zooming.
-  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  await page.getByRole('button', { name: 'Artboard zoom in', exact: true }).click();
+  await page.getByRole('button', { name: 'Artboard zoom in', exact: true }).click();
   const scale = await page.locator('.artboard').evaluate((el) => el.getScreenCTM().a);
   await move(290, 250);
   await page.mouse.down();

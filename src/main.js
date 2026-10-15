@@ -2,7 +2,14 @@ import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './ra
 import { validateImageAssets } from './images.js';
 import { captureFocus, restoreFocus } from './focus.js';
 import './style.css';
-import { findFreeNodePosition } from './layout.js';
+import {
+  findFreeNodePosition,
+  fitScale,
+  unionBounds,
+  anchoredPan,
+  anchoredScroll,
+  wheelPixels,
+} from './layout.js';
 import { importSVG } from './svg-import.js';
 import { desktop, saveFile, openFile, listSystemFonts, readSystemFont } from './storage.js';
 import {
@@ -101,6 +108,8 @@ let history = new History(newDocument()),
   selected = history.doc.layers[0].nodes[0].id,
   tool = 'select',
   zoom = 1,
+  canvasFit = true,
+  composing = false,
   selectedGuide = null,
   guidesOpen = false,
   layoutDraft = null,
@@ -228,6 +237,7 @@ function change(fn, text, deferRender = false) {
   }
 }
 function resetTransient() {
+  composing = false;
   nameEdit = null;
   lastNameClick = null;
   stopGraphDrag();
@@ -748,7 +758,7 @@ function nodeHTML(n, result) {
   return `<section class="node ${n.bypassed ? 'bypassed' : ''} ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
 function render(resetView = false) {
-  if (nameEdit?.composing) {
+  if (composing || nameEdit?.composing) {
     needsRender = true;
     return;
   }
@@ -758,7 +768,7 @@ function render(resetView = false) {
     pendingRender = null;
   }
   const focused = resetView ? null : captureFocus(app);
-  const inspectorScroll = resetView ? 0 : document.querySelector('.inspector-body')?.scrollTop || 0;
+  const inspectorScroll = resetView ? 0 : document.querySelector('.right')?.scrollTop || 0;
   const guideScroll = resetView
     ? [0, 0]
     : ['.guides-panel', '.guide-list'].map(
@@ -802,19 +812,19 @@ function render(resetView = false) {
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar"><button data-action="zoom-out" aria-label="Zoom out">−</button><span>${Math.round(zoom * 100)}%</span><button data-action="zoom-in" aria-label="Zoom in">+</button><button data-action="fit">Fit</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard and grid; hold Alt to bypass">Snap</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span></div>${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" title="Middle drag or Space+drag: pan · Fit: reset view"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard and grid; hold Alt to bypass">Snap</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span></div>${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => layerShown(x) && r.path && !r.error)
     .map(([x, r]) => layerShape(x, r.path))
     .join(
       '',
-    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint">${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : n ? `Editing ${esc(n.name)}${n.type === 'Transform' ? ' · Selected Transform output (before downstream nodes)' : ''}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select a generator to edit its original parameters'}</div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head"><strong>Node graph</strong><span class="muted">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
+    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen: click for a corner, drag for handles; click first point to close. Escape finishes.' : n ? `Editing ${esc(n.name)}${n.type === 'Transform' ? ' · Selected Transform output (before downstream nodes)' : ''}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select a generator to edit its original parameters'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node"><option value="">+ Add node</option>${Object.keys(
     definitions,
   )
     .filter((x) => !['Output', 'Image Output', 'Image'].includes(x))
     .map((x) => `<option>${x}</option>`)
     .join(
       '',
-    )}</select><button data-action="graph-fit" title="Reset graph zoom and scroll to origin">Home</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" title="Middle drag or Ctrl/Cmd+Shift+drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg>${l.nodes.map((x) => nodeHTML(x, result)).join('')}</div></div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer">+ Composition</button></div>${[
+    )}</select><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg>${l.nodes.map((x) => nodeHTML(x, result)).join('')}</div></div><div class="graph-hint" id="graph-navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer">+ Composition</button></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -850,9 +860,13 @@ function render(resetView = false) {
   if (characterList && characterEdit)
     for (const option of characterList.options)
       option.selected = characterEdit.selected.has(option.value);
-  if (resetView) graphZoom = 1;
+  if (resetView) {
+    graphZoom = 1;
+    canvasFit = true;
+    pan = [0, 0];
+  }
   document.querySelector('.graph').style.zoom = graphZoom;
-  updateGraphBounds();
+  updateGraphBounds(oldScroll);
   const gs = document.querySelector('.graph-scroll');
   gs.scrollLeft = oldScroll[0];
   gs.scrollTop = oldScroll[1];
@@ -861,8 +875,9 @@ function render(resetView = false) {
     if (detailsState.has(key)) el.open = detailsState.get(key);
   }
   fitCanvas();
+  updateNavigation();
   restoreFocus(app, focused);
-  document.querySelector('.inspector-body').scrollTop = inspectorScroll;
+  document.querySelector('.right').scrollTop = inspectorScroll;
   ['.guides-panel', '.guide-list'].forEach((selector, index) => {
     const el = document.querySelector(selector);
     if (el) el.scrollTop = guideScroll[index];
@@ -1550,21 +1565,73 @@ function sizePositionHandle() {
     .querySelector('.position-marker-size')
     ?.setAttribute('transform', `scale(${1 / canvasScale()})`);
 }
+const CANVAS_LIMITS = [0.00001, 8],
+  GRAPH_LIMITS = [0.05, 2];
+function zoomLabel(scale) {
+  return `${Number((scale * 100).toFixed(scale < 0.01 ? 3 : scale < 0.1 ? 1 : 0))}%`;
+}
+function updateNavigation() {
+  for (const [view, value, limits, prefix] of [
+    ['canvas', zoom, CANVAS_LIMITS, ''],
+    ['graph', graphZoom, GRAPH_LIMITS, 'graph-'],
+  ]) {
+    const output = document.querySelector(`[data-zoom="${view}"]`);
+    if (output) {
+      output.textContent = zoomLabel(value);
+      output.title = `${view === 'canvas' ? 'Artboard' : 'Node graph'} actual scale · ${limits[0] * 100}–${limits[1] * 100}%`;
+    }
+    const minus = document.querySelector(`[data-action="${prefix}zoom-out"]`),
+      plus = document.querySelector(`[data-action="${prefix}zoom-in"]`);
+    if (minus) minus.disabled = value <= limits[0];
+    if (plus) plus.disabled = value >= limits[1];
+  }
+  const fitSelection = document.querySelector('[data-action="graph-fit-selection"]');
+  if (fitSelection) {
+    fitSelection.disabled = !selection.size;
+    fitSelection.title = selection.size
+      ? 'Fit selected nodes (Shift+2)'
+      : 'Select a node to fit selection';
+  }
+  for (const [selector, type] of [
+    ['.canvas-stage', 'pan'],
+    ['.graph-scroll', 'graph-pan'],
+  ]) {
+    const viewport = document.querySelector(selector);
+    viewport?.classList.toggle('pan-ready', space && !navigationBusy());
+    viewport?.classList.toggle('panning', drag?.type === type);
+  }
+}
 function fitCanvas() {
-  let stage = document.querySelector('.canvas-stage'),
+  const stage = document.querySelector('.canvas-stage'),
     svg = document.querySelector('.artboard');
   if (!stage || !svg) return;
-  let scale =
-    Math.min(
-      (stage.clientWidth - 70) / history.doc.width,
-      (stage.clientHeight - 70) / history.doc.height,
-    ) * zoom;
-  svg.style.width = history.doc.width * scale + 'px';
-  svg.style.height = history.doc.height * scale + 'px';
+  // Fit follows viewport resize; manual zoom keeps its real scale and center world point.
+  if (canvasFit && stage.clientWidth && stage.clientHeight)
+    zoom = fitScale(history.doc, [stage.clientWidth, stage.clientHeight], 35, CANVAS_LIMITS).scale;
+  svg.style.width = history.doc.width * zoom + 'px';
+  svg.style.height = history.doc.height * zoom + 'px';
   svg.style.transform = `translate(${pan[0]}px,${pan[1]}px)`;
   sizePositionHandle();
   positionCharacterFloating();
+  updateNavigation();
   if (selectedNode()) updateCanvas();
+}
+function zoomCanvas(next, clientX, clientY) {
+  const r = document.querySelector('.artboard').getBoundingClientRect();
+  next = Math.max(CANVAS_LIMITS[0], Math.min(CANVAS_LIMITS[1], next));
+  const center = [r.left + r.width / 2, r.top + r.height / 2];
+  // A toolbar zoom anchors the viewport center, including the stage's unequal padding.
+  const anchor =
+    clientX === undefined ? pan.map((v) => -v) : [clientX - center[0], clientY - center[1]];
+  pan = anchoredPan(pan, anchor, next / zoom);
+  canvasFit = false;
+  zoom = next;
+  fitCanvas();
+}
+function fitArtboard() {
+  canvasFit = true;
+  pan = [0, 0];
+  fitCanvas();
 }
 function drawWires() {
   let graph = document.querySelector('.graph'),
@@ -1616,14 +1683,30 @@ app.addEventListener(
   },
   true,
 );
-function updateGraphBounds() {
+function updateGraphBounds(requiredScroll = null) {
+  const viewport = document.querySelector('.graph-scroll');
+  requiredScroll ||= viewport ? [viewport.scrollLeft, viewport.scrollTop] : null;
   const graph = document.querySelector('.graph');
   if (!graph) return;
   const nodes = [...graph.querySelectorAll('.node')];
   graph.style.width =
-    Math.max(2400, ...nodes.map((el) => el.offsetLeft + el.offsetWidth + 80)) + 'px';
+    Math.max(
+      2400,
+      requiredScroll
+        ? (Math.max(0, requiredScroll[0]) + document.querySelector('.graph-scroll').clientWidth) /
+            graphZoom
+        : 0,
+      ...nodes.map((el) => el.offsetLeft + el.offsetWidth + 80),
+    ) + 'px';
   graph.style.height =
-    Math.max(1600, ...nodes.map((el) => el.offsetTop + el.offsetHeight + 100)) + 'px';
+    Math.max(
+      1600,
+      requiredScroll
+        ? (Math.max(0, requiredScroll[1]) + document.querySelector('.graph-scroll').clientHeight) /
+            graphZoom
+        : 0,
+      ...nodes.map((el) => el.offsetTop + el.offsetHeight + 100),
+    ) + 'px';
 }
 function freePosition(type) {
   const measurements = {};
@@ -1993,12 +2076,12 @@ app.addEventListener('click', async (e) => {
           render(true);
           break;
         case 'zoom-in':
-          zoom = Math.min(8, zoom * 1.2);
-          render();
-          break;
         case 'zoom-out':
-          zoom = Math.max(0.15, zoom / 1.2);
-          render();
+        case 'actual-size':
+          if (!navigationBusy())
+            zoomCanvas(
+              d.action === 'actual-size' ? 1 : zoom * (d.action === 'zoom-in' ? 1.2 : 1 / 1.2),
+            );
           break;
         case 'snap':
           editGuides((aids) => (aids.snap = !aids.snap));
@@ -2012,26 +2095,53 @@ app.addEventListener('click', async (e) => {
           render();
           break;
         case 'fit':
-          zoom = 1;
-          pan = [0, 0];
-          render();
+          if (!navigationBusy()) fitArtboard();
           break;
         case 'graph-fit':
-          graphZoom = 1;
-          document.querySelector('.graph').style.zoom = graphZoom;
-          drawWires();
-          document.querySelector('.graph-scroll').scrollTo(0, 0);
+        case 'graph-fit-selection':
+          if (!navigationBusy()) fitGraph(d.action === 'graph-fit-selection');
+          break;
+        case 'graph-zoom-in':
+        case 'graph-zoom-out':
+          if (!navigationBusy())
+            zoomGraph(graphZoom * (d.action === 'graph-zoom-in' ? 1.2 : 1 / 1.2));
+          break;
+        case 'graph-reset':
+          if (!navigationBusy()) {
+            zoomGraph(1);
+            document.querySelector('.graph-scroll').scrollTo(0, 0);
+          }
           break;
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Select a node to edit its parameters or move its source shape on the canvas. Shift-drag locks horizontal or vertical; release Shift to move freely.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Space + drag or middle drag: pan. Use Fit to reset.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (25–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Home resets the graph view.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>Each layer owns an independent node composition. Select a node to edit its parameters or move its source shape on the canvas. Shift-drag locks horizontal or vertical; release Shift to move freely.</p><p>Add a Curve with the Pen tool. Click for corners, drag for Bézier handles, and click the first point to close. Escape finishes an open curve.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => dialog.remove();
           document.body.append(dialog);
           dialog.showModal();
           break;
         }
       }
+      // Pointer users can immediately hold Space and drag after clicking a view control.
+      // Keyboard activation retains the button so Space keeps its native action.
+      if (
+        e.detail > 0 &&
+        !navigationBusy() &&
+        [
+          'zoom-in',
+          'zoom-out',
+          'actual-size',
+          'fit',
+          'graph-zoom-in',
+          'graph-zoom-out',
+          'graph-fit',
+          'graph-fit-selection',
+          'graph-reset',
+        ].includes(d.action)
+      )
+        document
+          .querySelector(d.action.startsWith('graph-') ? '.graph-scroll' : '.canvas-stage')
+          .focus({ preventScroll: true });
     } catch (err) {
       notify(err.message, true);
     }
@@ -2987,7 +3097,36 @@ function canvasPoint(event) {
 }
 let space = false;
 const editingControl = (target) =>
-  target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])');
+  target.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"])');
+function navigationExcluded(target) {
+  return editingControl(target) || target.closest?.('.character-floating,.guides-panel,dialog');
+}
+function navigationBusy() {
+  return !!(
+    drag ||
+    wiring ||
+    composing ||
+    nameEdit?.composing ||
+    [...textDrafts.values()].some((d) => d.composition)
+  );
+}
+app.addEventListener(
+  'compositionstart',
+  () => {
+    composing = true;
+    space = false;
+    updateNavigation();
+  },
+  true,
+);
+app.addEventListener(
+  'compositionend',
+  () => {
+    composing = false;
+    if (needsRender) scheduleRender();
+  },
+  true,
+);
 // Graph navigation stays in screen pixels; document positions remain world coordinates.
 let graphFrame = null;
 function stopGraphDrag() {
@@ -3075,32 +3214,76 @@ function cancelInteraction() {
 function zoomGraph(next, clientX, clientY) {
   const viewport = document.querySelector('.graph-scroll'),
     r = viewport.getBoundingClientRect();
-  const x = clientX - r.left,
-    y = clientY - r.top,
-    ratio = next / graphZoom;
-  const scroll = [(viewport.scrollLeft + x) * ratio - x, (viewport.scrollTop + y) * ratio - y];
+  next = Math.max(GRAPH_LIMITS[0], Math.min(GRAPH_LIMITS[1], next));
+  const anchor = [
+    clientX === undefined ? viewport.clientWidth / 2 : clientX - r.left,
+    clientY === undefined ? viewport.clientHeight / 2 : clientY - r.top,
+  ];
+  const scroll = anchoredScroll(
+    [viewport.scrollLeft, viewport.scrollTop],
+    anchor,
+    next / graphZoom,
+  );
   graphZoom = next;
   document.querySelector('.graph').style.zoom = next;
+  updateGraphBounds(scroll);
   viewport.scrollLeft = scroll[0];
   viewport.scrollTop = scroll[1];
+  updateNavigation();
   drawWires();
+}
+function fitGraph(selectedOnly = false) {
+  const viewport = document.querySelector('.graph-scroll');
+  const cards = [...document.querySelectorAll('.graph .node')].filter(
+    (el) => !selectedOnly || selection.has(el.dataset.id),
+  );
+  // Port sockets protrude beyond the card edge; reserve their visible extent too.
+  const bounds = unionBounds(
+    cards.map((el) => ({
+      x: el.offsetLeft - 8,
+      y: el.offsetTop - 8,
+      width: el.offsetWidth + 16,
+      height: el.offsetHeight + 16,
+    })),
+  );
+  if (!bounds) return;
+  const fit = fitScale(bounds, [viewport.clientWidth, viewport.clientHeight], 32, GRAPH_LIMITS);
+  graphZoom = fit.scale;
+  document.querySelector('.graph').style.zoom = graphZoom;
+  // CSS zoom scales the graph margin as well as the cards.
+  const scroll = [
+    (bounds.x + bounds.width / 2 + 16) * graphZoom - viewport.clientWidth / 2,
+    (bounds.y + bounds.height / 2 + 16) * graphZoom - viewport.clientHeight / 2,
+  ];
+  updateGraphBounds(scroll);
+  viewport.scrollLeft = Math.max(0, scroll[0]);
+  viewport.scrollTop = Math.max(0, scroll[1]);
+  updateNavigation();
+  drawWires();
+  if (fit.limited) notify('Fit limited to 5%: some nodes may remain outside the view');
 }
 app.addEventListener(
   'wheel',
   (e) => {
-    if (
-      !e.target.closest('.graph-scroll') ||
-      e.target.closest('input,textarea,select,[contenteditable="true"]')
-    )
+    const viewport = e.target.closest('.canvas-stage,.graph-scroll');
+    if (!viewport) return;
+    // Do not move the view beneath a live edit, including native graph scrolling.
+    if (navigationBusy()) {
+      e.preventDefault();
       return;
+    }
+    if (navigationExcluded(e.target)) return;
+    const delta = wheelPixels(e, [viewport.clientWidth, viewport.clientHeight]);
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
-      if (drag || wiring) return;
-      zoomGraph(
-        Math.max(0.25, Math.min(2, graphZoom * Math.exp(-e.deltaY * 0.002))),
-        e.clientX,
-        e.clientY,
-      );
+      const factor = Math.exp(-Math.max(-1000, Math.min(1000, delta[1] || delta[0])) * 0.002);
+      if (viewport.matches('.canvas-stage')) zoomCanvas(zoom * factor, e.clientX, e.clientY);
+      else zoomGraph(graphZoom * factor, e.clientX, e.clientY);
+    } else if (viewport.matches('.canvas-stage')) {
+      e.preventDefault();
+      canvasFit = false;
+      pan = pan.map((value, axis) => value - delta[axis]);
+      fitCanvas();
     }
   },
   { passive: false },
@@ -3109,6 +3292,7 @@ window.addEventListener('blur', () => {
   lastNameClick = null;
   space = false;
   cancelInteraction();
+  updateNavigation();
 });
 app.addEventListener('lostpointercapture', (e) => {
   if (drag?.pointerId === e.pointerId) cancelInteraction();
@@ -3151,6 +3335,7 @@ app.addEventListener('pointerdown', (e) => {
   if (
     viewport &&
     !control &&
+    !navigationBusy() &&
     (e.button === 1 || (e.button === 0 && (space || (e.shiftKey && (e.ctrlKey || e.metaKey)))))
   ) {
     drag = {
@@ -3160,14 +3345,16 @@ app.addEventListener('pointerdown', (e) => {
     };
     viewport.focus({ preventScroll: true });
     captureGraphPointer(e);
+    updateNavigation();
     e.preventDefault();
     return;
   }
   const stage = e.target.closest('.canvas-stage');
   // Floating fields/buttons are UI, never canvas hit targets or navigation gestures.
   if (stage && e.target.closest('.character-floating')) return;
-  if (stage && !control && !wiring && (e.button === 1 || (e.button === 0 && space))) {
+  if (stage && !control && !navigationBusy() && (e.button === 1 || (e.button === 0 && space))) {
     // View navigation takes priority over guides, shapes and Pen, including after zoom.
+    canvasFit = false;
     drag = {
       type: 'pan',
       start: [e.clientX, e.clientY],
@@ -3177,6 +3364,7 @@ app.addEventListener('pointerdown', (e) => {
     };
     stage.focus({ preventScroll: true });
     stage.setPointerCapture?.(e.pointerId);
+    updateNavigation();
     e.preventDefault();
     return;
   }
@@ -4155,6 +4343,26 @@ app.addEventListener(
   true,
 );
 document.addEventListener('keydown', (e) => {
+  if (navigationExcluded(e.target) || e.isComposing || e.keyCode === 229 || composing) return;
+  const viewport = e.target.closest('.canvas-stage,.canvas-toolbar,.graph-scroll,.graph-toolbar');
+  if (!viewport) return;
+  const graph = viewport.matches('.graph-scroll,.graph-toolbar');
+  const modifier = e.ctrlKey || e.metaKey;
+  const fit = !modifier && e.shiftKey && (e.code === 'Digit1' || e.key === '1' || e.key === '!');
+  const fitSelection =
+    graph && !modifier && e.shiftKey && (e.code === 'Digit2' || e.key === '2' || e.key === '@');
+  const actual = modifier && !e.shiftKey && e.key === '1';
+  const zoomStep = !modifier && !e.altKey && ['+', '=', '-', '_'].includes(e.key);
+  if (!fit && !fitSelection && !actual && !zoomStep) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if (navigationBusy()) return;
+  if (fit) graph ? fitGraph() : fitArtboard();
+  else if (fitSelection) fitGraph(true);
+  else if (graph) zoomGraph(actual ? 1 : graphZoom * (['+', '='].includes(e.key) ? 1.2 : 1 / 1.2));
+  else zoomCanvas(actual ? 1 : zoom * (['+', '='].includes(e.key) ? 1.2 : 1 / 1.2));
+});
+document.addEventListener('keydown', (e) => {
   if (e.target.matches?.('[data-rename-name]')) {
     if (e.isComposing || e.keyCode === 229 || nameEdit?.composing) return;
     if (e.key === 'Enter' || e.key === 'Escape') {
@@ -4260,7 +4468,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
-  if (editingControl(e.target)) return;
+  if (navigationExcluded(e.target) || e.isComposing || e.keyCode === 229 || composing) return;
   if (
     characterEdit &&
     e.target.closest('.canvas-stage') &&
@@ -4291,17 +4499,11 @@ document.addEventListener('keydown', (e) => {
     }
     return;
   }
-  if (e.code === 'Space') {
-    space = true;
-    e.preventDefault();
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key === '1' && e.target.closest('.graph-scroll')) {
-    e.preventDefault();
-    if (!drag && !wiring) {
-      const r = document.querySelector('.graph-scroll').getBoundingClientRect();
-      zoomGraph(1, r.left + r.width / 2, r.top + r.height / 2);
-    }
-    return;
+  if (e.code === 'Space' && !e.target.closest('button,[role="button"]')) {
+    // A busy surface must not fall through to the browser's Space-to-scroll action.
+    if (e.target.closest('.canvas-stage,.graph-scroll')) e.preventDefault();
+    if (!navigationBusy()) space = true;
+    updateNavigation();
   }
   if (e.key === 'Escape') {
     characterEdit = null;
@@ -4337,7 +4539,8 @@ document.addEventListener('keydown', (e) => {
     document.querySelector(`[data-delete="${selected}"]`)?.click();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.target.matches('input,textarea,select') || e.repeat) return;
+  if (navigationExcluded(e.target) || e.isComposing || e.keyCode === 229 || composing || e.repeat)
+    return;
   if (e.ctrlKey || e.metaKey) {
     if (e.key.toLowerCase() === 's') {
       e.preventDefault();
@@ -4366,7 +4569,10 @@ document.addEventListener('keyup', (e) => {
     drag.axis = null;
     if (drag.lastPointer) movePointer({ ...drag.lastPointer, shiftKey: false, altKey: e.altKey });
   }
-  if (e.code === 'Space') space = false;
+  if (e.code === 'Space') {
+    space = false;
+    updateNavigation();
+  }
 });
 window.addEventListener('resize', fitCanvas);
 window.addEventListener('beforeunload', (e) => {

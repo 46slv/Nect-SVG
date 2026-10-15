@@ -1203,3 +1203,62 @@ input[data-scrub-step].scrubbing {
 .node-head:has(.node-bypass) {
   gap: 5px;
 }
+
+/* View controls stay legible at the desktop minimum; only the layer title truncates. */
+.canvas-toolbar output,
+.graph-toolbar output {
+  min-width: 46px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.canvas-toolbar output {
+  background: #ffffffdc;
+  border-radius: 5px;
+  padding: 5px;
+}
+.graph-toolbar {
+  gap: 5px;
+}
+.graph-toolbar button,
+.graph-toolbar strong {
+  flex: none;
+  white-space: nowrap;
+}
+.graph-layer-name {
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-toolbar #add-node {
+  width: 120px;
+  min-width: 100px;
+}
+.navigation-hint {
+  margin-right: 12px;
+}
+.graph-hint {
+  color: var(--muted);
+  font-size: 10px;
+  padding: 3px 12px;
+  flex: none;
+}
+.canvas-stage:focus-visible,
+.graph-scroll:focus-visible {
+  outline: 2px solid var(--selection);
+  outline-offset: -2px;
+}
+.canvas-stage.pan-ready,
+.canvas-stage.pan-ready *,
+.graph-scroll.pan-ready,
+.graph-scroll.pan-ready * {
+  cursor: grab;
+}
+.canvas-stage.panning,
+.canvas-stage.panning *,
+.graph-scroll.panning,
+.graph-scroll.panning * {
+  cursor: grabbing;
+}

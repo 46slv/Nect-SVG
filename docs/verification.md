@@ -129,3 +129,10 @@ The schema9 slice has focused core, actual-handler DOM and real-pointer Chrome t
 ## Names, visibility and bypass / 2026-10-15
 
 The cumulative slice adds inline stable-ID naming, explicit layer Hide/Show and schema10 typed bypass. Local checks cover the [contract](names-visibility-bypass.md), including every supported identity, ignored-operation errors, stored cycles/types, provenance, paint/character metadata, locks/history and Type on Path duplication. Actual Chromium interaction coverage is included in the full existing Windows workflow, after pair-kerning. The prior wrap synthetic-IME test now waits for the committed leading render and focuses its textarea before composition, preserving its original text/identity assertions. Exact-commit Windows Chrome/CSP/Rust/NSIS results remain a separate required observation; no native WebView2/IME claim is made.
+
+## View-navigation implementation, 2026-10-15
+
+- Local `npm run check`: formatting, 441 pure/synthetic-DOM tests and production build passed.
+- Independent review found and verified fixes for pointer-toolbar Space continuity, sub-1% artboard zoom direction, busy graph wheel guards and retained graph centering extent.
+- Added real-Chrome navigation assertions and 1280×800 / 1600×1000 screenshots to the full `npm run test:e2e` chain. Exact Windows CI execution remains pending at this source checkpoint; do not infer a browser pass from local DOM tests.
+- Local Chromium still fails before page creation because its process-singleton socket is restricted. Native WebView2/high-DPI/physical pinch/real IME remain unverified.

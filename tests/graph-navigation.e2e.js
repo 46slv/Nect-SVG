@@ -148,7 +148,7 @@ try {
   await page.mouse.up({ button: 'middle' });
   assert.deepEqual(await position(), beforePan);
   assert.ok((await scroll())[0] >= 95 && (await scroll())[1] >= 45);
-  await page.locator('[data-action="graph-fit"]').click();
+  await page.locator('[data-action="graph-reset"]').click();
   await page.locator(`.node[data-id="${id}"] [data-collapse]`).click();
   const input = page.locator(`.node[data-id="${id}"] input[type="number"]`).first();
   const ib = await input.boundingBox(),
@@ -172,7 +172,7 @@ try {
     '321',
   );
   await stillStopped();
-  await page.locator('[data-action="graph-fit"]').click();
+  await page.locator('[data-action="graph-reset"]').click();
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/graph-navigation.png' });
   assert.deepEqual(errors, []);

@@ -97,3 +97,9 @@ Shift-drag chooses and holds the dominant artboard axis after 3 screen pixels. R
 ## Character and typography number dragging
 
 Drag inside the floating or Inspector **ΔX**, **ΔY**, **Rotate °** and **Scale ×** fields to adjust them. Selected character size, width, vertical scale, tracking and baseline shift, plus manual leading and Wrap width, use the same transaction. Click still permits typing; the native spinner remains available. A mixed selection receives a common delta instead of being flattened to one value. Each successful gesture is one Undo; jitter, returning to the origin and motion blocked at a bound are no-ops. Escape, pointer cancellation, capture loss and window blur roll back. See [units, bounds, protections and verification](numeric-scrubbing.md).
+
+## Independent view navigation
+
+See [View navigation](view-navigation.md) for researched conventions, controls, limits and verification boundaries. Both displayed percentages are actual CSS-pixel scales. Artboard Fit follows viewport/splitter resize; manual zoom preserves actual scale and the world point at the view center. Graph fitting measures actual card heights/widths and reserves port overflow. Fit all/selection never rearranges or collapses cards. Reset view is explicitly 100% at the nonnegative graph origin.
+
+Navigation changes only view state, leaving model/history/export unchanged. Pointer view-button clicks focus their viewport for immediate Space-drag; keyboard activation retains button focus and native Space activation. Navigation shortcuts are scoped to focused views/their controls. Text/IME, form fields, Guides, floating character controls and dialogs are exempt. Active edits/wires/scrubs block competing navigation, including native scrolling beneath a captured graph pointer. The actual `.right` sidebar scroll position and focused viewport survive structural renders.
