@@ -2,6 +2,10 @@
 
 A node-authored vector editor, designed for a **Windows desktop app**, with a reusable browser editor and headless SVG engine. Separate from Nect and Nect-Cloud.
 
+## Rich text
+
+Select one character or a range to change its font, font size, or horizontal width with real text reflow. Use **Style selected text** below Text, or select characters on the canvas. [Editing guide, semantics and limits](docs/rich-text.md) · [Editable sample](examples/rich-text-range.json).
+
 ## Run the editor
 
 Node 22+ is recommended.

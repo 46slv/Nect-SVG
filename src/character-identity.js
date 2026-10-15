@@ -3,6 +3,7 @@ export const CHARACTER_POSITION_VERSION = 1;
 export const MAX_CHARACTER_TEXT_LENGTH = 10000;
 export const MAX_CHARACTER_OFFSET = 100000;
 export const CHARACTER_TRANSFORM_VERSION = 2;
+export const CHARACTER_STYLE_VERSION = 3;
 export const MIN_CHARACTER_SCALE = 0.01;
 export const MAX_CHARACTER_SCALE = 100;
 export const MAX_CHARACTER_ROTATION = 36000;
@@ -70,11 +71,15 @@ export function validateCharacterPositions(record) {
           'units',
           'offsets',
           'nextId',
-          ...(record.version === 2 ? ['transforms'] : []),
+          ...(record.version >= 2 ? ['transforms'] : []),
+          ...(record.version >= 3 ? ['styles'] : []),
         ].includes(key),
     ) ||
-    ![CHARACTER_POSITION_VERSION, CHARACTER_TRANSFORM_VERSION].includes(record.version) ||
-    (record.version === CHARACTER_TRANSFORM_VERSION && !plainObject(record.transforms)) ||
+    ![CHARACTER_POSITION_VERSION, CHARACTER_TRANSFORM_VERSION, CHARACTER_STYLE_VERSION].includes(
+      record.version,
+    ) ||
+    (record.version >= CHARACTER_TRANSFORM_VERSION && !plainObject(record.transforms)) ||
+    (record.version >= CHARACTER_STYLE_VERSION && !plainObject(record.styles)) ||
     !Number.isSafeInteger(record.nextId) ||
     record.nextId < 1 ||
     !Array.isArray(record.units) ||
@@ -114,7 +119,104 @@ export function validateCharacterPositions(record) {
       throw Error('Character shape must reference a known non-newline unit');
     shapeTransform(value);
   }
+  for (const [id, style] of Object.entries(record.styles || {})) {
+    if (!ids.has(id) || ids.get(id) === '\n')
+      throw Error('Character style must reference a known non-newline unit');
+    validateCharacterStyle(style);
+  }
   return record;
+}
+function validateCharacterStyle(style, patch = false) {
+  if (
+    !plainObject(style) ||
+    Object.keys(style).some((key) => !['font', 'size', 'width'].includes(key))
+  )
+    throw Error('Invalid character typography style');
+  for (const [key, value] of Object.entries(style)) {
+    if (patch && value === null) continue;
+    if (
+      key === 'font' &&
+      (typeof value !== 'string' || !/^(default|font-[a-zA-Z0-9_-]{1,100})$/.test(value))
+    )
+      throw Error('Invalid character font reference');
+    if (key === 'size' && (!Number.isFinite(value) || value <= 0 || value > 100000))
+      throw Error('Character font size must be greater than 0 and at most 100000 px');
+    if (key === 'width' && (!Number.isFinite(value) || value < 0.01 || value > 10))
+      throw Error('Character horizontal width must be from 1% to 1000%');
+  }
+}
+/** Sparse typography overrides. Null removes a property and restores inheritance. */
+export function setCharacterStyles(raw, record, changes) {
+  validateCharacterPositions(record);
+  const basis = normalizeCharacterText(raw);
+  if (!plainObject(changes)) throw Error('Invalid character style changes');
+  const entries = Object.entries(changes);
+  if (!entries.length) return record;
+  if (record && record.basis !== basis && hasCharacterAdjustments(record))
+    throw Error('Character adjustments are suspended; restore text or reset all adjustments first');
+  const current = record?.basis === basis ? record : allocate(basis);
+  const units = new Map(current.units.map((unit) => [unit.id, unit.text]));
+  for (const [id, style] of entries) {
+    if (!units.has(id) || units.get(id) === '\n')
+      throw Error('Character style must reference a known non-newline unit');
+    validateCharacterStyle(style, true);
+  }
+  const styles = { ...current.styles };
+  let changed = false;
+  for (const [id, patch] of entries) {
+    const before = styles[id] || {},
+      next = { ...before };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null) delete next[key];
+      else next[key] = value;
+    }
+    if (['font', 'size', 'width'].every((key) => before[key] === next[key])) continue;
+    changed = true;
+    if (Object.keys(next).length) styles[id] = next;
+    else delete styles[id];
+  }
+  return changed
+    ? {
+        ...current,
+        version: CHARACTER_STYLE_VERSION,
+        transforms: { ...current.transforms },
+        styles,
+      }
+    : record;
+}
+export function resetCharacterStyles(raw, record, ids) {
+  validateCharacterPositions(record);
+  if (!record) return record;
+  const selected = ids === undefined ? Object.keys(record.styles || {}) : ids;
+  if (!Array.isArray(selected) || selected.some((id) => typeof id !== 'string'))
+    throw Error('Invalid character typography reset selection');
+  return setCharacterStyles(
+    raw,
+    record,
+    Object.fromEntries(selected.map((id) => [id, { font: null, size: null, width: null }])),
+  );
+}
+/** Map a textarea UTF-16 range only at proven scalar/NFC/newline boundaries. */
+export function characterIdsInRange(raw, record, start, end) {
+  validateCharacterPositions(record);
+  const basis = normalizeCharacterText(raw);
+  if (
+    !scalarBoundary(raw, start) ||
+    !scalarBoundary(raw, end) ||
+    start > end ||
+    !normalizationBoundary(raw, start, basis) ||
+    !normalizationBoundary(raw, end, basis)
+  )
+    throw Error('Select complete characters, including combining marks and newline pairs');
+  if (record && record.basis !== basis && hasCharacterAdjustments(record))
+    throw Error('Character adjustments are suspended; restore text or reset all adjustments first');
+  const units = record?.basis === basis ? record.units : allocate(basis).units;
+  const from = [...normalize(raw.slice(0, start))].length;
+  const to = [...normalize(raw.slice(0, end))].length;
+  return units
+    .slice(from, to)
+    .filter((unit) => unit.text !== '\n')
+    .map((unit) => unit.id);
 }
 function allocate(basis, start = 1) {
   let nextId = start;
@@ -135,6 +237,7 @@ export function hasCharacterOffsets(record) {
 export function hasCharacterAdjustments(record) {
   return (
     hasCharacterOffsets(record) ||
+    (!!record && Object.values(record.styles || {}).some((style) => Object.keys(style).length)) ||
     (!!record &&
       Object.values(record.transforms || {}).some(
         ({ rotation, scale }) => rotation !== 0 || scale !== 1,
@@ -197,7 +300,8 @@ export function resetCharacterOffsets(raw, record, ids) {
     if (
       Object.values(record.transforms || {}).some(
         ({ rotation, scale }) => rotation !== 0 || scale !== 1,
-      )
+      ) ||
+      Object.values(record.styles || {}).some((style) => Object.keys(style).length)
     )
       throw Error('Character adjustments are suspended; reset all adjustments to recover mapping');
     return allocate(basis, record.nextId);
@@ -236,7 +340,9 @@ export function setCharacterTransforms(raw, record, changes) {
     if (value.rotation === 0 && value.scale === 1) delete transforms[id];
     else transforms[id] = { rotation: value.rotation || 0, scale: value.scale };
   }
-  return changed ? { ...current, version: CHARACTER_TRANSFORM_VERSION, transforms } : record;
+  return changed
+    ? { ...current, version: Math.max(current.version, CHARACTER_TRANSFORM_VERSION), transforms }
+    : record;
 }
 export function resetCharacterTransforms(raw, record, ids) {
   validateCharacterPositions(record);
@@ -257,7 +363,7 @@ export function resetCharacterAdjustments(raw, record) {
   const basis = normalizeCharacterText(raw);
   if (record.basis !== basis) return allocate(basis, record.nextId);
   const next = resetCharacterOffsets(raw, record);
-  return resetCharacterTransforms(raw, next);
+  return resetCharacterStyles(raw, resetCharacterTransforms(raw, next));
 }
 function scalarBoundary(raw, at) {
   if (!Number.isInteger(at) || at < 0 || at > raw.length) return false;
@@ -433,6 +539,10 @@ export function reconcileCharacterEdit(record, transaction) {
   if (record.transforms)
     next.transforms = Object.fromEntries(
       Object.entries(record.transforms).filter(([id]) => retained.has(id)),
+    );
+  if (record.styles)
+    next.styles = Object.fromEntries(
+      Object.entries(record.styles).filter(([id]) => retained.has(id)),
     );
   validateCharacterPositions(next);
   return { record: next, status: 'applied', reason: null };

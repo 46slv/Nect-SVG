@@ -1040,3 +1040,24 @@ input[data-scrub-step].scrubbing {
   paint-order: stroke;
   pointer-events: none;
 }
+
+.character-typography {
+  border-top: 1px solid var(--border, #444);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+.character-typography h4 {
+  margin: 4px 0 8px;
+}
+.character-typography > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.character-typography .character-values {
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.character-typography select {
+  width: 100%;
+}

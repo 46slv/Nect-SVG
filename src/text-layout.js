@@ -85,6 +85,8 @@ export function layoutText(
     referenceBounds = 'advance',
     crossAlignment = 'origin',
     characterPositions,
+    fonts = {},
+    fontId = 'default',
   },
 ) {
   if (!['start', 'center', 'end'].includes(alignment)) throw Error('Invalid text alignment');
@@ -111,26 +113,69 @@ export function layoutText(
     throw Error(
       'Combining sequences, variation selectors, tabs and control characters are unsupported',
     );
-  const missing = [
-    ...new Set([...normalized].filter((c) => c !== '\n' && !font.charToGlyphIndex(c))),
-  ];
-  if (missing.length)
-    throw Error(
-      `Missing glyphs in selected font: ${missing
-        .slice(0, 8)
-        .map((c) => `${c} (U+${c.codePointAt(0).toString(16).toUpperCase()})`)
-        .join(', ')}. Load a font containing these characters.`,
-    );
+  const status = characterPositionStatus(text, characterPositions);
+  const styles =
+    !status.suspended && characterPositions?.basis === normalized
+      ? characterPositions.styles || {}
+      : {};
+  const resolved = [...normalized].map((char, index) => {
+    const unit = characterPositions?.basis === normalized ? characterPositions.units[index] : null;
+    const style = styles[unit?.id] || {};
+    const activeFont = style.font ? (style.font === fontId ? font : fonts[style.font]) : font;
+    if (!activeFont) throw Error(`Character font ${style.font} is unavailable`);
+    if (char !== '\n' && !activeFont.charToGlyphIndex(char))
+      throw Error(
+        `Missing glyphs in selected font: ${char} (U+${char.codePointAt(0).toString(16).toUpperCase()}). Load a font containing this character.`,
+      );
+    return {
+      font: activeFont,
+      fontId: style.font || fontId,
+      size: style.size ?? size,
+      width: style.width ?? 1,
+    };
+  });
   const path = new opentype.Path(),
     glyphs = [],
-    warnings = new Set(),
-    scale = size / font.unitsPerEm;
+    warnings = new Set();
   function append(outline) {
     if (path.commands.length + outline.commands.length > 500000)
       throw Error('Text outline is too complex');
     path.extend(outline);
   }
   const lines = normalized.split('\n');
+  // Legacy text retains its exact fixed baseline spacing. Rich text uses the largest
+  // adjacent line metrics, so a larger selected character does not collide with the next line.
+  const lineOffsets = [0];
+  if (Object.keys(styles).length) {
+    let index = 0;
+    const metrics = lines.map((content) => {
+      const count = [...content].length;
+      const entries = count ? resolved.slice(index, index + count) : [{ font, size, width: 1 }];
+      index += count + 1;
+      return {
+        em: Math.max(size, ...entries.map((entry) => entry.size)),
+        ascent: Math.max(
+          ...entries.map((entry) => (entry.font.ascender / entry.font.unitsPerEm) * entry.size),
+        ),
+        descent: Math.max(
+          ...entries.map((entry) => (-entry.font.descender / entry.font.unitsPerEm) * entry.size),
+        ),
+        cross: Math.max(size, ...entries.map((entry) => entry.size * entry.width)),
+      };
+    });
+    for (let i = 1; i < lines.length; i++) {
+      const previous = metrics[i - 1],
+        current = metrics[i];
+      const distance =
+        writingMode === 'horizontal-tb'
+          ? Math.max(
+              Math.max(previous.em, current.em) * lineSpacing,
+              previous.descent + current.ascent,
+            )
+          : Math.max(previous.cross, current.cross) * Math.max(1, lineSpacing);
+      lineOffsets[i] = lineOffsets[i - 1] + distance;
+    }
+  } else for (let i = 1; i < lines.length; i++) lineOffsets[i] = i * size * lineSpacing;
   let sourceIndex = 0,
     mappingReason = null;
   const advances = [];
@@ -161,89 +206,143 @@ export function layoutText(
       for (let i = glyphStart; i < glyphs.length; i++) glyphs[i][axis] += shift;
     }
     if (writingMode === 'horizontal-tb') {
-      const end = font.forEachGlyph(
-        content,
-        position[0],
-        position[1] + line * size * lineSpacing,
-        size,
-        { letterSpacing: letterSpacing / size, kerning },
-        (glyph, x, y) => {
-          const index = glyphs.length - glyphStart,
-            char = chars[index],
-            start = path.commands.length;
-          append(glyph.getPath(x, y, size));
-          glyphs.push({
-            id: glyph.index,
-            char,
-            sourceIndex: lineSourceStart + index,
-            line,
-            x,
-            y,
-            rotation: 0,
-            advance: (glyph.advanceWidth || font.unitsPerEm) * scale,
-            commandStart: start,
-            commandEnd: path.commands.length,
-          });
-        },
-      );
-      const emitted = glyphs.slice(glyphStart);
-      if (
-        emitted.length !== chars.length ||
-        emitted.some((glyph, i) => glyph.id !== font.charToGlyphIndex(chars[i])) ||
-        chars.some(
-          (char) =>
-            !/^[\p{Script=Latin}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Common}]$/u.test(
-              char,
-            ),
+      let end = position[0];
+      // Shape contiguous equal font/size runs. Width is applied after shaping, so changing
+      // only width preserves kerning inside the run. Font/size boundaries break kerning.
+      for (let from = 0; from < chars.length; ) {
+        const style = resolved[lineSourceStart + from];
+        let to = from + 1;
+        while (
+          to < chars.length &&
+          resolved[lineSourceStart + to].font === style.font &&
+          resolved[lineSourceStart + to].size === style.size
         )
-      )
-        mappingReason =
-          'This shaped run has no verified one-to-one Japanese/Latin character mapping';
+          to++;
+        let originalX = end,
+          cursor = end,
+          previousWidth = 1;
+        const runGlyphs = [],
+          runStart = end;
+        const runEnd = style.font.forEachGlyph(
+          chars.slice(from, to).join(''),
+          runStart,
+          position[1] + lineOffsets[line],
+          style.size,
+          { letterSpacing: letterSpacing / style.size, kerning },
+          (glyph, x, y) => {
+            if (runGlyphs.length)
+              cursor += (x - originalX - letterSpacing) * previousWidth + letterSpacing;
+            const index = from + runGlyphs.length,
+              characterStyle = resolved[lineSourceStart + index] || style,
+              width = characterStyle.width,
+              start = path.commands.length;
+            const raw = glyph.getPath(cursor, y, style.size);
+            append(
+              width === 1
+                ? raw
+                : transformed(raw, (gx, gy) => [cursor + (gx - cursor) * width, gy]),
+            );
+            const info = {
+              id: glyph.index,
+              char: chars[index],
+              sourceIndex: lineSourceStart + index,
+              line,
+              x: cursor,
+              y,
+              rotation: 0,
+              advance:
+                (((glyph.advanceWidth || style.font.unitsPerEm) * style.size) /
+                  style.font.unitsPerEm) *
+                width,
+              fontId: characterStyle.fontId,
+              size: style.size,
+              width,
+              metricCenter:
+                ((style.font.ascender + style.font.descender) * style.size) /
+                style.font.unitsPerEm /
+                2,
+              commandStart: start,
+              commandEnd: path.commands.length,
+            };
+            glyphs.push(info);
+            runGlyphs.push(info);
+            originalX = x;
+            previousWidth = width;
+          },
+        );
+        end = runGlyphs.length
+          ? cursor + (runEnd - originalX - letterSpacing) * previousWidth + letterSpacing
+          : runEnd;
+        if (
+          runGlyphs.length !== to - from ||
+          runGlyphs.some((g, i) => g.id !== style.font.charToGlyphIndex(chars[from + i])) ||
+          chars
+            .slice(from, to)
+            .some(
+              (char) =>
+                !/^[\p{Script=Latin}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Common}]$/u.test(
+                  char,
+                ),
+            )
+        )
+          mappingReason =
+            'This shaped run has no verified one-to-one Japanese/Latin character mapping';
+        from = to;
+      }
       align(end - position[0] - (glyphs.length > glyphStart ? letterSpacing : 0));
       continue;
     }
-    const x = position[0] - line * size * lineSpacing;
+    const x = position[0] - lineOffsets[line];
     let y = position[1];
     for (const char of content) {
-      const original = font.charToGlyph(char),
-        alternate = verticalGlyph(font, original);
+      const style = resolved[lineSourceStart + glyphs.length - glyphStart],
+        activeFont = style.font,
+        activeSize = style.size,
+        localScale = activeSize / activeFont.unitsPerEm;
+      const original = activeFont.charToGlyph(char),
+        alternate = verticalGlyph(activeFont, original);
       const substituted = original.index !== alternate.index;
       const sideways = !substituted && (rotatePunctuation.has(char) || !upright(char));
       const glyph = alternate,
-        raw = glyph.getPath(0, 0, size);
+        raw = glyph.getPath(0, 0, activeSize);
       let advance, outline;
       if (sideways) {
-        const center = ((font.ascender + font.descender) * scale) / 2;
+        const center = ((activeFont.ascender + activeFont.descender) * localScale) / 2;
         outline = transformed(raw, (gx, gy) => [x - gy - center, y + gx]);
-        advance = (glyph.advanceWidth || font.unitsPerEm) * scale;
+        advance = (glyph.advanceWidth || activeFont.unitsPerEm) * localScale;
       } else {
-        const vertical = font.nectVertical,
+        const vertical = activeFont.nectVertical,
           metric = vertical?.metrics[glyph.index];
         const origin =
           vertical?.origins.get(glyph.index) ??
           vertical?.defaultOrigin ??
-          (metric ? glyph.getMetrics().yMax + metric.topBearing : font.ascender);
-        let dx = x - ((glyph.advanceWidth || font.unitsPerEm) * scale) / 2,
-          dy = y + origin * scale;
+          (metric ? glyph.getMetrics().yMax + metric.topBearing : activeFont.ascender);
+        let dx = x - ((glyph.advanceWidth || activeFont.unitsPerEm) * localScale) / 2,
+          dy = y + origin * localScale;
         if (!substituted && cornerPunctuation.has(char) && raw.commands.length) {
           const box = raw.getBoundingBox();
-          dx = x + size * 0.1 - box.x1;
-          dy = y + size * 0.1 - box.y1;
+          dx = x + activeSize * 0.1 - box.x1;
+          dy = y + activeSize * 0.1 - box.y1;
           warnings.add('Font lacks some vertical alternates; punctuation uses geometric fallback.');
         } else if (!substituted && smallKana.has(char)) {
-          dx += size * 0.15;
-          dy -= size * 0.15;
+          dx += activeSize * 0.15;
+          dy -= activeSize * 0.15;
           warnings.add('Font lacks some vertical alternates; small kana uses geometric fallback.');
         }
         outline = transformed(raw, (gx, gy) => [gx + dx, gy + dy]);
-        advance = (metric?.advance || font.unitsPerEm) * scale;
+        advance = (metric?.advance || activeFont.unitsPerEm) * localScale;
       }
       if (!substituted && rotatePunctuation.has(char))
         warnings.add(
           'Font lacks some vertical alternates; brackets/long marks rotate geometrically.',
         );
       const start = path.commands.length;
-      append(outline);
+      // Horizontal width scales screen X in vertical text; vertical advances are unchanged.
+      append(
+        style.width === 1
+          ? outline
+          : transformed(outline, (gx, gy) => [x + (gx - x) * style.width, gy]),
+      );
       glyphs.push({
         sourceIndex: lineSourceStart + glyphs.length - glyphStart,
         commandStart: start,
@@ -256,11 +355,42 @@ export function layoutText(
         y,
         rotation: sideways ? 90 : 0,
         substituted,
+        fontId: style.fontId,
+        size: activeSize,
+        width: style.width,
+        metricCenter: ((activeFont.ascender + activeFont.descender) * localScale) / 2,
         advance,
       });
       y += advance + letterSpacing;
     }
     align(y - position[1] - (glyphs.length > glyphStart ? letterSpacing : 0));
+  }
+  if (mappingReason && Object.keys(styles).length) {
+    // Never attach a logical character's width/font/size to an unverified shaped glyph.
+    // Keep the saved record intact, show normal unadjusted artwork, and block export.
+    const normal = layoutText(font, text, {
+      position,
+      size,
+      writingMode,
+      letterSpacing,
+      lineSpacing,
+      alignment,
+      kerning,
+      referenceBounds,
+      crossAlignment,
+      fonts,
+      fontId,
+    });
+    return {
+      ...normal,
+      characters: [],
+      characterReason: mappingReason,
+      characterSuspended: true,
+      warnings: [
+        ...normal.warnings,
+        `Character typography suspended: ${mappingReason}. Undo, restore text, or Reset all adjustments before export.`,
+      ],
+    };
   }
   if (crossAlignment !== 'origin' && path.commands.length) {
     const axis = writingMode === 'horizontal-tb' ? 'y' : 'x';
@@ -276,7 +406,6 @@ export function layoutText(
       for (const glyph of glyphs) glyph[axis] += shift;
     }
   }
-  const status = characterPositionStatus(text, characterPositions);
   const reason = status.suspended ? status.reason : mappingReason;
   const suspended = !!reason && hasCharacterAdjustments(characterPositions);
   if (suspended)
@@ -296,7 +425,7 @@ export function layoutText(
       // Fixed normal-layout advance-cell center, never the changing outline bounds.
       const pivot =
         writingMode === 'horizontal-tb'
-          ? [glyph.x + glyph.advance / 2, glyph.y - ((font.ascender + font.descender) * scale) / 2]
+          ? [glyph.x + glyph.advance / 2, glyph.y - glyph.metricCenter]
           : [glyph.x, glyph.y + glyph.advance / 2];
       const shape = characterPositions?.transforms?.[id] || { rotation: 0, scale: 1 };
       const matrix = characterTransform(pivot, offset, shape.scale, shape.rotation);
@@ -322,10 +451,16 @@ export function layoutText(
       let bounds = [box.x1, box.y1, box.x2, box.y2];
       if (whitespace) {
         const [x, y] = base;
+        const size = glyph.size;
         const cell =
           writingMode === 'horizontal-tb'
             ? [x, y - size * 0.8, x + Math.max(glyph.advance, size * 0.2), y + size * 0.2]
-            : [x - size * 0.5, y, x + size * 0.5, y + Math.max(glyph.advance, size * 0.2)];
+            : [
+                x - size * glyph.width * 0.5,
+                y,
+                x + size * glyph.width * 0.5,
+                y + Math.max(glyph.advance, size * 0.2),
+              ];
         const corners = [
           [cell[0], cell[1]],
           [cell[2], cell[1]],
@@ -342,6 +477,9 @@ export function layoutText(
       characters.push({
         id,
         text: glyph.char,
+        font: glyph.fontId,
+        size: glyph.size,
+        width: glyph.width,
         sourceIndex: glyph.sourceIndex,
         bounds,
         base,

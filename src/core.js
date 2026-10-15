@@ -836,6 +836,17 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         versions.get(outputKey(q.source, q.sourcePort)),
       ]);
       const cacheFont = positionOutput ? null : fonts[n.font];
+      const styleFonts = positionOutput
+        ? []
+        : [
+            ...new Set(
+              Object.values(n.characterPositions?.styles || {})
+                .map((style) => style.font)
+                .filter(Boolean),
+            ),
+          ]
+            .sort()
+            .map((id) => fonts[id]);
       const cacheKey = JSON.stringify(
         positionOutput
           ? [inputs, dependencyVersions]
@@ -868,7 +879,13 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             ],
       );
       const existing = cache.get(key);
-      if (existing && existing.key === cacheKey && existing.font === cacheFont) {
+      if (
+        existing &&
+        existing.key === cacheKey &&
+        existing.font === cacheFont &&
+        styleFonts.length === (existing.styleFonts || []).length &&
+        styleFonts.every((font, i) => font === existing.styleFonts[i])
+      ) {
         reused++;
         const result = clone(existing.value);
         values.set(key, result);
@@ -950,6 +967,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         const layout = layoutText(font, n.text, {
           position: read('position'),
           characterPositions: n.characterPositions,
+          fonts,
+          fontId: n.font,
           size: read('size'),
           writingMode: n.writingMode,
           alignment: n.alignment,
@@ -1221,6 +1240,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       cache.set(key, {
         key: cacheKey,
         font: cacheFont,
+        styleFonts,
         value: clone(result),
         version,
         warnings: warnings.slice(warningStart),
@@ -1272,6 +1292,11 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         rotation: readParameter(n, 'rotation'),
         input: readParameter(n, 'path'),
       };
+    },
+    textDefaults(id) {
+      const n = byId.get(id);
+      if (n?.type !== 'Text') throw Error('Select a Text node');
+      return { font: n.font, size: readParameter(n, 'size'), width: 1 };
     },
     textLayout(id) {
       run(id);
@@ -1378,7 +1403,8 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3, 4].includes(doc.schemaVersion)) throw Error('Unsupported project version');
+  if (!doc || ![1, 2, 3, 4, 5].includes(doc.schemaVersion))
+    throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   text(doc.name);
   validateFontAssets(doc.fontAssets);
@@ -1427,8 +1453,17 @@ export function validate(doc) {
         throw Error('Character positions require schemaVersion 3 and a Text node');
       if (n.type === 'Text') {
         validateCharacterPositions(n.characterPositions);
-        if (n.characterPositions?.version === 2 && doc.schemaVersion < 4)
+        if (n.characterPositions?.version >= 2 && doc.schemaVersion < 4)
           throw Error('Character shape transforms require schemaVersion 4');
+        if (n.characterPositions?.version === 3 && doc.schemaVersion < 5)
+          throw Error('Character typography requires schemaVersion 5');
+        for (const style of Object.values(n.characterPositions?.styles || {}))
+          if (
+            style.font &&
+            style.font !== 'default' &&
+            !Object.hasOwn(doc.fontAssets || {}, style.font)
+          )
+            throw Error('Missing character font asset');
         if (n.referenceBounds !== undefined && !['visible', 'advance'].includes(n.referenceBounds))
           throw Error('Invalid text reference bounds');
         if (

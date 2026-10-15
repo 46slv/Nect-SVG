@@ -64,6 +64,9 @@ import {
   characterBoxPoints,
   hitCharacter,
   setCharacterOffsets,
+  setCharacterStyles,
+  characterIdsInRange,
+  createCharacterPositions,
   resetCharacterOffsets,
   setCharacterTransforms,
   resetCharacterTransforms,
@@ -114,6 +117,7 @@ const detailsState = new Map();
 const remapBatches = new Map();
 let characterEdit = null;
 const textDrafts = new Map();
+const textRanges = new Map();
 function remapBatch(id) {
   if (!remapBatches.has(id)) remapBatches.set(id, { selected: new Set(), delta: [0, 0] });
   return remapBatches.get(id);
@@ -190,6 +194,7 @@ function resetTransient() {
   remapBatches.clear();
   characterEdit = null;
   textDrafts.clear();
+  textRanges.clear();
   document.querySelector('.character-choice')?.remove();
   drag = null;
   wiring = null;
@@ -309,7 +314,7 @@ function compactFields(n) {
 }
 function textControls(n) {
   if (n.type !== 'Text') return '';
-  return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><div class="field"><label>Font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
+  return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
     history.doc.fontAssets || {},
   )
     .map(
@@ -678,6 +683,30 @@ function characterContext(result = renderEvaluation) {
     n.type !== 'Text'
   )
     return null;
+  let typographyCharacters = [],
+    typographyReason = null;
+  try {
+    const ids = new Set(characterIdsInRange(n.text, n.characterPositions, 0, n.text.length));
+    const fresh = createCharacterPositions(n.text),
+      record = n.characterPositions?.basis === fresh.basis ? n.characterPositions : fresh;
+    const defaults = result.textDefaults(n.id);
+    typographyCharacters = record.units
+      .map((unit, sourceIndex) => ({
+        id: unit.id,
+        text: unit.text,
+        sourceIndex,
+        whitespace: /^\s$/.test(unit.text),
+        ...defaults,
+        ...(record.styles?.[unit.id] || {}),
+      }))
+      .filter((unit) => ids.has(unit.id));
+    characterEdit.selected = new Set([...characterEdit.selected].filter((id) => ids.has(id)));
+  } catch (error) {
+    typographyReason = error.message;
+  }
+  const typographySelected = typographyCharacters.filter((unit) =>
+    characterEdit.selected.has(unit.id),
+  );
   try {
     const layout = result.textLayout(n.id),
       occurrences = characterOccurrences(result.path)
@@ -695,10 +724,11 @@ function characterContext(result = renderEvaluation) {
     if (!characterEdit.route && editable.length === 1) characterEdit.route = editable[0].route;
     if (characterEdit.route && !editable.some((o) => o.route === characterEdit.route))
       characterEdit.route = null;
-    const ids = new Set(layout.characters.map((g) => g.id));
-    characterEdit.selected = new Set([...characterEdit.selected].filter((id) => ids.has(id)));
     return {
       n,
+      typographyCharacters,
+      typographySelected,
+      typographyReason,
       layout,
       occurrences,
       editable,
@@ -708,6 +738,9 @@ function characterContext(result = renderEvaluation) {
   } catch (e) {
     return {
       n,
+      typographyCharacters,
+      typographySelected,
+      typographyReason,
       layout: { characters: [], reason: e.message },
       occurrences: [],
       editable: [],
@@ -738,6 +771,54 @@ function characterFields(context, floating = false) {
       '',
     )}<button data-character-shape-reset ${disabled ? 'disabled' : ''} title="Reset selected rotation and scale only">Reset shape</button></div>`;
 }
+function typographyControls(context) {
+  const disabled =
+    current().locked || !context.typographySelected.length || !!context.typographyReason;
+  const values = context.typographySelected.map((g) => g.font);
+  const mixed = values.some((v) => v !== values[0]);
+  const fontValue = mixed ? '__mixed' : values[0];
+  return `<section class="character-typography" aria-label="Selected character typography"><h4>Selected typography</h4>
+    <label>Font<select data-character-style="font" aria-label="Selected character font" ${disabled || fontRequest ? 'disabled' : ''}>
+    <option value="__mixed" disabled ${mixed ? 'selected' : ''}>Mixed</option><option value="">Inherit default font</option>
+    <option value="default" ${fontValue === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>
+    ${Object.entries(history.doc.fontAssets || {})
+      .map(
+        ([id, asset]) =>
+          `<option value="${esc(id)}" ${fontValue === id ? 'selected' : ''}>${esc(asset.name)}</option>`,
+      )
+      .join('')}
+    ${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></label>
+    <button class="mini" data-load-character-font="${context.n.id}" ${disabled || fontRequest ? 'disabled' : ''}>Load font for selection…</button>
+    <div class="character-values">${[
+      ['size', 'Font size px', 0.01, 100000, 1],
+      ['width', 'Horizontal width %', 1, 1000, 100],
+    ]
+      .map(([key, label, min, max, factor]) => {
+        const vals = context.typographySelected.map((g) => g[key] * factor),
+          isMixed = vals.some((v) => v !== vals[0]);
+        return `<label>${label}<input type="number" step="any" min="${min}" max="${max}" data-character-style="${key}" aria-label="Selected character ${key}" placeholder="${isMixed ? 'Mixed' : ''}" value="${isMixed ? '' : (vals[0] ?? '')}" ${disabled ? 'disabled' : ''}></label><button data-character-style-inherit="${key}" ${disabled ? 'disabled' : ''} title="Remove selected ${key} overrides">Inherit ${key}</button>`;
+      })
+      .join(
+        '',
+      )}</div><button data-character-style-reset ${disabled ? 'disabled' : ''}>Reset selected typography</button>
+    <p class="font-note">Font size and horizontal width reflow horizontal text, including spaces. Width stretches outlines and advances, while tracking stays in px. In vertical text width stretches screen X only; vertical advance stays fixed. Different fonts/sizes break kerning at their boundary. Rich-text line/column spacing uses the largest adjacent font metrics. Rotation, shape scale and XY below are applied afterward.</p></section>`;
+}
+function updateTypography(target, ids, patch, doc = history.doc, layer = current()) {
+  target.characterPositions = setCharacterStyles(
+    target.text,
+    target.characterPositions,
+    Object.fromEntries(ids.map((id) => [id, patch])),
+  );
+  doc.schemaVersion = Math.max(doc.schemaVersion, 5);
+  validate(doc);
+  const check = evaluate(
+    { ...layer, output: target.id },
+    resolveFonts(doc, bundledFont ? { default: bundledFont } : {}),
+  );
+  if (check.error) throw Error(check.error);
+  const layout = check.textLayout(target.id);
+  if (layout.reason) throw Error(layout.reason);
+}
 function characterControls(n) {
   if (n.type !== 'Text') return '';
   const context = characterContext();
@@ -761,7 +842,7 @@ function characterControls(n) {
                 )
                 .join('')}</select></label>`
             : ''
-        }<label>Characters <select multiple size="${Math.min(6, Math.max(2, context.layout.characters.length))}" data-character-selection aria-label="Select characters">${context.layout.characters.map((g) => `<option value="${g.id}" ${characterEdit.selected.has(g.id) ? 'selected' : ''}>${g.sourceIndex + 1} · ${g.whitespace ? '[space]' : esc(g.text)}</option>`).join('')}</select></label><p>${context.selected.length} selected${context.selected.some((g) => g.whitespace) ? ' · Moving a space changes its visual position only. Use letterSpacing/kerning for spacing.' : ''}</p>${characterFields(context)}<button data-character-reset="all" ${current().locked ? 'disabled' : ''}>Reset all adjustments</button><p class="font-note">Local X points right; Y points down. Rotation (clockwise) and uniform scale use each normal-layout advance-cell center, then XY is added, before downstream Transform. Selected characters receive the same absolute value around their own pivots. Font size, advance, Position and Position OUT stay fixed.</p>`
+        }<label>Characters <select multiple size="${Math.min(6, Math.max(2, context.typographyCharacters.length))}" data-character-selection aria-label="Select characters">${context.typographyCharacters.map((g) => `<option value="${g.id}" ${characterEdit.selected.has(g.id) ? 'selected' : ''}>${g.sourceIndex + 1} · ${g.whitespace ? '[space]' : esc(g.text)}</option>`).join('')}</select></label><p>${context.typographySelected.length} selected${context.typographySelected.some((g) => g.whitespace) ? ' · Moving a space changes its visual position only. Use letterSpacing/kerning for spacing.' : ''}</p>${typographyControls(context)}${characterFields(context)}<button data-character-reset="all" ${current().locked ? 'disabled' : ''}>Reset all adjustments</button><p class="font-note">Local X points right; Y points down. Rotation (clockwise) and uniform scale use each normal-layout advance-cell center, then XY is added, before downstream Transform. Selected characters receive the same absolute value around their own pivots. These shape controls preserve font size and advance. Position and Position OUT stay fixed.</p>`
       : ''
   }</section>`;
 }
@@ -1113,6 +1194,56 @@ app.addEventListener('click', async (e) => {
   if (!b) return;
   const d = b.dataset,
     n = selectedNode();
+  if (d.styleTextRange) {
+    const el = document.querySelector(`.inspector-body [data-text="${d.styleTextRange}"]`);
+    const range =
+      textRanges.get(d.styleTextRange) ||
+      (el && { raw: el.value, start: el.selectionStart, end: el.selectionEnd });
+    if (!el || !range || current().locked) return;
+    if (textDrafts.get(d.styleTextRange)?.composition) {
+      notify('Finish or cancel text composition first', true);
+      return;
+    }
+    const draft = textDrafts.get(d.styleTextRange);
+    if (el.value !== n.text || (draft && draft.record !== n.characterPositions))
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    try {
+      const target = selectedNode();
+      if (range.raw !== target.text) throw Error('Text changed; select the range again');
+      const ids = characterIdsInRange(
+        target.text,
+        target.characterPositions,
+        range.start,
+        range.end,
+      );
+      if (!ids.length) throw Error('Highlight one or more complete characters in Text first');
+      characterEdit = {
+        node: target.id,
+        layer: current().id,
+        selected: new Set(ids),
+        route: null,
+        hover: null,
+      };
+      tool = 'select';
+      render();
+      document.querySelector('[data-character-style="font"]')?.focus({ preventScroll: true });
+    } catch (error) {
+      notify(error.message, true);
+    }
+    return;
+  }
+  if (d.characterStyleReset !== undefined || d.characterStyleInherit !== undefined) {
+    const context = characterContext();
+    if (!context?.typographySelected.length || context.typographyReason) return;
+    const patch = d.characterStyleInherit
+      ? { [d.characterStyleInherit]: null }
+      : { font: null, size: null, width: null };
+    change(
+      () => updateTypography(selectedNode(), [...characterEdit.selected], patch),
+      'Selected typography reset',
+    );
+    return;
+  }
   if (d.characterMode) {
     cancelInteraction();
     if (characterEdit?.node === d.characterMode) characterEdit = null;
@@ -1390,7 +1521,7 @@ app.addEventListener('click', async (e) => {
     }
     return;
   }
-  if (d.loadFont) {
+  if (d.loadFont || d.loadCharacterFont) {
     if (current().locked) {
       notify('Composition is locked', true);
       return;
@@ -1398,10 +1529,12 @@ app.addEventListener('click', async (e) => {
     fontRequest = {
       id: ++fontRequestId,
       layer: current().id,
-      node: d.loadFont,
+      node: d.loadFont || d.loadCharacterFont,
+      ...(d.loadCharacterFont ? { characters: [...(characterEdit?.selected || [])] } : {}),
       before: serialize(history.doc),
     };
     const input = document.querySelector('#font-file');
+    input.dataset.fontRequest = String(fontRequest.id);
     input.value = '';
     input.click();
     return;
@@ -1598,6 +1731,12 @@ function commitFont(bytes, name, request) {
   if (fontRequest?.id !== request.id) return;
   if (serialize(history.doc) !== request.before || activeLayer !== request.layer)
     throw Error('Document changed while reading; load the font again');
+  if (
+    request.characters &&
+    (characterEdit?.node !== request.node ||
+      request.characters.join(',') !== [...(characterEdit?.selected || [])].join(','))
+  )
+    throw Error('Character selection changed while reading; load the font again');
   const prepared = makeFontAsset(bytes, name, history.doc.fontAssets);
   // Preflight lazy outlines and glyph coverage before touching the active document.
   const candidate = cloneDocument(history.doc);
@@ -1607,7 +1746,15 @@ function commitFont(bytes, name, request) {
     (n) => n.id === request.node && n.type === 'Text',
   );
   if (!candidateText) throw Error('Text node no longer exists');
-  candidateText.font = prepared.id;
+  if (request.characters)
+    updateTypography(
+      candidateText,
+      request.characters,
+      { font: prepared.id },
+      candidate,
+      candidateLayer,
+    );
+  else candidateText.font = prepared.id;
   const preflight = evaluate(
     { ...candidateLayer, output: candidateText.id },
     resolveFonts(candidate, bundledFont ? { default: bundledFont } : {}),
@@ -1618,11 +1765,12 @@ function commitFont(bytes, name, request) {
     if (!target) throw Error('Text node no longer exists');
     history.doc.fontAssets ||= {};
     history.doc.fontAssets[prepared.id] = prepared.asset;
-    target.font = prepared.id;
+    if (request.characters) updateTypography(target, request.characters, { font: prepared.id });
+    else target.font = prepared.id;
     serialize(history.doc); // Enforce the whole-document bound before committing.
   }, `Loaded ${prepared.asset.name} · saved JSON will include this font`);
 }
-async function loadInstalledFont(id, nodeId) {
+async function loadInstalledFont(id, nodeId, characters) {
   if (!id) return;
   if (current().locked) {
     notify('Composition is locked', true);
@@ -1637,6 +1785,7 @@ async function loadInstalledFont(id, nodeId) {
     id: ++fontRequestId,
     layer: current().id,
     node: nodeId,
+    ...(characters ? { characters } : {}),
     before: serialize(history.doc),
   });
   notify(`Loading ${entry[1]}…`);
@@ -1654,13 +1803,24 @@ async function loadInstalledFont(id, nodeId) {
     }
   }
 }
+app.addEventListener(
+  'cancel',
+  (e) => {
+    if (e.target.id === 'font-file' && String(fontRequest?.id) === e.target.dataset.fontRequest) {
+      fontRequest = null;
+      render();
+    }
+  },
+  true,
+);
 function textDraft(el) {
   const n = current().nodes.find((n) => n.id === el.dataset.text);
   if (!n) return null;
   let draft = textDrafts.get(n.id);
-  if (!draft || draft.saved !== n.text) {
+  if (!draft || draft.saved !== n.text || draft.baseRecord !== n.characterPositions) {
     draft = {
       saved: n.text,
+      baseRecord: n.characterPositions,
       raw: n.text,
       record: n.characterPositions,
       snapshots: [{ raw: n.text, record: n.characterPositions }],
@@ -1711,6 +1871,22 @@ function stageTextInput(el, transaction) {
     draft.cursor--;
   }
 }
+app.addEventListener(
+  'select',
+  (e) => {
+    const el = e.target;
+    if (el.matches?.('textarea[data-text]'))
+      textRanges.set(el.dataset.text, {
+        raw: el.value,
+        start: el.selectionStart,
+        end: el.selectionEnd,
+      });
+  },
+  true,
+);
+app.addEventListener('pointerdown', (e) => {
+  if (e.target.closest('[data-style-text-range]')) e.preventDefault();
+});
 app.addEventListener('beforeinput', (e) => {
   if (!e.target.matches('textarea[data-text]')) return;
   const el = e.target,
@@ -1778,6 +1954,32 @@ app.addEventListener('change', async (e) => {
     if (characterEdit)
       characterEdit.selected = new Set([...el.selectedOptions].map((o) => o.value));
     render();
+    return;
+  }
+  if (d.characterStyle !== undefined) {
+    const context = characterContext(),
+      property = d.characterStyle;
+    if (
+      !context?.typographySelected.length ||
+      context.typographyReason ||
+      !['font', 'size', 'width'].includes(property)
+    )
+      return;
+    if (property === 'font' && el.value.startsWith('system-')) {
+      await loadInstalledFont(el.value, context.n.id, [...characterEdit.selected]);
+      return;
+    }
+    let value =
+      property === 'font' ? el.value || null : Number(el.value) / (property === 'width' ? 100 : 1);
+    if (property !== 'font' && !el.value.trim()) {
+      notify('Enter a value or choose Inherit', true);
+      return;
+    }
+    change(
+      () => updateTypography(selectedNode(), [...characterEdit.selected], { [property]: value }),
+      'Selected typography updated',
+      true,
+    );
     return;
   }
   if (d.characterTransform !== undefined) {
@@ -1911,7 +2113,13 @@ app.addEventListener('change', async (e) => {
   if (el.id === 'font-file') {
     const file = el.files[0],
       request = fontRequest;
-    if (!file || !request) return;
+    if (!request || (el.dataset.fontRequest && el.dataset.fontRequest !== String(request.id)))
+      return;
+    if (!file) {
+      fontRequest = null;
+      render();
+      return;
+    }
     try {
       if (file.size > MAX_FONT_BYTES) throw Error('Font exceeds 20 MB');
       if (!/\.(ttf|otf)$/i.test(file.name)) throw Error('Choose a static .ttf or .otf font');
@@ -2013,7 +2221,10 @@ app.addEventListener('change', async (e) => {
         const n = current().nodes.find((n) => n.id === d.text),
           draft = textDrafts.get(n.id);
         const record =
-          draft && draft.saved === n.text && draft.raw === el.value
+          draft &&
+          draft.saved === n.text &&
+          draft.baseRecord === n.characterPositions &&
+          draft.raw === el.value
             ? draft.record
             : reconcileCharacterEdit(n.characterPositions, {
                 previousRaw: n.text,
@@ -3176,17 +3387,24 @@ document.addEventListener('keydown', (e) => {
   }
   if (
     e.key === 'Escape' &&
-    e.target.matches?.('[data-character-transform], [data-character-axis]')
+    e.target.matches?.('[data-character-transform], [data-character-axis], [data-character-style]')
   ) {
     const input = e.target,
       context = characterContext();
     if (context) {
-      const property = input.dataset.characterTransform,
+      const property = input.dataset.characterTransform || input.dataset.characterStyle,
         axis = Number(input.dataset.characterAxis);
-      const values = context.selected.map((g) => (property ? g[property] : g.offset[axis]));
+      const values = (
+        input.dataset.characterStyle ? context.typographySelected : context.selected
+      ).map((g) => (property ? g[property] : g.offset[axis]));
       input.value = values.some((v) => v !== values[0])
         ? ''
-        : String(values[0] ?? (property === 'scale' ? 1 : 0));
+        : String(
+            (values[0] ?? (property === 'scale' ? 1 : 0)) *
+              (input.dataset.characterStyle === 'width' ? 100 : 1),
+          );
+      if (input.dataset.characterStyle === 'font')
+        input.value = values.some((v) => v !== values[0]) ? '__mixed' : values[0];
     }
     e.preventDefault();
     return;

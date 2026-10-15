@@ -75,3 +75,7 @@ Changing a reference keeps the numeric Position unchanged and repositions the ge
 The Inspector's Character position mode keeps one editable Text and applies sparse per-character local XY offsets after normal layout/alignment. It supports final-output editing through Transform and Join Geometry, bounded stable identity across verified textarea edits, cancellation, mixed numerical controls and reset. Unsupported shaping/routes do not show guessed targets. Active unresolved adjustments block artwork export while preserving editable JSON. See [Character position](character-position.md) and its [editable sample](../examples/character-position-prototype.json). Native Windows IME acceptance is reported separately from synthetic tests.
 
 The same mode now includes per-character rotation and uniform scale, using stable logical identities and a fixed normal-layout cell center. These shape adjustments preserve advance, font size and Text Position; Reset XY and Reset shape are independent. Shape records use schema4 while older XY records remain readable. See [character shape contract](character-transform.md) and [editable example](../examples/character-transform.json).
+
+## Range typography (schema 5)
+
+Selected characters now support sparse font, size and horizontal-width overrides before shaping/layout. This extends the whole-Text controls and post-layout character transforms; see [Selected-character typography](rich-text.md) for selection, inheritance, vertical semantics, line metrics, schema details and explicit remaining limits.
