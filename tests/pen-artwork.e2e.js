@@ -421,7 +421,7 @@ try {
         ),
       );
       await page.screenshot({ path: 'test-results/pen-placement-failure.png', fullPage: true });
-    } else if (delta[0] === 17.5 && delta[1] === -12.25) {
+    } else if (delta[0] === 18.75 && delta[1] === -11.25) {
       const evidence = await page.evaluate(() => ({
         trace: window.curvePointerTrace || [],
         requestedInput: window.curveRequestedInput || {},
@@ -496,14 +496,14 @@ try {
     assert.equal(await snapshot(), beforeJSON);
     await page.keyboard.down('Alt');
     await hitCurve(id);
-    const end = await xy([437.5, 197.75]);
+    const end = await xy([438.75, 198.75]);
     await page.evaluate((screen) => {
-      window.curveRequestedInput.end = { artboard: [437.5, 197.75], screen };
+      window.curveRequestedInput.end = { artboard: [438.75, 198.75], screen };
     }, end);
     await page.mouse.move(...end, { steps: 5 });
     await page.mouse.up();
     await page.keyboard.up('Alt');
-    await proveRigidPlacement(before, [17.5, -12.25]);
+    await proveRigidPlacement(before, [18.75, -11.25]);
     const movedJSON = await snapshot();
     await page.locator('[data-action="undo"]').click();
     assert.equal(await snapshot(), beforeJSON);
@@ -637,17 +637,23 @@ try {
       const nodeId = before.layers.at(-1).nodes[0].id;
       await page.locator(`[data-select-layer="${id}"]`).click();
       await page.locator(`.node[data-id="${nodeId}"] .node-head strong`).click();
+      await page.locator('[data-action="actual-size"]').click();
       const handle = page.locator('.node-stage-move rect'),
         box = await handle.boundingBox(),
-        scale = await page.locator('.artboard').evaluate((el) => el.getScreenCTM().a);
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        scale = await page.locator('.artboard').evaluate((el) => el.getScreenCTM().a),
+        start = [Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2)];
+      assert.equal(scale, 1);
+      assert.equal(
+        await page.evaluate(
+          ([x, y]) => !!document.elementFromPoint(x, y)?.closest('[data-node-stage-move]'),
+          start,
+        ),
+        true,
+      );
+      await page.mouse.move(...start);
       await page.mouse.down();
       await page.keyboard.down('Alt');
-      await page.mouse.move(
-        box.x + box.width / 2 + 10 * scale,
-        box.y + box.height / 2 + 20 * scale,
-        { steps: 3 },
-      );
+      await page.mouse.move(start[0] + 10, start[1] + 20, { steps: 3 });
       await page.mouse.up();
       await page.keyboard.up('Alt');
       await proveRigidPlacement(before, [10, 20]);
