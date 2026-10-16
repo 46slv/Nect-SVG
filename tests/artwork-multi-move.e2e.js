@@ -81,7 +81,11 @@ try {
   await select();
   const before = JSON.parse(await saved());
   assert.equal(await page.locator('.layer.selected').count(), 5);
-  assert.equal(await page.locator('[data-duplicate-artwork]').isDisabled(), true);
+  assert.equal(
+    await page.locator('[data-duplicate-artwork]').isEnabled(),
+    true,
+    'eligible artwork set supports atomic duplicate in place',
+  );
   // Both pointer and Layers Shift toggles are view-only.
   const star = await screen([400, 170]);
   await page.keyboard.down('Shift');

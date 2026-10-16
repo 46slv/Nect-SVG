@@ -477,7 +477,7 @@ try {
   await page.setViewportSize({ width: 1920, height: 1080 });
   page.once('dialog', (dialog) => dialog.accept());
   const choosing = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.getByRole('button', { name: 'Open JSON', exact: true }).click();
   await (await choosing).setFiles('examples/vr-converters.json');
   await page.waitForFunction(() => window.nect.document.name.includes('V/R Converters'));
   assert.equal(await page.locator('.shape').count(), 4);

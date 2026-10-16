@@ -37,6 +37,8 @@ try {
   await fs.mkdir('test-results', { recursive: true });
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForSelector('.shape');
+  assert.equal(await page.getByRole('button', { name: 'New document', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Open JSON', exact: true }).count(), 1);
   for (const [width, height] of [
     [1600, 1000],
     [1280, 800],
@@ -49,6 +51,20 @@ try {
     await choose(order);
     const before = await snapshot();
     assert.equal(await duplicate().isEnabled(), true);
+    assert.equal(
+      await page.locator('.artwork-duplicate-status').innerText(),
+      'Each copy above its source. One Undo.',
+    );
+    const position = await duplicate().boundingBox();
+    assert.ok(
+      position.y + position.height < height - 29,
+      `${width} primary duplication action is visible without scrolling`,
+    );
+    assert.ok(
+      !/Dynamic sockets|Final evaluated Output in artboard coordinates|Initial support/.test(
+        await page.locator('.inspector-body').innerText(),
+      ),
+    );
     await duplicate().scrollIntoViewIfNeeded();
     await page.screenshot({
       path: `test-results/artwork-multi-duplication-${width}-before.png`,

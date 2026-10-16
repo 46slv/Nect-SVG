@@ -145,9 +145,14 @@ test('Duplicate in place is independent, undoable, selection-scoped and interrup
         assert.ok(duplicate());
         assert.equal(duplicate().disabled, false, type);
         assert.equal(duplicate().textContent, 'Duplicate in place');
-        assert.match(
+        assert.equal(
           $('.artwork-duplicate-status').textContent,
-          /Initial support.*complete movable route/,
+          'Each copy above its source. One Undo.',
+        );
+        assert.ok(
+          duplicate().compareDocumentPosition($('.artwork-alignment')) &
+            win.Node.DOCUMENT_POSITION_FOLLOWING,
+          'duplication is reachable before alignment controls',
         );
         click('[data-duplicate-artwork]');
         const after = saved(),
