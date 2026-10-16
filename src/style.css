@@ -427,20 +427,32 @@ header {
   padding-bottom: 8px;
 }
 .layer {
-  display: flex;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) max-content 24px;
   gap: 5px;
   align-items: center;
   padding: 8px 10px;
+}
+.layer-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+}
+.layer-actions [aria-disabled='true'] {
+  color: var(--muted);
+  background: #f3f4f5;
+  opacity: 0.6;
+  cursor: default;
 }
 .layer.selected {
   background: #eef2f5;
 }
 .layer .name {
-  flex: 1;
   border: 0;
   background: transparent;
   min-width: 40px;
-  width: 80px;
+  width: 100%;
   padding: 0;
   cursor: pointer;
   text-align: left;

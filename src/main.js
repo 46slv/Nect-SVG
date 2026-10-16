@@ -12,6 +12,7 @@ import {
 } from './artwork-creation.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import { removeArtworkLayer } from './artwork-deletion.js';
+import { moveArtworkLayer, resolveArtworkOrderTarget } from './artwork-ordering.js';
 import {
   findFreeNodePosition,
   fitScale,
@@ -963,7 +964,7 @@ function render(resetView = false, artworkResolution = null) {
     .reverse()
     .map(
       (x) =>
-        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${x.id === l.id ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" title="Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><button data-up-layer="${x.id}" title="Move layer up">↑</button><button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div>`,
+        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${x.id === l.id ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" title="Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
     )
     .join(
       '',
@@ -1931,6 +1932,22 @@ function deletionBusy() {
 }
 function updateLayerDeletionControls() {
   const busy = deletionBusy();
+  for (const button of document.querySelectorAll('[data-order-layer]')) {
+    const target = resolveArtworkOrderTarget(
+      history.doc,
+      button.dataset.orderLayer,
+      button.dataset.orderDirection,
+    );
+    // Boundary controls stay focusable so a keyboard user keeps the same exact
+    // row/direction after a swap. The handler enforces aria-disabled as well.
+    button.disabled = busy || (!target.supported && target.code !== 'boundary');
+    button.setAttribute('aria-disabled', String(busy || !target.supported));
+    button.title = busy
+      ? 'Finish or cancel the current edit before ordering a layer'
+      : target.supported
+        ? `Move this layer ${button.dataset.orderDirection} one paint position (Undo available)`
+        : target.reason;
+  }
   for (const button of document.querySelectorAll('[data-delete-layer]')) {
     const target = history.doc.layers.find((layer) => layer.id === button.dataset.deleteLayer);
     button.disabled = busy || !target || target.locked;
@@ -2010,6 +2027,19 @@ function duplicateArtwork(layerId) {
   } catch (error) {
     notify(error.message, true);
   }
+}
+function orderArtwork(layerId, direction) {
+  // This guard runs before the generic click handler can auto-finish a Pen
+  // draft. Resolve the exact ID afresh even for a stale/forced DOM event.
+  if (deletionBusy()) return;
+  const target = resolveArtworkOrderTarget(history.doc, layerId, direction);
+  if (!target.supported) return;
+  const priorUI = selectionSnapshot(true);
+  history.apply((doc) => moveArtworkLayer(doc, layerId, direction));
+  selectionHistory.set(history.past.at(-1), priorUI);
+  selectionHistory.set(history.doc, selectionSnapshot(true));
+  notify(`Layer moved ${direction} one position`);
+  render();
 }
 function createArtwork(type) {
   try {
@@ -2109,6 +2139,10 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.orderLayer !== undefined) {
+    orderArtwork(d.orderLayer, d.orderDirection);
+    return;
+  }
   if (d.duplicateArtwork !== undefined) {
     duplicateArtwork(d.duplicateArtwork);
     return;
@@ -2609,17 +2643,12 @@ app.addEventListener('click', async (e) => {
     if (!nameEdit) document.querySelector('.canvas-stage').focus({ preventScroll: true });
     return;
   }
-  if (d.visible || d.layerLock || d.upLayer) {
+  if (d.visible || d.layerLock) {
     history.apply((doc) => {
-      let id = d.visible || d.layerLock || d.upLayer,
+      let id = d.visible || d.layerLock,
         l = doc.layers.find((x) => x.id === id);
       if (d.visible) l.visible = !l.visible;
       if (d.layerLock) l.locked = !l.locked;
-      if (d.upLayer) {
-        let i = doc.layers.indexOf(l);
-        if (i < doc.layers.length - 1)
-          [doc.layers[i], doc.layers[i + 1]] = [doc.layers[i + 1], doc.layers[i]];
-      }
     });
     render();
     return;
@@ -2936,6 +2965,14 @@ app.addEventListener(
 app.addEventListener('pointerdown', (e) => {
   if (e.target.closest('[data-style-text-range], [data-kern-text-cursor]')) e.preventDefault();
 });
+// A refused row action must not blur/commit an inline name or another live edit.
+app.addEventListener(
+  'pointerdown',
+  (e) => {
+    if (e.target.closest('[data-order-layer]') && deletionBusy()) e.preventDefault();
+  },
+  true,
+);
 app.addEventListener('dblclick', (e) => {
   const title = e.target.closest('[data-rename-node], [data-select-layer]');
   if (title && !nameEdit)

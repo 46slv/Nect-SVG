@@ -53,6 +53,10 @@ test('Radial Gradient Fill controls, typed sources, fallback, invalid radius rol
       "from './artwork-deletion.js'",
       `from '${new URL('../src/artwork-deletion.js', import.meta.url)}'`,
     )
+    .replace(
+      "from './artwork-ordering.js'",
+      `from '${new URL('../src/artwork-ordering.js', import.meta.url)}'`,
+    )
     .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);

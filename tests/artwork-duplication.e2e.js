@@ -34,6 +34,10 @@ const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document))
         return {
           width: canvas.width,
           height: canvas.height,
+          visiblePixels: bytes.reduce(
+            (count, value, index) => count + (index % 4 === 3 && value > 0 ? 1 : 0),
+            0,
+          ),
           hash: [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
             .map((x) => x.toString(16).padStart(2, '0'))
             .join(''),
@@ -87,6 +91,10 @@ try {
       const f = duplicationDocument(type, transformed),
         label = type.toLowerCase() + (transformed ? '-transform' : '');
       if (type === 'Text') richDuplicationText(f.generator);
+      // Keep negative scale/rotation coverage visibly inside the artboard.
+      // The shared model fixture intentionally remains unchanged.
+      if (transformed)
+        f.layer.nodes.find((n) => n.type === 'Transform').params.offset.value = [440, 320];
       await load(f.doc);
       await select(f.layer.id);
       assert.equal(await duplicate().isEnabled(), true, label);
@@ -126,8 +134,10 @@ try {
       await load(originalOnly);
       const originalSVG = await exported(),
         originalPixels = await pixels(originalSVG);
+      assert.ok(originalPixels.visiblePixels > 0, label + ' source has visible alpha');
       await load(copyOnly);
       const copySVG = await exported();
+      assert.ok((await pixels(copySVG)).visiblePixels > 0, label + ' copy has visible alpha');
       assert.equal(
         copySVG.replaceAll(copy.name, f.layer.name),
         originalSVG,

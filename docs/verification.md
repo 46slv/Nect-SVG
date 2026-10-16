@@ -1,5 +1,11 @@
 # Verification record
 
+## Safe bidirectional layer ordering, 2026-10-16
+
+The unsafe Up-only row path has been replaced with stable-ID one-position Forward/Backward controls. Model and actual-handler synthetic DOM tests cover permutation-only record/asset preservation, boundaries/Redo, locked targets and locked-neighbor crossing, complex/hidden/guide/empty records, exact selection/history/view/focus retention and unchanged live Pen/gesture/rename/IME/dialog guards. The [ordering contract](artwork-layer-ordering.md) states the scope and disabled focus semantics. The registered Chrome acceptance checks actual three-color canvas overlap, saved JSON/SVG/PNG and reopen plus 1280/1600 layouts. Exact-commit Windows acceptance remains separately observed; local process-sandbox denial is not retried or treated as browser verification.
+
+The duplication browser fixture now keeps all six negative-scale/rotated routes visibly inside the artboard and asserts nonzero source/copy alpha before exact SVG/RGBA comparisons for every route. Earlier all-transparent transformed pixel comparisons are not evidence of visible placement. Production duplication behavior and old artifacts are unchanged.
+
 2026-10-13, initial operable vertical implementation.
 
 ## Passed

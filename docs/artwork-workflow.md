@@ -36,3 +36,7 @@ Core tests cover six creation-helper types, atomic rejection, prior-layer/asset 
 ## Independent copy in place
 
 Select final artwork and choose **Duplicate in place** in the Inspector to create an independent layer immediately above its source, at exactly the same coordinates. Initial support requires the entire layer to match a supported movement route, with no extra nodes; Curve is limited to 2–128 anchors. Undo restores the prior selection and Redo restores the same copy IDs. Active edits block the action. See the [full duplication contract](artwork-duplication.md).
+
+## Safe layer ordering
+
+Use each Layers row's **Forward / Backward** to move that exact layer one paint position. This preserves the current selection and every graph/asset record; it is independent of whole-artwork movement eligibility. Locked targets and active edits are blocked. See the [full ordering contract](artwork-layer-ordering.md).

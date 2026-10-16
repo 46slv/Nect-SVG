@@ -36,6 +36,7 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
     'artwork-creation',
     'artwork-move-target',
     'artwork-deletion',
+    'artwork-ordering',
     'core',
     'focus',
     'layout',
