@@ -96,3 +96,5 @@ In **Character position**, adjust **Rotate °** and **Scale ×** alongside XY wi
 Independent artwork multi-selection: Shift-click canvas artwork or Layers names, then drag a selected member or use focused-artboard arrows to translate the entire set in one Undo step. Any unsupported member blocks the complete move with a named reason. See [practice sample and operation contract](docs/multi-artwork-movement.md).
 
 Select multiple artworks and use Inspector **Align artwork** for left/center/right or top/center/bottom alignment to the selection's final rendered bounds. Each operation is atomic and one Undo; unsupported members show a named reason and block the whole set. [日本語操作説明・契約](docs/artwork-alignment.md) · [Editable sample](examples/artwork-alignment.json).
+
+Select three or more artworks and use Inspector **中心を等間隔** → **横方向 / 縦方向** to space their final rendered centers equally. Both endpoint centers stay fixed; ties follow document layer order. One Undo restores all changes. [日本語操作ガイド](docs/artwork-distribution.md) · [Editable sample](examples/artwork-distribution.json).

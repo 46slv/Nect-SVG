@@ -1319,6 +1319,23 @@ input[data-scrub-step].scrubbing {
   min-width: 0;
   white-space: normal;
 }
-.artwork-alignment h4 {
+.artwork-distribute-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.artwork-distribute-controls button {
+  font-size: 13px;
+  min-height: 28px;
+}
+.artwork-distribution h4 {
+  font-size: 13px;
+}
+.artwork-distribute-status {
+  font-size: 12px;
+  line-height: 16px;
+}
+.artwork-alignment h4,
+.artwork-distribution h4 {
   margin: 12px 0 4px;
 }

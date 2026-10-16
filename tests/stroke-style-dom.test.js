@@ -30,6 +30,10 @@ test('stroke controls: cap, join, dash validation, numeric bounds, parity and hi
   source = source
     .replace("import './style.css';", '')
     .replace(
+      "from './artwork-distribution.js'",
+      `from '${new URL('../src/artwork-distribution.js', import.meta.url)}'`,
+    )
+    .replace(
       "from './artwork-alignment.js'",
       `from '${new URL('../src/artwork-alignment.js', import.meta.url)}'`,
     )

@@ -30,6 +30,10 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
   source = source
     .replace("import './style.css';", '')
     .replace(
+      "from './artwork-distribution.js'",
+      `from '${new URL('../src/artwork-distribution.js', import.meta.url)}'`,
+    )
+    .replace(
       "from './artwork-alignment.js'",
       `from '${new URL('../src/artwork-alignment.js', import.meta.url)}'`,
     )

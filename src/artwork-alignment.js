@@ -11,6 +11,14 @@ export const artworkAlignments = [
   ['bottom', 'Bottom', 1, 2],
 ];
 
+// Final Text outlines are serialized with toPathData(5) in core. Share the
+// existing rendering/no-op precision with other bounds-based layout commands.
+export function artworkBoundsPrecision(members) {
+  return members.some(({ target }) => target.route.some((n) => n.type === 'Text'))
+    ? 1e-5 + 1e-9
+    : 1e-9;
+}
+
 export function resolveArtworkAlignment(doc, layerIds, options = {}) {
   const ids = [...layerIds];
   if (ids.length < 2 || ids.length > 100 || new Set(ids).size !== ids.length)
@@ -45,11 +53,7 @@ export function alignArtworkSelection(doc, layerIds, action, options = {}) {
   // A translated glyph can move either edge by half a 1e-5 coordinate step.
   // Use that existing rendering precision only to detect an already-aligned set;
   // the first translation still uses the measured bounds without rounding.
-  const precision = resolved.members.some(({ target }) =>
-    target.route.some((n) => n.type === 'Text'),
-  )
-    ? 1e-5 + 1e-9
-    : 1e-9;
+  const precision = artworkBoundsPrecision(resolved.members);
   const edges = resolved.members.map(({ bounds }) => bounds[axis][edge]);
   if (Math.max(...edges) - Math.min(...edges) <= precision) return false;
   const moves = resolved.members.map(({ target, bounds }) => {

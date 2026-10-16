@@ -338,6 +338,120 @@ test('Multiple independent artworks select and move as one transaction', async (
     },
   );
   await t.test(
+    'center distribution preserves selection, active graph and views with one Undo and no-op Redo retention',
+    () => {
+      for (const action of ['center-x', 'center-y']) {
+        const f = setup(),
+          before = saved(),
+          active = ui().activeLayer;
+        const view = () => [
+          $('.artboard').getAttribute('style'),
+          $('.graph').getAttribute('style'),
+          $('[data-zoom="canvas"]').textContent,
+        ];
+        const beforeView = view();
+        assert.equal(document.querySelectorAll('[data-distribute-artwork]').length, 2);
+        assert.match($('.artwork-distribution').textContent, /中心を等間隔/);
+        click(`[data-distribute-artwork="${action}"]`);
+        const after = saved();
+        assert.notEqual(after, before);
+        assert.equal(ui().past, 1);
+        assert.equal(ui().activeLayer, active);
+        assert.deepEqual(selectedIds(), [...f.ids].sort());
+        assert.deepEqual(view(), beforeView);
+        click(`[data-distribute-artwork="${action}"]`);
+        assert.equal(saved(), after);
+        assert.equal(ui().past, 1);
+        key(stage(), 'ArrowRight');
+        click('[data-action="undo"]');
+        assert.equal(ui().future, 1);
+        click(`[data-distribute-artwork="${action}"]`);
+        assert.equal(saved(), after);
+        assert.equal(ui().past, 1);
+        assert.equal(ui().future, 1);
+        selectNode(win.nect.document.layers.find((l) => l.id === active).nodes[0].id);
+        click('[data-action="undo"]');
+        assert.equal(saved(), before);
+        assert.equal(ui().activeLayer, active);
+        assert.deepEqual(selectedIds(), [...f.ids].sort());
+        click('[data-action="redo"]');
+        assert.equal(saved(), after);
+        assert.deepEqual(view(), beforeView);
+      }
+    },
+  );
+  await t.test(
+    'distribution re-resolves forced clicks and rejects insufficient/stale selections, busy states and invalid members',
+    () => {
+      const force = () => {
+        const b = $('[data-distribute-artwork="center-x"]');
+        b.disabled = false;
+        b.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+        flush();
+      };
+      for (const flag of ['locked', 'hidden', 'guide']) {
+        setup((f) => {
+          const l = f.doc.layers.at(-1);
+          if (flag === 'hidden') l.visible = false;
+          else l[flag] = true;
+        });
+        const before = saved();
+        assert.equal($('[data-distribute-artwork="center-x"]').disabled, true);
+        assert.match($('.artwork-distribute-status').textContent, /Embedded swatch:/);
+        force();
+        assert.equal(saved(), before);
+        assert.equal(ui().past, 0);
+        assert.match($('.message').textContent, /No selected artwork distributed/);
+      }
+      setup();
+      win.nect.document.layers.at(-1).locked = true;
+      const late = saved();
+      force();
+      assert.equal(saved(), late);
+      assert.equal(ui().past, 0);
+      const f = setup(),
+        before = saved();
+      $('[data-distribute-artwork="center-x"]').dataset.distributeSelection = '[]';
+      force();
+      assert.equal(saved(), before);
+      assert.equal(ui().past, 0);
+      setup();
+      $('[data-distribute-artwork="center-x"]').dataset.distributeActive = 'missing';
+      force();
+      assert.equal(ui().past, 0);
+      setup();
+      const unchanged = saved();
+      stage().dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+      force();
+      assert.equal(saved(), unchanged);
+      stage().dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
+      const dialog = document.createElement('dialog');
+      dialog.setAttribute('open', '');
+      document.body.append(dialog);
+      force();
+      assert.equal(saved(), unchanged);
+      dialog.remove();
+      fire(shape(ui().artworkSelection[0]), 'pointerdown', [170, 170]);
+      force();
+      assert.equal(saved(), unchanged);
+      key(stage(), 'Escape');
+      click('[data-tool="pen"]');
+      force();
+      assert.equal(saved(), unchanged);
+      assert.equal(ui().past, 0);
+      click('[data-tool="select"]');
+      // A valid two-member alignment selection still cannot distribute centers.
+      const current = setup();
+      row(current.ids[0]);
+      row(current.ids[1], true);
+      assert.equal($('[data-distribute-artwork="center-x"]').disabled, true);
+      assert.match($('.artwork-distribute-status').textContent, /three/);
+      force();
+      assert.equal(ui().past, 0);
+      assert.deepEqual(selectedIds(), current.ids.slice(0, 2).sort());
+    },
+  );
+  await t.test(
     'six alignment controls preserve the set, active graph and views with one Undo and no repeated history',
     () => {
       for (const action of ['left', 'center-x', 'right', 'top', 'center-y', 'bottom']) {
