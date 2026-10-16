@@ -30,6 +30,10 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   source = source
     .replace("import './style.css';", '')
     .replace(
+      "from './artwork-gap-distribution.js'",
+      `from '${new URL('../src/artwork-gap-distribution.js', import.meta.url)}'`,
+    )
+    .replace(
       "from './artwork-distribution.js'",
       `from '${new URL('../src/artwork-distribution.js', import.meta.url)}'`,
     )

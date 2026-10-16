@@ -14,6 +14,7 @@ import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
 import { artworkAlignments, alignArtworkSelection } from './artwork-alignment.js';
 import { artworkDistributions, distributeArtworkSelection } from './artwork-distribution.js';
+import { artworkGapDistributions, distributeArtworkGaps } from './artwork-gap-distribution.js';
 import { removeArtworkLayer } from './artwork-deletion.js';
 import { moveArtworkLayer, resolveArtworkOrderTarget } from './artwork-ordering.js';
 import {
@@ -270,6 +271,11 @@ function artworkDistributionControls(move) {
   const eligible = artworkSelection.size >= 3 && move.supported;
   const reason = artworkSelection.size < 3 ? 'Select at least three artwork layers.' : move.reason;
   return `<section class="artwork-distribution" aria-label="中心を等間隔"><h4>中心を等間隔</h4><p class="artwork-distribute-status">${esc(eligible ? '描画結果の中心を使用・両端固定' : reason)}</p><div class="artwork-distribute-controls">${artworkDistributions.map(([id, label]) => `<button data-distribute-artwork="${id}" data-distribute-selection="${esc(JSON.stringify([...artworkSelection]))}" data-distribute-active="${esc(activeLayer)}" data-eligible="${eligible}" ${!eligible || alignmentBusy() ? 'disabled' : ''} aria-label="中心を等間隔 ${label}" title="${esc(eligible ? `${label}の中心を等間隔に配置（両端固定・1回のUndo）` : reason)}">${esc(label)}</button>`).join('')}</div></section>`;
+}
+function artworkGapControls(move) {
+  const eligible = artworkSelection.size >= 3 && move.supported;
+  const reason = artworkSelection.size < 3 ? 'Select at least three artwork layers.' : move.reason;
+  return `<section class="artwork-gap-distribution" aria-label="隙間を等間隔"><h4>隙間を等間隔</h4><p class="artwork-gap-status">${esc(eligible ? '描画結果の端を使用・外側両端固定' : reason)}</p><div class="artwork-distribute-controls">${artworkGapDistributions.map(([id, label]) => `<button data-distribute-gap="${id}" data-distribute-selection="${esc(JSON.stringify([...artworkSelection]))}" data-distribute-active="${esc(activeLayer)}" data-eligible="${eligible}" ${!eligible || alignmentBusy() ? 'disabled' : ''} aria-label="隙間を等間隔 ${label}" title="${esc(eligible ? `${label}の隙間を等間隔に配置（外側両端固定・1回のUndo）` : reason)}">${esc(label)}</button>`).join('')}</div></section>`;
 }
 function notify(text, bad = false) {
   message = text;
@@ -990,7 +996,7 @@ function render(resetView = false, artworkResolution = null) {
           .map(([k, q]) => field(n, k, q))
           .join('')}`
       : artworkTarget
-        ? `<h3>Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)}</h3>${artworkAlignmentControls(move)}${artworkDistributionControls(move)}<p>Final evaluated Output in artboard coordinates.${artworkSelection.size > 1 ? ` Active layer: ${esc(l.name)}.` : ''}</p><p>Shift-click artwork or Layers names to add/remove. Click selected artwork to drag the selection together.</p><p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : move.reason)}</p><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create an independent layer immediately above this artwork at the same coordinates (Undo available)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? 'Independent whole-layer copy at the same coordinates. Initial support requires a complete movable route with no extra nodes; Curve: 2–128 anchors.' : duplication.reason)}</p>`
+        ? `<h3>Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)}</h3>${artworkAlignmentControls(move)}${artworkDistributionControls(move)}${artworkGapControls(move)}<p>Final evaluated Output in artboard coordinates.${artworkSelection.size > 1 ? ` Active layer: ${esc(l.name)}.` : ''}</p><p>Shift-click artwork or Layers names to add/remove. Click selected artwork to drag the selection together.</p><p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : move.reason)}</p><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create an independent layer immediately above this artwork at the same coordinates (Undo available)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? 'Independent whole-layer copy at the same coordinates. Initial support requires a complete movable route with no extra nodes; Curve: 2–128 anchors.' : duplication.reason)}</p>`
         : hasEmptyOutput(l)
           ? '<h3>Empty composition</h3><p>Add independent artwork with a toolbar tool, or add graph nodes and explicitly Use as output. The empty Output renders nothing.</p>'
           : '<p>Select artwork or a graph node.</p>'
@@ -1952,7 +1958,9 @@ function alignmentBusy() {
 }
 function updateLayerDeletionControls() {
   const busy = deletionBusy();
-  for (const button of document.querySelectorAll('[data-align-artwork], [data-distribute-artwork]'))
+  for (const button of document.querySelectorAll(
+    '[data-align-artwork], [data-distribute-artwork], [data-distribute-gap]',
+  ))
     button.disabled = alignmentBusy() || button.dataset.eligible !== 'true';
   for (const button of document.querySelectorAll('[data-order-layer]')) {
     const target = resolveArtworkOrderTarget(
@@ -2096,23 +2104,26 @@ function distributeArtwork(button) {
   try {
     const priorUI = selectionSnapshot(true),
       oldPast = history.past.at(-1);
+    const action = button.dataset.distributeArtwork ?? button.dataset.distributeGap;
     let changed;
     history.apply((doc) => {
-      changed = distributeArtworkSelection(
-        doc,
-        artworkSelection,
-        button.dataset.distributeArtwork,
-        {
-          fonts,
-        },
-      );
+      const distribute =
+        button.dataset.distributeGap !== undefined
+          ? distributeArtworkGaps
+          : distributeArtworkSelection;
+      changed = distribute(doc, artworkSelection, action, {
+        fonts,
+      });
     });
     if (history.past.at(-1) !== oldPast) {
       selectionHistory.set(history.past.at(-1), priorUI);
       selectionHistory.set(history.doc, selectionSnapshot(true));
     }
+    const subject = button.dataset.distributeGap !== undefined ? 'gaps' : 'centers';
     notify(
-      changed ? 'Artwork centers distributed equally' : 'Artwork centers already equally spaced',
+      changed
+        ? `Artwork ${subject} distributed equally`
+        : `Artwork ${subject} already equally spaced`,
     );
     render();
   } catch (error) {
@@ -2231,7 +2242,7 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
-  if (d.distributeArtwork !== undefined) {
+  if (d.distributeArtwork !== undefined || d.distributeGap !== undefined) {
     distributeArtwork(b);
     return;
   }

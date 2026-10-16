@@ -28,6 +28,7 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
     'artwork-multi-move',
     'artwork-alignment',
     'artwork-distribution',
+    'artwork-gap-distribution',
     'artwork-deletion',
     'artwork-ordering',
     'focus',

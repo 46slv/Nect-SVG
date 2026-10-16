@@ -1328,14 +1328,17 @@ input[data-scrub-step].scrubbing {
   font-size: 13px;
   min-height: 28px;
 }
-.artwork-distribution h4 {
+.artwork-distribution h4,
+.artwork-gap-distribution h4 {
   font-size: 13px;
 }
-.artwork-distribute-status {
+.artwork-distribute-status,
+.artwork-gap-status {
   font-size: 12px;
   line-height: 16px;
 }
 .artwork-alignment h4,
-.artwork-distribution h4 {
+.artwork-distribution h4,
+.artwork-gap-distribution h4 {
   margin: 12px 0 4px;
 }

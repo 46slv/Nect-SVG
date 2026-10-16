@@ -11,6 +11,7 @@ import {
   pathBounds,
 } from '../src/core.js';
 import { multiArtworkFixture } from './fixtures/artwork-multi-move.js';
+import { gapArtworkFixture } from './fixtures/artwork-gap-distribution.js';
 import { guideDefaults } from '../src/guides.js';
 
 test('Multiple independent artworks select and move as one transaction', async (t) => {
@@ -492,6 +493,130 @@ test('Multiple independent artworks select and move as one transaction', async (
       assert.equal(saved(), aligned);
       assert.equal(ui().past, 1);
       assert.equal(ui().future, 1, 'a no-op must retain Redo');
+    },
+  );
+  await t.test(
+    'gap controls are distinct from centers and retain active selection, view, Undo and no-op Redo',
+    () => {
+      for (const action of ['gap-x', 'gap-y']) {
+        const f = gapArtworkFixture();
+        load(f.doc);
+        row(f.ids[0]);
+        for (const id of f.ids.slice(1)) row(id, true);
+        const before = saved(),
+          active = ui().activeLayer;
+        const view = () => [
+          $('.artboard').getAttribute('style'),
+          $('.graph').getAttribute('style'),
+          $('[data-zoom="canvas"]').textContent,
+        ];
+        const beforeView = view();
+        assert.equal(document.querySelectorAll('[data-distribute-gap]').length, 2);
+        assert.equal(document.querySelectorAll('[data-distribute-artwork]').length, 2);
+        assert.match($('.artwork-gap-distribution').textContent, /隙間を等間隔/);
+        click(`[data-distribute-gap="${action}"]`);
+        const after = saved();
+        assert.notEqual(after, before);
+        assert.equal(ui().past, 1);
+        assert.equal(ui().activeLayer, active);
+        assert.deepEqual(selectedIds(), [...f.ids].sort());
+        assert.deepEqual(view(), beforeView);
+        assert.match($('.message').textContent, /gaps distributed/);
+        for (let repeat = 0; repeat < 3; repeat++) click(`[data-distribute-gap="${action}"]`);
+        assert.equal(saved(), after);
+        assert.equal(ui().past, 1);
+        key(stage(), 'ArrowRight');
+        click('[data-action="undo"]');
+        click(`[data-distribute-gap="${action}"]`);
+        assert.equal(saved(), after);
+        assert.equal(ui().past, 1);
+        assert.equal(ui().future, 1);
+        selectNode(win.nect.document.layers.find((l) => l.id === active).nodes[0].id);
+        click('[data-action="undo"]');
+        assert.equal(saved(), before);
+        assert.deepEqual(selectedIds(), [...f.ids].sort());
+        assert.equal(ui().activeLayer, active);
+        click('[data-action="redo"]');
+        assert.equal(saved(), after);
+        assert.deepEqual(view(), beforeView);
+        load(JSON.parse(after));
+        row(f.ids[0]);
+        key(stage(), 'ArrowRight');
+        assert.notEqual(saved(), after);
+        click('[data-action="undo"]');
+        assert.equal(saved(), after);
+      }
+    },
+  );
+  await t.test(
+    'gap commands reject stale/unsupported selections and interrupted edits before any history change',
+    () => {
+      const force = (action = 'gap-x') => {
+        const b = $(`[data-distribute-gap="${action}"]`);
+        b.disabled = false;
+        b.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+        flush();
+      };
+      for (const flag of ['locked', 'hidden', 'guide']) {
+        setup((f) => {
+          const l = f.doc.layers.at(-1);
+          if (flag === 'hidden') l.visible = false;
+          else l[flag] = true;
+        });
+        const before = saved();
+        assert.equal($('[data-distribute-gap="gap-x"]').disabled, true);
+        assert.match($('.artwork-gap-status').textContent, /Embedded swatch:/);
+        force();
+        assert.equal(saved(), before);
+        assert.equal(ui().past, 0);
+      }
+      setup();
+      win.nect.document.layers.at(-1).locked = true;
+      const late = saved();
+      force();
+      assert.equal(saved(), late);
+      assert.equal(ui().past, 0);
+      for (const attribute of ['distributeSelection', 'distributeActive']) {
+        setup();
+        const before = saved();
+        $('[data-distribute-gap="gap-x"]').dataset[attribute] = 'stale';
+        force();
+        assert.equal(saved(), before);
+        assert.equal(ui().past, 0);
+      }
+      const f = setup(),
+        before = saved();
+      stage().dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+      force();
+      assert.equal(saved(), before);
+      stage().dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
+      const dialog = document.createElement('dialog');
+      dialog.setAttribute('open', '');
+      document.body.append(dialog);
+      force();
+      assert.equal(saved(), before);
+      dialog.remove();
+      fire(shape(f.ids[0]), 'pointerdown', [170, 170]);
+      fire(document, 'pointermove', [190, 180]);
+      const preview = saved();
+      force();
+      assert.equal(saved(), preview);
+      fire(document, 'pointercancel');
+      assert.equal(saved(), before);
+      assert.equal(ui().past, 0);
+      click('[data-tool="pen"]');
+      force();
+      assert.equal(saved(), before);
+      assert.equal(ui().past, 0);
+      click('[data-tool="select"]');
+      row(f.ids[0]);
+      row(f.ids[1], true);
+      assert.equal($('[data-distribute-gap="gap-x"]').disabled, true);
+      force();
+      assert.equal(ui().past, 0);
+      row(f.ids[2], true);
+      force();
+      assert.equal(ui().past, 1, 'valid selection works after interrupted/rejected operations');
     },
   );
   await t.test(

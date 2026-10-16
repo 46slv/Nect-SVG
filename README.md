@@ -98,3 +98,5 @@ Independent artwork multi-selection: Shift-click canvas artwork or Layers names,
 Select multiple artworks and use Inspector **Align artwork** for left/center/right or top/center/bottom alignment to the selection's final rendered bounds. Each operation is atomic and one Undo; unsupported members show a named reason and block the whole set. [日本語操作説明・契約](docs/artwork-alignment.md) · [Editable sample](examples/artwork-alignment.json).
 
 Select three or more artworks and use Inspector **中心を等間隔** → **横方向 / 縦方向** to space their final rendered centers equally. Both endpoint centers stay fixed; ties follow document layer order. One Undo restores all changes. [日本語操作ガイド](docs/artwork-distribution.md) · [Editable sample](examples/artwork-distribution.json).
+
+Select three or more artworks and use Inspector **隙間を等間隔** → **横方向 / 縦方向** to space final edge-to-edge gaps equally, preserving the two physical outer endpoints and artwork sizes. Negative gaps allow overlap; unstable order changes are refused atomically. [日本語操作ガイド](docs/artwork-gap-distribution.md) · [Editable sample](examples/artwork-gap-distribution.json).

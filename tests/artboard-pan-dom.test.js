@@ -30,6 +30,10 @@ test('Artboard pan owns its pointer and leaves artwork and history unchanged', a
   source = source
     .replace("import './style.css';", '')
     .replace(
+      "from './artwork-gap-distribution.js'",
+      `from '${new URL('../src/artwork-gap-distribution.js', import.meta.url)}'`,
+    )
+    .replace(
       "from './artwork-distribution.js'",
       `from '${new URL('../src/artwork-distribution.js', import.meta.url)}'`,
     )

@@ -30,6 +30,10 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   source = source
     .replace("import './style.css';", '')
     .replace(
+      "from './artwork-gap-distribution.js'",
+      `from '${new URL('../src/artwork-gap-distribution.js', import.meta.url)}'`,
+    )
+    .replace(
       "from './artwork-distribution.js'",
       `from '${new URL('../src/artwork-distribution.js', import.meta.url)}'`,
     )
