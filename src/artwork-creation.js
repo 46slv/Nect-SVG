@@ -1,7 +1,12 @@
 import { connect, node, point, uid, validate, blankLayer } from './core.js';
 
 import { candidateDocument } from './artwork-candidate.js';
-export { resolveArtworkDuplicateTarget, duplicateArtworkLayer } from './artwork-duplication.js';
+export {
+  resolveArtworkDuplicateTarget,
+  duplicateArtworkLayer,
+  resolveArtworkDuplicateSelection,
+  duplicateArtworkLayers,
+} from './artwork-duplication.js';
 
 export const ARTWORK_TYPES = Object.freeze([
   'Circle',

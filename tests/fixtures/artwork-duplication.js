@@ -89,3 +89,26 @@ export function richDuplicationText(generator) {
     { 'c1:c2': -4.25 },
   );
 }
+
+export function multiDuplicationDocument() {
+  const types = ['Rectangle', 'Text', 'Curve', 'Image'];
+  const fixtures = types.map((type) => duplicationDocument(type));
+  richDuplicationText(fixtures[1].generator);
+  const doc = fixtures[0].doc;
+  // A visible, unselected separator makes nonadjacent insertion observable.
+  doc.layers = [
+    doc.layers[0],
+    fixtures[0].layer,
+    doc.layers[2],
+    ...fixtures.slice(1).map((f) => f.layer),
+  ];
+  doc.name = 'Artwork batch duplication';
+  fixtures[1].generator.params.position.value = [330, 110];
+  fixtures[2].generator.points.forEach((p) => {
+    p.position.value[0] += 280;
+    p.position.value[1] += 140;
+  });
+  fixtures[3].generator.params.position.value = [90, 310];
+  fixtures[3].generator.params.size.value = [110, 85];
+  return { doc, fixtures, ids: fixtures.map((f) => f.layer.id) };
+}

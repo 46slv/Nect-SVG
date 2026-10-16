@@ -155,7 +155,11 @@ test('Multiple independent artworks select and move as one transaction', async (
       assert.equal(document.querySelectorAll('.layer.selected').length, 5);
       assert.equal(document.querySelectorAll('.artwork-selection').length, 5);
       assert.match($('.inspector-body').textContent, /5 selected/);
-      assert.equal($('[data-duplicate-artwork]').disabled, true);
+      assert.equal(
+        $('[data-duplicate-artwork]').disabled,
+        false,
+        'eligible multi-selection supports atomic duplication',
+      );
       fire(shape(f.ids[1]), 'pointerdown', [400, 170], { shiftKey: true });
       fire(document, 'pointerup');
       assert.equal(ui().artworkSelection.length, 4);

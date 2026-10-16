@@ -9,6 +9,8 @@ import {
   appendBlankComposition,
   resolveArtworkDuplicateTarget,
   duplicateArtworkLayer,
+  resolveArtworkDuplicateSelection,
+  duplicateArtworkLayers,
 } from './artwork-creation.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
@@ -937,7 +939,7 @@ function render(resetView = false, artworkResolution = null) {
   const move = artworkTarget ? artworkResolution || artworkMove() : null;
   const duplication =
     artworkSelection.size > 1
-      ? { supported: false, reason: 'Select one artwork to duplicate in place.' }
+      ? resolveArtworkDuplicateSelection(doc, artworkSelection, { fonts })
       : artworkTarget
         ? resolveArtworkDuplicateTarget(doc, artworkTarget, { fonts }, move)
         : null;
@@ -996,7 +998,7 @@ function render(resetView = false, artworkResolution = null) {
           .map(([k, q]) => field(n, k, q))
           .join('')}`
       : artworkTarget
-        ? `<h3>Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)}</h3>${artworkAlignmentControls(move)}${artworkDistributionControls(move)}${artworkGapControls(move)}<p>Final evaluated Output in artboard coordinates.${artworkSelection.size > 1 ? ` Active layer: ${esc(l.name)}.` : ''}</p><p>Shift-click artwork or Layers names to add/remove. Click selected artwork to drag the selection together.</p><p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : move.reason)}</p><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create an independent layer immediately above this artwork at the same coordinates (Undo available)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? 'Independent whole-layer copy at the same coordinates. Initial support requires a complete movable route with no extra nodes; Curve: 2–128 anchors.' : duplication.reason)}</p>`
+        ? `<h3>Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)}</h3>${artworkAlignmentControls(move)}${artworkDistributionControls(move)}${artworkGapControls(move)}<p>Final evaluated Output in artboard coordinates.${artworkSelection.size > 1 ? ` Active layer: ${esc(l.name)}.` : ''}</p><p>Shift-click artwork or Layers names to add/remove. Click selected artwork to drag the selection together.</p><p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : move.reason)}</p><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create independent copies immediately above each source at the same coordinates (one Undo)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? 'Independent whole-layer copies at the same coordinates, each immediately above its source. Active copy follows the active source. Initial support requires a complete movable route with no extra nodes; Curve: 2–128 anchors.' : duplication.reason)}</p>`
         : hasEmptyOutput(l)
           ? '<h3>Empty composition</h3><p>Add independent artwork with a toolbar tool, or add graph nodes and explicitly Use as output. The empty Output renders nothing.</p>'
           : '<p>Select artwork or a graph node.</p>'
@@ -1010,6 +1012,7 @@ function render(resetView = false, artworkResolution = null) {
     )}<p>Dynamic sockets<br>Drag a node output onto a compatible field. Drag a connected input into empty graph space to disconnect. Right-click an input also disconnects.</p><p>Expressions: arithmetic, pi, sin, cos, sqrt, min/max. Vector2: x expression; y expression.</p>${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
   const duplicateButton = document.querySelector('[data-duplicate-artwork]');
   if (duplicateButton) {
+    duplicateButton.dataset.duplicateSelection = JSON.stringify([...artworkSelection]);
     duplicateButton.dataset.eligible = String(duplication.supported);
     duplicateButton.dataset.availableTitle = duplicateButton.title;
   }
@@ -1991,6 +1994,7 @@ function updateLayerDeletionControls() {
     button.disabled =
       busy ||
       button.dataset.duplicateArtwork !== artworkTarget ||
+      button.dataset.duplicateSelection !== JSON.stringify([...artworkSelection]) ||
       button.dataset.eligible !== 'true';
     if (busy) button.title = 'Finish or cancel the current edit before duplicating artwork';
     else button.title = button.dataset.availableTitle;
@@ -2038,12 +2042,15 @@ function deleteArtwork(layerId) {
     notify(error.message, true);
   }
 }
-function duplicateArtwork(layerId) {
+function duplicateArtwork(layerId, selectionKey) {
   // A stale/forced click must not finish a draft, cancel a gesture, or duplicate
   // whichever layer happens to be active after the original button was rendered.
   if (
     deletionBusy() ||
-    artworkSelection.size !== 1 ||
+    !artworkSelection.size ||
+    (selectionKey === undefined
+      ? artworkSelection.size !== 1
+      : selectionKey !== JSON.stringify([...artworkSelection])) ||
     artworkTarget !== layerId ||
     activeLayer !== layerId
   )
@@ -2052,9 +2059,14 @@ function duplicateArtwork(layerId) {
     const priorUI = selectionSnapshot(true);
     let created;
     history.apply((doc) => {
-      created = duplicateArtworkLayer(doc, layerId, { fonts });
+      created =
+        artworkSelection.size === 1
+          ? [{ sourceLayerId: layerId, ...duplicateArtworkLayer(doc, layerId, { fonts }) }]
+          : duplicateArtworkLayers(doc, artworkSelection, { fonts });
     });
-    selectArtwork(created.layerId);
+    const nextActive = created.find((copy) => copy.sourceLayerId === layerId).layerId;
+    artworkSelection = new Set(created.map((copy) => copy.layerId));
+    selectArtwork(nextActive, { preserve: true });
     tool = 'select';
     selectionHistory.set(history.past.at(-1), priorUI);
     selectionHistory.set(history.doc, selectionSnapshot(true));
@@ -2255,7 +2267,7 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.duplicateArtwork !== undefined) {
-    duplicateArtwork(d.duplicateArtwork);
+    if (app.contains(b)) duplicateArtwork(d.duplicateArtwork, d.duplicateSelection);
     return;
   }
   // Layer deletion must never auto-finish a Pen draft or cancel a live gesture.

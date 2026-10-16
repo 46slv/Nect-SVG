@@ -80,9 +80,17 @@ export function stageArtworkDuplicate(doc, layerId, { fonts = {}, imageAssets } 
   if (!eligibility.supported) throw Error(eligibility.reason);
   const source = doc.layers.find((layer) => layer.id === layerId),
     index = doc.layers.indexOf(source) + 1,
-    layer = structuredClone(source),
-    ids = new Map(),
-    occupied = new Set();
+    layer = copyArtwork(source, occupiedArtworkIds(doc));
+  const candidate = candidateDocument(doc);
+  // Validation may normalize legacy records. Keep it on a separate clone so the
+  // committed copy retains every authored parameter and graph layout exactly.
+  candidate.layers.splice(index, 0, structuredClone(layer));
+  validate(candidate);
+  return { layer, index, layerId: layer.id, outputNodeId: layer.output };
+}
+
+function occupiedArtworkIds(doc) {
+  const occupied = new Set();
   for (const guide of doc.editor?.guides || []) occupied.add(guide.id);
   for (const l of doc.layers) {
     occupied.add(l.id);
@@ -91,6 +99,12 @@ export function stageArtworkDuplicate(doc, layerId, { fonts = {}, imageAssets } 
       for (const pt of n.points) occupied.add(pt.id);
     }
   }
+  return occupied;
+}
+
+function copyArtwork(source, occupied) {
+  const layer = structuredClone(source),
+    ids = new Map();
   function fresh(old, prefix) {
     const id = uid(prefix);
     if (occupied.has(id) || ids.has(old)) throw Error('Duplicate artwork ID collision');
@@ -115,12 +129,82 @@ export function stageArtworkDuplicate(doc, layerId, { fonts = {}, imageAssets } 
     for (const child of Object.values(value)) remapSources(child);
   }
   remapSources(layer);
+  return layer;
+}
+
+/** Resolve every member afresh; one unsupported artwork refuses the entire set. */
+export function resolveArtworkDuplicateSelection(doc, layerIds, options = {}) {
+  try {
+    const ids = [...layerIds];
+    if (!ids.length || ids.length > 100 || new Set(ids).size !== ids.length)
+      return unsupported('invalid-selection', 'Choose a nonempty set of unique artwork layers.');
+    if (!Array.isArray(doc?.layers))
+      return unsupported('invalid-document', 'Choose artwork in a valid document.');
+    if (doc.layers.length + ids.length > 100)
+      return unsupported(
+        'layer-limit',
+        `Duplicating ${ids.length} artwork layers would exceed 100 layers. No selected artwork duplicated.`,
+      );
+    for (const id of ids) {
+      const resolved = resolveArtworkDuplicateTarget(doc, id, options);
+      if (!resolved.supported) {
+        const name = doc.layers.find((l) => l.id === id)?.name || id;
+        return unsupported(
+          resolved.code,
+          `${name}: ${resolved.reason} No selected artwork duplicated.`,
+        );
+      }
+    }
+    const selected = new Set(ids);
+    return {
+      supported: true,
+      layerIds: doc.layers.filter((l) => selected.has(l.id)).map((l) => l.id),
+    };
+  } catch (error) {
+    return unsupported(
+      'invalid-selection',
+      error.message || 'The artwork selection is unavailable.',
+    );
+  }
+}
+
+/**
+ * Each copy sits immediately above its own source, matching single duplication.
+ * Source and copy relative paint order is stable, independent of click order.
+ * All copies share one occupied-ID set and one isolated candidate validation.
+ */
+export function stageArtworkDuplicates(doc, layerIds, options) {
+  const eligibility = resolveArtworkDuplicateSelection(doc, layerIds, options);
+  if (!eligibility.supported) throw Error(eligibility.reason);
+  const occupied = occupiedArtworkIds(doc),
+    selected = new Set(eligibility.layerIds),
+    copies = [];
+  doc.layers.forEach((source, index) => {
+    if (!selected.has(source.id)) return;
+    const layer = copyArtwork(source, occupied);
+    copies.push({
+      sourceLayerId: source.id,
+      layer,
+      index: index + 1 + copies.length,
+      layerId: layer.id,
+      outputNodeId: layer.output,
+    });
+  });
   const candidate = candidateDocument(doc);
-  // Validation may normalize legacy records. Keep it on a separate clone so the
-  // committed copy retains every authored parameter and graph layout exactly.
-  candidate.layers.splice(index, 0, structuredClone(layer));
+  for (const copy of copies) candidate.layers.splice(copy.index, 0, structuredClone(copy.layer));
   validate(candidate);
-  return { layer, index, layerId: layer.id, outputNodeId: layer.output };
+  return copies;
+}
+
+/** Caller owns a single History transaction and selection snapshot. */
+export function duplicateArtworkLayers(doc, layerIds, options) {
+  const copies = stageArtworkDuplicates(doc, layerIds, options);
+  for (const copy of copies) doc.layers.splice(copy.index, 0, copy.layer);
+  return copies.map(({ sourceLayerId, layerId, outputNodeId }) => ({
+    sourceLayerId,
+    layerId,
+    outputNodeId,
+  }));
 }
 
 /** Caller owns the one History transaction and final-artwork selection. */

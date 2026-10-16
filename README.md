@@ -100,3 +100,5 @@ Select multiple artworks and use Inspector **Align artwork** for left/center/rig
 Select three or more artworks and use Inspector **中心を等間隔** → **横方向 / 縦方向** to space their final rendered centers equally. Both endpoint centers stay fixed; ties follow document layer order. One Undo restores all changes. [日本語操作ガイド](docs/artwork-distribution.md) · [Editable sample](examples/artwork-distribution.json).
 
 Select three or more artworks and use Inspector **隙間を等間隔** → **横方向 / 縦方向** to space final edge-to-edge gaps equally, preserving the two physical outer endpoints and artwork sizes. Negative gaps allow overlap; unstable order changes are refused atomically. [日本語操作ガイド](docs/artwork-gap-distribution.md) · [Editable sample](examples/artwork-gap-distribution.json).
+
+複数Artworkの同じ位置への複製は [操作ガイド](docs/artwork-multi-duplication.md) と [編集用サンプル](examples/artwork-multi-duplication.json) を参照してください。

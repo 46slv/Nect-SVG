@@ -62,8 +62,10 @@ test('Object resize: direct dimensions, font size, resolved positions, history, 
       /from '(\.\/[^']+)'/g,
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
+  // Text handles need the actual font, not a fixed I/O timing assumption.
+  source +=
+    '\nconst resizeFontDeadline = Date.now() + 5000; while (!bundledFont) { if (Date.now() >= resizeFontDeadline) throw Error("Bundled resize test font did not finish loading"); await new Promise((r) => setTimeout(r, 10)); }';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-  await new Promise((r) => setTimeout(r, 80));
   flush();
 
   const d = makeDoc(),

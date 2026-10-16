@@ -4,7 +4,11 @@ import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { blankLayer, node, serialize } from '../src/core.js';
 import { appendArtwork } from '../src/artwork-creation.js';
-import { duplicationDocument, richDuplicationText } from './fixtures/artwork-duplication.js';
+import {
+  duplicationDocument,
+  richDuplicationText,
+  multiDuplicationDocument,
+} from './fixtures/artwork-duplication.js';
 
 test('Duplicate in place is independent, undoable, selection-scoped and interruption-safe', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
@@ -352,6 +356,137 @@ test('Duplicate in place is independent, undoable, selection-scoped and interrup
         } finally {
           dialog.remove();
         }
+      }
+    },
+  );
+  await t.test(
+    'batch selection, active copy, exact history and stale controls with unchanged active item',
+    () => {
+      const f = multiDuplicationDocument();
+      load(f.doc);
+      const add = (id) => {
+        $(`[data-select-layer="${id}"]`).dispatchEvent(
+          new win.MouseEvent('click', { bubbles: true, shiftKey: true }),
+        );
+        flush();
+      };
+      const selectedLayers = () =>
+        [...document.querySelectorAll('.layer.selected')].map((l) => l.dataset.layer).sort();
+      select(f.ids[2]);
+      add(f.ids[0]);
+      add(f.ids[3]);
+      add(f.ids[1]);
+      const before = saved(),
+        prior = ui(),
+        originalSelection = selectedLayers(),
+        stale = duplicate().cloneNode(true);
+      assert.equal(duplicate().disabled, false);
+      click('[data-duplicate-artwork]');
+      const after = saved(),
+        copies = win.nect.document.layers.filter((l) => !f.doc.layers.some((s) => s.id === l.id));
+      assert.equal(copies.length, 4);
+      assert.equal(ui().past, prior.past + 1);
+      assert.deepEqual(selectedLayers(), copies.map((l) => l.id).sort());
+      assert.equal(
+        ui().activeLayer,
+        copies[1].id,
+        'active maps to former active source, not first or last paint position',
+      );
+      assert.equal(ui().artworkTarget, copies[1].id);
+      assert.deepEqual(ui().selection, []);
+      assert.equal(ui().selected, null);
+      for (let i = 0; i < 2; i++) {
+        click('[data-action="undo"]');
+        assert.equal(saved(), before);
+        assert.deepEqual(selectedLayers(), originalSelection);
+        assert.equal(ui().activeLayer, prior.activeLayer);
+        click('[data-action="redo"]');
+        assert.equal(saved(), after);
+        assert.deepEqual(selectedLayers(), copies.map((l) => l.id).sort());
+        assert.equal(ui().activeLayer, copies[1].id);
+      }
+      click('[data-duplicate-artwork]');
+      assert.equal(ui().past, prior.past + 2);
+      click('[data-action="undo"]');
+      assert.equal(saved(), after);
+      click('[data-action="undo"]');
+      assert.equal(saved(), before);
+      // Toggle a nonactive source out, then restore the previous active source.
+      add(f.ids[0]);
+      add(f.ids[1]);
+      add(f.ids[1]);
+      assert.equal(ui().activeLayer, prior.activeLayer);
+      document.querySelector('.inspector-body').append(stale);
+      const historyBefore = ui().past,
+        remaining = selectedLayers();
+      stale.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+      flush();
+      assert.equal(saved(), before);
+      assert.equal(ui().past, historyBefore);
+      assert.deepEqual(selectedLayers(), remaining);
+      stale.remove();
+    },
+  );
+
+  await t.test(
+    'batch refusal, IME, modal, rename and live gesture preserve all selected artwork and redo',
+    () => {
+      const f = multiDuplicationDocument();
+      const choose = () => {
+        select(f.ids[0]);
+        $(`[data-select-layer="${f.ids[3]}"]`).dispatchEvent(
+          new win.MouseEvent('click', { bubbles: true, shiftKey: true }),
+        );
+        flush();
+      };
+      const forceBatch = () => {
+        duplicate().dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+        flush();
+      };
+      f.fixtures[3].layer.locked = true;
+      load(f.doc);
+      choose();
+      const before = saved(),
+        prior = ui();
+      assert.equal(duplicate().disabled, true);
+      assert.match(
+        $('.artwork-duplicate-status').textContent,
+        /Image original:.*Unlock the artwork layer/i,
+      );
+      forceBatch();
+      assert.equal(saved(), before);
+      assert.deepEqual(ui(), prior);
+      f.fixtures[3].layer.locked = false;
+      load(f.doc);
+      choose();
+      click('[data-duplicate-artwork]');
+      click('[data-action="undo"]');
+      const original = saved(),
+        past = ui().past,
+        future = ui().future;
+      for (const mode of ['ime', 'modal', 'rename', 'gesture']) {
+        if (mode === 'ime')
+          stage().dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+        if (mode === 'modal') click('[data-action="help"]');
+        if (mode === 'rename') {
+          win.testBeginName(f.ids[3]);
+          flush();
+        }
+        if (mode === 'gesture') fire($(`.shape[data-layer="${f.ids[3]}"]`), 'pointerdown');
+        assert.equal(duplicate().disabled, true, mode);
+        forceBatch();
+        assert.equal(saved(), original, mode);
+        assert.equal(ui().past, past);
+        assert.equal(ui().future, future);
+        if (mode === 'ime')
+          stage().dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
+        if (mode === 'modal') {
+          $('dialog[open] button').click();
+          flush();
+        }
+        if (mode === 'rename') key($('[data-rename-name]'), 'Escape');
+        if (mode === 'gesture') fire(document, 'pointercancel');
+        assert.equal(duplicate().disabled, false, mode);
       }
     },
   );
