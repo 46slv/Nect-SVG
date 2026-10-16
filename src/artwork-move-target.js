@@ -247,6 +247,7 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
 
   return {
     supported: true,
+    bounds,
     target: {
       scope: 'artwork',
       kind,

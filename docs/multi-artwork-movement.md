@@ -34,7 +34,7 @@ Snapping uses the collective final-output bounding box and one shared delta. Eve
 
 ## Other editing paths
 
-Graph card selection exits artwork mode and clears the artwork set. Source-stage handles, character selection, Pen and view navigation retain their existing priority. Fields, graph focus, composition/IME events, open dialogs and active gestures cannot nudge the set. Single-artwork Duplicate and F2 rename are unavailable for a set. Delete on a set displays a reason; an explicit **Delete layer** row action continues to target exactly that named row. Alignment, grouping, marquee selection and batch delete/duplicate/resize are outside this slice.
+Graph card selection exits artwork mode and clears the artwork set. Source-stage handles, character selection, Pen and view navigation retain their existing priority. Fields, graph focus, composition/IME events, open dialogs and active gestures cannot nudge the set. Single-artwork Duplicate and F2 rename are unavailable for a set. Delete on a set displays a reason; an explicit **Delete layer** row action continues to target exactly that named row. Explicit six-way alignment to selection bounds is documented in [Artwork alignment](artwork-alignment.md). Grouping, marquee selection and batch delete/duplicate/resize remain outside this slice.
 
 ## Verification
 

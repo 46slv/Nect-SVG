@@ -1310,3 +1310,15 @@ input[data-scrub-step].scrubbing {
 .inspector-body [inert] {
   opacity: 0.6;
 }
+.artwork-align-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.artwork-align-controls button {
+  min-width: 0;
+  white-space: normal;
+}
+.artwork-alignment h4 {
+  margin: 12px 0 4px;
+}

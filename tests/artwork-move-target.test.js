@@ -121,6 +121,7 @@ test('descriptor identifies the final artwork by stable IDs and a parameter path
   f.layer.nodes = [unrelated, f.output, f.fill, f.generator];
   const expected = {
     supported: true,
+    bounds: pathBounds(evaluate(f.layer, fonts, f.doc.imageAssets).path),
     target: {
       scope: 'artwork',
       kind: 'shape-center',

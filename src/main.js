@@ -12,6 +12,7 @@ import {
 } from './artwork-creation.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
+import { artworkAlignments, alignArtworkSelection } from './artwork-alignment.js';
 import { removeArtworkLayer } from './artwork-deletion.js';
 import { moveArtworkLayer, resolveArtworkOrderTarget } from './artwork-ordering.js';
 import {
@@ -258,6 +259,11 @@ function sameArtworkMove(target, expected) {
 }
 function writeArtworkMove(target, delta) {
   translateArtworkTargets(history.doc, target, delta);
+}
+function artworkAlignmentControls(move) {
+  const eligible = artworkSelection.size > 1 && move.supported;
+  const reason = artworkSelection.size < 2 ? 'Select at least two artwork layers.' : move.reason;
+  return `<section class="artwork-alignment" aria-label="Align artwork"><h4>Align artwork</h4><p class="artwork-align-status">${esc(eligible ? 'To selection bounds · final artwork in artboard axes.' : reason)}</p><div class="artwork-align-controls">${artworkAlignments.map(([id, label]) => `<button data-align-artwork="${id}" data-align-selection="${esc(JSON.stringify([...artworkSelection]))}" data-align-active="${esc(activeLayer)}" data-eligible="${eligible}" ${!eligible || alignmentBusy() ? 'disabled' : ''} aria-label="Align artwork ${label.toLowerCase()}" title="${esc(eligible ? `Align ${label.toLowerCase()} to selection bounds (one Undo)` : reason)}">${esc(label)}</button>`).join('')}</div></section>`;
 }
 function notify(text, bad = false) {
   message = text;
@@ -978,7 +984,7 @@ function render(resetView = false, artworkResolution = null) {
           .map(([k, q]) => field(n, k, q))
           .join('')}`
       : artworkTarget
-        ? `<h3>Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)}</h3><p>Final evaluated Output in artboard coordinates.${artworkSelection.size > 1 ? ` Active layer: ${esc(l.name)}.` : ''}</p><p>Shift-click artwork or Layers names to add/remove. Click selected artwork to drag the selection together.</p><p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : move.reason)}</p><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create an independent layer immediately above this artwork at the same coordinates (Undo available)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? 'Independent whole-layer copy at the same coordinates. Initial support requires a complete movable route with no extra nodes; Curve: 2–128 anchors.' : duplication.reason)}</p>`
+        ? `<h3>Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)}</h3>${artworkAlignmentControls(move)}<p>Final evaluated Output in artboard coordinates.${artworkSelection.size > 1 ? ` Active layer: ${esc(l.name)}.` : ''}</p><p>Shift-click artwork or Layers names to add/remove. Click selected artwork to drag the selection together.</p><p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : move.reason)}</p><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create an independent layer immediately above this artwork at the same coordinates (Undo available)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? 'Independent whole-layer copy at the same coordinates. Initial support requires a complete movable route with no extra nodes; Curve: 2–128 anchors.' : duplication.reason)}</p>`
         : hasEmptyOutput(l)
           ? '<h3>Empty composition</h3><p>Add independent artwork with a toolbar tool, or add graph nodes and explicitly Use as output. The empty Output renders nothing.</p>'
           : '<p>Select artwork or a graph node.</p>'
@@ -1935,8 +1941,13 @@ function addNode(type) {
 function deletionBusy() {
   return !!(penDraft || navigationBusy() || nameEdit || document.querySelector('dialog[open]'));
 }
+function alignmentBusy() {
+  return deletionBusy() || tool !== 'select' || space;
+}
 function updateLayerDeletionControls() {
   const busy = deletionBusy();
+  for (const button of document.querySelectorAll('[data-align-artwork]'))
+    button.disabled = alignmentBusy() || button.dataset.eligible !== 'true';
   for (const button of document.querySelectorAll('[data-order-layer]')) {
     const target = resolveArtworkOrderTarget(
       history.doc,
@@ -2036,6 +2047,34 @@ function duplicateArtwork(layerId) {
     notify('Duplicated independent artwork in place');
     render();
     document.querySelector('.canvas-stage').focus({ preventScroll: true });
+  } catch (error) {
+    notify(error.message, true);
+  }
+}
+function alignArtwork(button) {
+  // Reject stale or forced controls before the generic click path can finish Pen.
+  if (
+    !app.contains(button) ||
+    alignmentBusy() ||
+    button.dataset.alignActive !== activeLayer ||
+    button.dataset.alignSelection !== JSON.stringify([...artworkSelection])
+  )
+    return;
+  try {
+    const priorUI = selectionSnapshot(true),
+      oldPast = history.past.at(-1);
+    let changed;
+    history.apply((doc) => {
+      changed = alignArtworkSelection(doc, artworkSelection, button.dataset.alignArtwork, {
+        fonts,
+      });
+    });
+    if (history.past.at(-1) !== oldPast) {
+      selectionHistory.set(history.past.at(-1), priorUI);
+      selectionHistory.set(history.doc, selectionSnapshot(true));
+    }
+    notify(changed ? 'Artwork aligned to selection bounds' : 'Artwork already aligned');
+    render();
   } catch (error) {
     notify(error.message, true);
   }
@@ -2152,6 +2191,10 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.alignArtwork !== undefined) {
+    alignArtwork(b);
+    return;
+  }
   if (d.orderLayer !== undefined) {
     orderArtwork(d.orderLayer, d.orderDirection);
     return;

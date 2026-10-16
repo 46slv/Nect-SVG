@@ -27,18 +27,27 @@ export function resolveArtworkMoveSelection(doc, layerIds, options = {}) {
 // Plan every position in every layer before the first write, including overflow
 // and late Curve topology failures. Values are always based on gesture origins.
 export function translateArtworkTargets(doc, target, delta) {
-  if (
-    !Array.isArray(delta) ||
-    delta.length !== 2 ||
-    !Number.isFinite(delta[0]) ||
-    !Number.isFinite(delta[1])
-  )
-    throw Error('Artwork target or delta is unavailable');
   const targets = target.scope === 'artwork-selection' ? target.targets : [target];
-  if (!targets?.length || new Set(targets.map((t) => t.layerId)).size !== targets.length)
+  translateArtworkMoves(
+    doc,
+    targets?.map((target) => ({ target, delta })),
+  );
+}
+
+// Also used by selection alignment, where each artwork has its own delta.
+// All members still share the same preflight and single final write boundary.
+export function translateArtworkMoves(doc, moves) {
+  if (!moves?.length || new Set(moves.map((m) => m.target.layerId)).size !== moves.length)
     throw Error('Choose unique artwork move targets');
   const plan = [];
-  for (const t of targets) {
+  for (const { target: t, delta } of moves) {
+    if (
+      !Array.isArray(delta) ||
+      delta.length !== 2 ||
+      !Number.isFinite(delta[0]) ||
+      !Number.isFinite(delta[1])
+    )
+      throw Error('Artwork target or delta is unavailable');
     const l = doc.layers.find((l) => l.id === t.layerId),
       n = l?.nodes.find((n) => n.id === t.nodeId);
     if (!n) throw Error('Artwork target or delta is unavailable');

@@ -30,6 +30,10 @@ test('Closed Path Offset controls, failure rollback, scrubbing, typed inputs, lo
   source = source
     .replace("import './style.css';", '')
     .replace(
+      "from './artwork-alignment.js'",
+      `from '${new URL('../src/artwork-alignment.js', import.meta.url)}'`,
+    )
+    .replace(
       "from './artwork-multi-move.js'",
       `from '${new URL('../src/artwork-multi-move.js', import.meta.url)}'`,
     )

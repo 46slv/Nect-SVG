@@ -30,6 +30,10 @@ test('creation controls: repeater fields, bounded count, text anchors, history a
   source = source
     .replace("import './style.css';", '')
     .replace(
+      "from './artwork-alignment.js'",
+      `from '${new URL('../src/artwork-alignment.js', import.meta.url)}'`,
+    )
+    .replace(
       "from './artwork-multi-move.js'",
       `from '${new URL('../src/artwork-multi-move.js', import.meta.url)}'`,
     )

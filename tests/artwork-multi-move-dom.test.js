@@ -338,6 +338,110 @@ test('Multiple independent artworks select and move as one transaction', async (
     },
   );
   await t.test(
+    'six alignment controls preserve the set, active graph and views with one Undo and no repeated history',
+    () => {
+      for (const action of ['left', 'center-x', 'right', 'top', 'center-y', 'bottom']) {
+        const f = setup(),
+          before = saved(),
+          active = ui().activeLayer;
+        const view = () => [
+          $('.artboard').getAttribute('style'),
+          $('.graph').getAttribute('style'),
+          $('[data-zoom="canvas"]').textContent,
+        ];
+        const beforeView = view();
+        assert.equal(document.querySelectorAll('[data-align-artwork]').length, 6);
+        click(`[data-align-artwork="${action}"]`);
+        assert.notEqual(saved(), before, action);
+        const after = saved();
+        assert.equal(ui().past, 1, action);
+        assert.equal(ui().activeLayer, active);
+        assert.deepEqual(selectedIds(), [...f.ids].sort());
+        assert.deepEqual(view(), beforeView);
+        click(`[data-align-artwork="${action}"]`);
+        assert.equal(saved(), after);
+        assert.equal(ui().past, 1);
+        click('[data-action="undo"]');
+        assert.equal(saved(), before);
+        assert.equal(ui().activeLayer, active);
+        assert.deepEqual(selectedIds(), [...f.ids].sort());
+        click('[data-action="redo"]');
+        assert.equal(saved(), after);
+        assert.deepEqual(view(), beforeView);
+      }
+      setup();
+      click('[data-align-artwork="right"]');
+      const aligned = saved();
+      click('[data-align-artwork="left"]');
+      click('[data-action="undo"]');
+      click('[data-align-artwork="right"]');
+      assert.equal(saved(), aligned);
+      assert.equal(ui().past, 1);
+      assert.equal(ui().future, 1, 'a no-op must retain Redo');
+    },
+  );
+  await t.test(
+    'alignment rejects unsupported or newly locked members and forced clicks during IME, modal, Pen and gestures',
+    () => {
+      const force = () => {
+        const b = $('[data-align-artwork="left"]');
+        b.disabled = false;
+        b.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+        flush();
+      };
+      for (const flag of ['locked', 'hidden', 'guide']) {
+        setup((f) => {
+          const l = f.doc.layers.at(-1);
+          if (flag === 'hidden') l.visible = false;
+          else l[flag] = true;
+        });
+        const before = saved();
+        assert.equal($('[data-align-artwork="left"]').disabled, true);
+        assert.match($('.artwork-align-status').textContent, /Embedded swatch:/);
+        force();
+        assert.equal(saved(), before);
+        assert.equal(ui().past, 0);
+        assert.match($('.message').textContent, /No selected artwork aligned/);
+      }
+      setup();
+      win.nect.document.layers.at(-1).locked = true;
+      const late = saved();
+      force();
+      assert.equal(saved(), late);
+      assert.equal(ui().past, 0);
+      setup();
+      const before = saved();
+      stage().dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+      force();
+      assert.equal(saved(), before);
+      assert.equal(ui().past, 0);
+      stage().dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
+      const dialog = document.createElement('dialog');
+      dialog.setAttribute('open', '');
+      document.body.append(dialog);
+      force();
+      assert.equal(saved(), before);
+      dialog.remove();
+      const f = setup(),
+        gestureBefore = saved();
+      fire(shape(f.ids[0]), 'pointerdown', [170, 170]);
+      force();
+      assert.equal(ui().drag, 'artwork');
+      assert.equal(saved(), gestureBefore);
+      fire(document, 'pointercancel');
+      click('[data-tool="pen"]');
+      force();
+      assert.equal(saved(), gestureBefore);
+      assert.equal(ui().past, 0);
+      click('[data-tool="select"]');
+      row(f.ids[0]);
+      assert.equal($('[data-align-artwork="left"]').disabled, true);
+      force();
+      assert.equal(saved(), gestureBefore);
+      assert.equal(ui().past, 0);
+    },
+  );
+  await t.test(
     'fields, graph focus, modifiers, IME, modal and active gestures cannot nudge the artwork set',
     () => {
       const f = setup(),
