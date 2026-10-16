@@ -32,8 +32,18 @@ try {
   await rotation.fill('10');
   await rotation.press('Tab');
   assert.equal(await page.evaluate(() => window.nect.evaluate().error), null);
+  // Tab commits before the deferred structural render/fit has settled. Let
+  // Playwright wait for the live marker to be stable and receive pointer hits.
+  await page.locator('.node-stage-move rect').hover();
   const marker = await page.locator('.node-stage-move rect').boundingBox();
   const pt = { x: marker.x + marker.width / 2, y: marker.y + marker.height / 2 };
+  assert.equal(
+    await page.evaluate(
+      (pt) => !!document.elementFromPoint(pt.x, pt.y)?.closest('.node-stage-move'),
+      pt,
+    ),
+    true,
+  );
   await page.mouse.move(pt.x, pt.y);
   await page.mouse.down();
   await page.mouse.move(pt.x + 30, pt.y + 20, { steps: 4 });
