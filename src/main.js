@@ -374,7 +374,7 @@ function resetTransient() {
   characterEdit = null;
   textDrafts.clear();
   textRanges.clear();
-  document.querySelector('.character-choice')?.remove();
+  closeEditorDialog(document.querySelector('.character-choice'));
   drag = null;
   wiring = null;
   penId = null;
@@ -1555,18 +1555,17 @@ function selectOverlappingCharacters(hits, additive) {
   const dialog = document.createElement('dialog');
   dialog.className = 'character-choice';
   dialog.innerHTML = `<h3>Choose overlapping character</h3><p>Each entry identifies a character and displayed instance.</p>${hits.map((hit, i) => `<button data-choice="${i}">${hit.glyph.sourceIndex + 1} · ${esc(hit.glyph.whitespace ? '[space]' : hit.glyph.text)} · Instance ${hit.instance + 1}</button>`).join('')}<button data-close-choice>Cancel</button>`;
-  document.body.append(dialog);
   dialog.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
     if (b.dataset.choice !== undefined && characterEdit)
       chooseCharacter(hits[Number(b.dataset.choice)], additive);
-    dialog.remove();
+    closeEditorDialog(dialog);
     render();
     document.querySelector('.canvas-stage').focus({ preventScroll: true });
   });
-  dialog.addEventListener('cancel', () => dialog.remove());
-  dialog.showModal();
+  dialog.addEventListener('cancel', () => closeEditorDialog(dialog));
+  showEditorDialog(dialog);
 }
 
 function objectResizeContext(n, result) {
@@ -1931,6 +1930,18 @@ function updateLayerDeletionControls() {
         ? 'Unlock this layer before deleting it'
         : 'Delete this entire layer and its graph (Undo available)';
   }
+}
+// Keep modal availability tied to editor lifecycle, independent of DOM observers.
+function closeEditorDialog(dialog) {
+  dialog?.remove();
+  updateLayerDeletionControls();
+}
+function showEditorDialog(dialog) {
+  document.body.append(dialog);
+  // Native Escape/close clears `open` before this event; explicit buttons remove directly.
+  dialog.addEventListener('close', () => closeEditorDialog(dialog));
+  dialog.showModal();
+  updateLayerDeletionControls();
 }
 function deleteArtwork(layerId) {
   // Reject before taking a history snapshot or touching any detached draft.
@@ -2483,9 +2494,8 @@ app.addEventListener('click', async (e) => {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
             '<h3>Nect SVG</h3><p>New creates a blank document; + Blank composition appends an empty vector Output. + Demo composition keeps the explicit starter Boolean example, which also remains the launch-time example. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
-          dialog.querySelector('button').onclick = () => dialog.remove();
-          document.body.append(dialog);
-          dialog.showModal();
+          dialog.querySelector('button').onclick = () => closeEditorDialog(dialog);
+          showEditorDialog(dialog);
           break;
         }
       }
@@ -2589,7 +2599,7 @@ app.addEventListener('click', async (e) => {
       .join(
         '',
       )}</select><p><button data-confirm>Apply</button> <button data-cancel>Cancel</button></p>`;
-    dialog.querySelector('[data-cancel]').onclick = () => dialog.remove();
+    dialog.querySelector('[data-cancel]').onclick = () => closeEditorDialog(dialog);
     dialog.querySelector('[data-confirm]').onclick = () => {
       const source = dialog.querySelector('select').value;
       const [sourceId, sourcePort] = source.startsWith('[')
@@ -2602,10 +2612,9 @@ app.addEventListener('click', async (e) => {
             : disconnect(nn, f.dataset.key),
         'Connection updated',
       );
-      dialog.remove();
+      closeEditorDialog(dialog);
     };
-    document.body.append(dialog);
-    dialog.showModal();
+    showEditorDialog(dialog);
     return;
   }
   if (d.lock !== undefined || d.fx !== undefined) {
@@ -5174,12 +5183,6 @@ app.addEventListener('pointerdown', updateLayerDeletionControls);
 app.addEventListener('compositionend', updateLayerDeletionControls);
 document.addEventListener('pointerup', updateLayerDeletionControls);
 document.addEventListener('pointercancel', updateLayerDeletionControls);
-new window.MutationObserver(updateLayerDeletionControls).observe(document.body, {
-  childList: true,
-  subtree: true,
-  attributes: true,
-  attributeFilter: ['open'],
-});
 // Explicit test/debug API; same model and mutations as the UI.
 window.nect = {
   get document() {

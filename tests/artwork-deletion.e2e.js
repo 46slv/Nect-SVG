@@ -191,6 +191,12 @@ try {
   assert.equal(await snapshot(), before);
   await page.locator('dialog button').click();
   assert.equal(await deletion(id).isDisabled(), false);
+  await click('help');
+  assert.equal(await deletion(id).isDisabled(), true);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+  assert.equal(await deletion(id).isDisabled(), false);
+  assert.equal(await snapshot(), before);
 
   // Real textarea composition has its own draft state, cleared during bubbling.
   const textDoc = deletionDocument(),

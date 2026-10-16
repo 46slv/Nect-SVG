@@ -57,10 +57,16 @@ test('whole-artwork layer deletion is exact, undoable and safely scoped in the e
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
   source +=
-    '\nwindow.deletionUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], characterEdit: characterEdit ? { ...characterEdit, selected: [...characterEdit.selected] } : null, selectedGuide, remapBatches: [...remapBatches].map(([id, batch]) => [id, { selected: [...batch.selected], delta: [...batch.delta] }]), past: history.past.length, future: history.future.length, drag: drag?.type, wiring: !!wiring, draft: penDraft?.layer}); window.testDeleteLayer = deleteArtwork;';
+    '\nwindow.deletionUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], characterEdit: characterEdit ? { ...characterEdit, selected: [...characterEdit.selected] } : null, selectedGuide, remapBatches: [...remapBatches].map(([id, batch]) => [id, { selected: [...batch.selected], delta: [...batch.delta] }]), past: history.past.length, future: history.future.length, drag: drag?.type, wiring: !!wiring, draft: penDraft?.layer}); window.testDeleteLayer = deleteArtwork; window.testCharacterChooser = () => { const c = characterContext(); const hit = { glyph: c.layout.characters[0], occurrence: c.editable[0], instance: 0 }; selectOverlappingCharacters([hit, { ...hit, instance: 1 }]); };';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 80));
   flush();
+  const waitFor = async (condition, message) => {
+    const deadline = Date.now() + 2000;
+    while (!condition() && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.ok(condition(), message);
+  };
   const $ = (s) => document.querySelector(s),
     stage = () => $('.canvas-stage'),
     ui = () => win.deletionUI(),
@@ -328,18 +334,94 @@ test('whole-artwork layer deletion is exact, undoable and safely scoped in the e
       stage().dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
       assert.equal(saved(), before);
       assert.equal(ui().past, prior.past);
-      const dialog = document.createElement('dialog');
-      document.body.append(dialog);
-      dialog.showModal();
-      await Promise.resolve();
-      assert.equal(deletion(id).disabled, true);
-      win.testDeleteLayer(id);
-      key(stage(), 'Delete');
-      key(dialog, 'Delete');
-      assert.equal(saved(), before);
-      dialog.remove();
-      await Promise.resolve();
+      click('[data-action="help"]');
+      const dialog = $('dialog[open]');
+      assert.ok(dialog);
+      try {
+        assert.equal(deletion(id).disabled, true);
+        win.testDeleteLayer(id);
+        key(stage(), 'Delete');
+        key(dialog, 'Delete');
+        assert.equal(saved(), before);
+        dialog.querySelector('button').click();
+      } finally {
+        if (dialog.open) dialog.close();
+        dialog.remove();
+      }
       assert.equal(deletion(id).disabled, false);
+      click('[data-action="help"]');
+      const reopened = $('dialog[open]');
+      try {
+        assert.equal(deletion(id).disabled, true);
+        reopened.close();
+        await waitFor(() => !deletion(id).disabled, 'Native close releases layer deletion');
+      } finally {
+        if (reopened.open) reopened.close();
+        reopened.remove();
+      }
+      assert.equal(saved(), before);
+    },
+  );
+
+  await t.test(
+    'connection and character-choice dialog lifecycles disable and release deletion deterministically',
+    async () => {
+      const doc = deletionDocument(),
+        target = doc.layers[1];
+      load(doc);
+      select(target.id);
+      const before = saved();
+      for (const action of ['cancel', 'apply', 'close']) {
+        click(`.graph [data-node="${target.nodes[0].id}"][data-key="center"] [data-connect-menu]`);
+        const dialog = $('dialog[open]');
+        assert.ok(dialog);
+        try {
+          assert.equal(deletion(target.id).disabled, true);
+          win.testDeleteLayer(target.id);
+          assert.equal(saved(), before);
+          if (action === 'close') dialog.close();
+          else
+            dialog.querySelector(action === 'cancel' ? '[data-cancel]' : '[data-confirm]').click();
+          await waitFor(
+            () => !deletion(target.id).disabled,
+            'Connection dialog releases layer deletion',
+          );
+          assert.equal(saved(), before);
+        } finally {
+          if (dialog.open) dialog.close();
+          dialog.remove();
+        }
+      }
+      const textDoc = deletionDocument(),
+        text = appendArtwork(textDoc, 'Text', { at: [300, 200] });
+      load(textDoc);
+      select(text.layerId);
+      selectNode(text.nodeId);
+      click(`[data-character-mode="${text.nodeId}"]`);
+      const textBefore = saved();
+      for (const action of ['choice', 'cancel', 'close', 'reset']) {
+        win.testCharacterChooser();
+        const dialog = $('.character-choice[open]');
+        assert.ok(dialog);
+        try {
+          assert.equal(deletion(text.layerId).disabled, true);
+          win.testDeleteLayer(text.layerId);
+          assert.equal(saved(), textBefore);
+          if (action === 'choice') dialog.querySelector('[data-choice="0"]').click();
+          if (action === 'cancel')
+            dialog.dispatchEvent(new win.Event('cancel', { cancelable: true }));
+          if (action === 'close') dialog.close();
+          if (action === 'reset') load(textDoc);
+          await waitFor(
+            () => !deletion(text.layerId).disabled,
+            'Character dialog releases layer deletion',
+          );
+          assert.equal(saved(), textBefore);
+        } finally {
+          if (dialog.open) dialog.close();
+          dialog.remove();
+        }
+      }
     },
   );
 
