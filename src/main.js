@@ -7,6 +7,8 @@ import {
   createPenArtworkDraft,
   appendPenArtwork,
   appendBlankComposition,
+  resolveArtworkDuplicateTarget,
+  duplicateArtworkLayer,
 } from './artwork-creation.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import { removeArtworkLayer } from './artwork-deletion.js';
@@ -924,6 +926,9 @@ function render(resetView = false, artworkResolution = null) {
   // One synchronous status resolution for both hint and Inspector; callers may
   // reuse a just-resolved unchanged document, never a persistent cached target.
   const move = artworkTarget ? artworkResolution || artworkMove() : null;
+  const duplication = artworkTarget
+    ? resolveArtworkDuplicateTarget(doc, artworkTarget, { fonts }, move)
+    : null;
   snapLayerBounds = collectSnapLayerBounds(doc, results, l.id, pathBounds);
   app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New</button><button data-action="open">Open</button><button data-action="import-svg">Import SVG</button><button data-action="import-image">Import image</button><button data-action="save">Save JSON</button><button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['select', '↖', 'Select / move'],
@@ -974,7 +979,7 @@ function render(resetView = false, artworkResolution = null) {
           .map(([k, q]) => field(n, k, q))
           .join('')}`
       : artworkTarget
-        ? `<h3>Artwork · ${esc(l.name)}</h3><p>Final evaluated Output in artboard coordinates.</p><p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : move.reason)}</p>`
+        ? `<h3>Artwork · ${esc(l.name)}</h3><p>Final evaluated Output in artboard coordinates.</p><p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : move.reason)}</p><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create an independent layer immediately above this artwork at the same coordinates (Undo available)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? 'Independent whole-layer copy at the same coordinates. Initial support requires a complete movable route with no extra nodes; Curve: 2–128 anchors.' : duplication.reason)}</p>`
         : hasEmptyOutput(l)
           ? '<h3>Empty composition</h3><p>Add independent artwork with a toolbar tool, or add graph nodes and explicitly Use as output. The empty Output renders nothing.</p>'
           : '<p>Select artwork or a graph node.</p>'
@@ -986,6 +991,11 @@ function render(resetView = false, artworkResolution = null) {
     .join(
       '',
     )}<p>Dynamic sockets<br>Drag a node output onto a compatible field. Drag a connected input into empty graph space to disconnect. Right-click an input also disconnects.</p><p>Expressions: arithmetic, pi, sin, cos, sqrt, min/max. Vector2: x expression; y expression.</p>${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+  const duplicateButton = document.querySelector('[data-duplicate-artwork]');
+  if (duplicateButton) {
+    duplicateButton.dataset.eligible = String(duplication.supported);
+    duplicateButton.dataset.availableTitle = duplicateButton.title;
+  }
   const instanceControl = document.querySelector('[data-character-instance]');
   if (instanceControl && characterEdit) instanceControl.value = characterEdit.route || '';
   const characterList = document.querySelector('[data-character-selection]');
@@ -1930,6 +1940,14 @@ function updateLayerDeletionControls() {
         ? 'Unlock this layer before deleting it'
         : 'Delete this entire layer and its graph (Undo available)';
   }
+  for (const button of document.querySelectorAll('[data-duplicate-artwork]')) {
+    button.disabled =
+      busy ||
+      button.dataset.duplicateArtwork !== artworkTarget ||
+      button.dataset.eligible !== 'true';
+    if (busy) button.title = 'Finish or cancel the current edit before duplicating artwork';
+    else button.title = button.dataset.availableTitle;
+  }
 }
 // Keep modal availability tied to editor lifecycle, independent of DOM observers.
 function closeEditorDialog(dialog) {
@@ -1966,6 +1984,27 @@ function deleteArtwork(layerId) {
     notify(
       deleted.replacedLastLayer ? 'Layer deleted · empty composition retained' : 'Layer deleted',
     );
+    render();
+    document.querySelector('.canvas-stage').focus({ preventScroll: true });
+  } catch (error) {
+    notify(error.message, true);
+  }
+}
+function duplicateArtwork(layerId) {
+  // A stale/forced click must not finish a draft, cancel a gesture, or duplicate
+  // whichever layer happens to be active after the original button was rendered.
+  if (deletionBusy() || artworkTarget !== layerId || activeLayer !== layerId) return;
+  try {
+    const priorUI = selectionSnapshot(true);
+    let created;
+    history.apply((doc) => {
+      created = duplicateArtworkLayer(doc, layerId, { fonts });
+    });
+    selectArtwork(created.layerId);
+    tool = 'select';
+    selectionHistory.set(history.past.at(-1), priorUI);
+    selectionHistory.set(history.doc, selectionSnapshot(true));
+    notify('Duplicated independent artwork in place');
     render();
     document.querySelector('.canvas-stage').focus({ preventScroll: true });
   } catch (error) {
@@ -2070,6 +2109,10 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.duplicateArtwork !== undefined) {
+    duplicateArtwork(d.duplicateArtwork);
+    return;
+  }
   // Layer deletion must never auto-finish a Pen draft or cancel a live gesture.
   if (d.deleteLayer !== undefined) {
     deleteArtwork(d.deleteLayer);

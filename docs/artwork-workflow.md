@@ -32,3 +32,7 @@ A completed pointer drag is one Undo step. Exact no-op/out-and-back gestures cre
 ## Verification boundary
 
 Core tests cover six creation-helper types, atomic rejection, prior-layer/asset preservation and exact supported/refused movement routes. Synthetic DOM tests cover five toolbar tools, scope separation, placement, 1/10-unit nudging, no-op/cancel history, selection restoration, busy/focus/IME exclusions and capacity failure. Actual Chrome acceptance includes creation/export/reopen, final-artwork movement through terminal Transform, another-layer dragging, read-only reasons, source-stage handle priority and 1280×800 / 1600×1000 screenshots. Windows CI is the actual-browser and native packaging gate; synthetic DOM is not rendering proof. Native WebView2/IME and native file-dialog acceptance remain separate gates.
+
+## Independent copy in place
+
+Select final artwork and choose **Duplicate in place** in the Inspector to create an independent layer immediately above its source, at exactly the same coordinates. Initial support requires the entire layer to match a supported movement route, with no extra nodes; Curve is limited to 2–128 anchors. Undo restores the prior selection and Redo restores the same copy IDs. Active edits block the action. See the [full duplication contract](artwork-duplication.md).

@@ -1,4 +1,7 @@
-import { cloneDocument, connect, node, point, uid, validate, blankLayer } from './core.js';
+import { connect, node, point, uid, validate, blankLayer } from './core.js';
+
+import { candidateDocument } from './artwork-candidate.js';
+export { resolveArtworkDuplicateTarget, duplicateArtworkLayer } from './artwork-duplication.js';
 
 export const ARTWORK_TYPES = Object.freeze([
   'Circle',
@@ -8,26 +11,6 @@ export const ARTWORK_TYPES = Object.freeze([
   'Star',
   'Text',
 ]);
-
-// Core snapshots/validation freeze asset records. Keep that side effect on
-// candidate-only wrappers, including when an unvalidated input is rejected.
-function candidateDocument(doc) {
-  const input = { ...doc };
-  for (const key of ['fontAssets', 'imageAssets']) {
-    const assets = input[key];
-    if (assets === undefined) continue;
-    if (!assets || typeof assets !== 'object' || Array.isArray(assets))
-      throw Error('Invalid artwork assets');
-    input[key] = Object.fromEntries(
-      Object.entries(assets).map(([id, asset]) => {
-        if (!asset || typeof asset !== 'object' || Array.isArray(asset))
-          throw Error('Invalid artwork asset record');
-        return [id, Object.isFrozen(asset) ? asset : { ...asset }];
-      }),
-    );
-  }
-  return cloneDocument(input);
-}
 
 /**
  * Append independent artwork, without replacing any existing graph output.
