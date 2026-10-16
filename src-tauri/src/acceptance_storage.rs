@@ -27,7 +27,9 @@ fn component_is_unambiguous(value: &str) -> bool {
         .trim_end_matches(' ')
         .to_ascii_uppercase();
     let reserved = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
-    let port = stem.strip_prefix("COM").or_else(|| stem.strip_prefix("LPT"));
+    let port = stem
+        .strip_prefix("COM")
+        .or_else(|| stem.strip_prefix("LPT"));
     !value.is_empty()
         && value != "."
         && value != ".."
@@ -88,7 +90,9 @@ fn canonical_directory(path: &Path) -> Result<PathBuf, String> {
     // Use ordinary absolute drive spelling with WebView2 and native dialogs.
     #[cfg(windows)]
     {
-        let text = canonical.to_str().ok_or("Non-Unicode acceptance directory")?;
+        let text = canonical
+            .to_str()
+            .ok_or("Non-Unicode acceptance directory")?;
         absolute_windows_path(text.strip_prefix(r"\\?\").unwrap_or(text))
     }
     #[cfg(not(windows))]
@@ -123,7 +127,9 @@ impl RunStorage {
             .and_then(|n| n.to_str())
             .ok_or("Missing run name")?;
         if !name.starts_with(ROOT_PREFIX) || name.len() == ROOT_PREFIX.len() {
-            return Err("Acceptance root needs the prefix nect-svg-acceptance- and a run ID".into());
+            return Err(
+                "Acceptance root needs the prefix nect-svg-acceptance- and a run ID".into(),
+            );
         }
         let parent = canonical_directory(requested.parent().ok_or("Missing run parent")?)?;
         let executable = canonical_directory(&executable_directory()?)?;
@@ -270,7 +276,10 @@ mod tests {
             let result = RunStorage::prepare(Some(OsString::from(value)), || {
                 panic!("invalid input reached executable resolution")
             });
-            assert!(result.is_err(), "invalid input became normal mode: {value:?}");
+            assert!(
+                result.is_err(),
+                "invalid input became normal mode: {value:?}"
+            );
         }
         #[cfg(windows)]
         {
@@ -317,10 +326,11 @@ mod tests {
         });
         assert!(again.is_err());
         let other = tempfile::tempdir().unwrap();
-        let outside = canonical_directory(other.path()).unwrap().join("nect-svg-acceptance-other");
-        let wrong = RunStorage::prepare(Some(outside.clone().into_os_string()), || {
-            Ok(base.clone())
-        });
+        let outside = canonical_directory(other.path())
+            .unwrap()
+            .join("nect-svg-acceptance-other");
+        let wrong =
+            RunStorage::prepare(Some(outside.clone().into_os_string()), || Ok(base.clone()));
         assert!(wrong.is_err());
         assert!(!outside.exists());
         let bad = base.join("normal-profile");
@@ -335,7 +345,9 @@ mod tests {
     fn outside_traversal_subdirectory_and_stream_targets_cannot_write() {
         let (fixture, storage) = fixture();
         let paths = storage.0.as_ref().unwrap();
-        let outside = canonical_directory(fixture.path()).unwrap().join("outside.json");
+        let outside = canonical_directory(fixture.path())
+            .unwrap()
+            .join("outside.json");
         fs::write(&outside, b"preserve").unwrap();
         let nested = paths.documents.join("nested");
         fs::create_dir(&nested).unwrap();
@@ -369,9 +381,16 @@ mod tests {
             .arg(outside.path())
             .output()
             .unwrap();
-        assert!(result.status.success(), "junction fixture failed: {result:?}");
-        assert!(storage.write_bytes(&paths.documents.join("preserve.json"), b"bad").is_err());
-        assert!(storage.read_project(&paths.documents.join("preserve.json")).is_err());
+        assert!(
+            result.status.success(),
+            "junction fixture failed: {result:?}"
+        );
+        assert!(storage
+            .write_bytes(&paths.documents.join("preserve.json"), b"bad")
+            .is_err());
+        assert!(storage
+            .read_project(&paths.documents.join("preserve.json"))
+            .is_err());
         assert_eq!(fs::read(sentinel).unwrap(), b"unchanged");
         fs::remove_dir(&paths.documents).unwrap();
     }

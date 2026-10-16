@@ -111,7 +111,10 @@ fn run() -> Result<(), String> {
         ])
         .setup(move |app| {
             if let Some(config) = window {
-                let paths = window_storage.0.as_ref().ok_or("Missing acceptance storage")?;
+                let paths = window_storage
+                    .0
+                    .as_ref()
+                    .ok_or("Missing acceptance storage")?;
                 paths.check_directories()?;
                 tauri::WebviewWindowBuilder::from_config(app, &config)?
                     .data_directory(paths.webview.clone())
