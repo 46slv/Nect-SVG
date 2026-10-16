@@ -1,0 +1,268 @@
+{
+  "schemaVersion": 7,
+  "name": "Type on Path · editable sample",
+  "width": 800,
+  "height": 400,
+  "layers": [
+    {
+      "id": "layer-4d16155e-7d6f-412a-8ce7-f4e9b9397c5d",
+      "name": "Retained path text",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-ab904d28-449d-478d-8575-b691f85a0342",
+          "type": "Text",
+          "name": "Text",
+          "position": [350, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [80, 330],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 44,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "TYPE ON PATH",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "center",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": "",
+          "pathAttachment": {
+            "nodeId": "node-16d31c08-acad-41f9-afba-98186ea603cf",
+            "contourId": "node-16d31c08-acad-41f9-afba-98186ea603cf",
+            "startMode": "normalized",
+            "start": 0.5,
+            "reversed": false
+          },
+          "characterPositions": {
+            "version": 4,
+            "basis": "TYPE ON PATH",
+            "units": [
+              {
+                "id": "c1",
+                "text": "T"
+              },
+              {
+                "id": "c2",
+                "text": "Y"
+              },
+              {
+                "id": "c3",
+                "text": "P"
+              },
+              {
+                "id": "c4",
+                "text": "E"
+              },
+              {
+                "id": "c5",
+                "text": " "
+              },
+              {
+                "id": "c6",
+                "text": "O"
+              },
+              {
+                "id": "c7",
+                "text": "N"
+              },
+              {
+                "id": "c8",
+                "text": " "
+              },
+              {
+                "id": "c9",
+                "text": "P"
+              },
+              {
+                "id": "c10",
+                "text": "A"
+              },
+              {
+                "id": "c11",
+                "text": "T"
+              },
+              {
+                "id": "c12",
+                "text": "H"
+              }
+            ],
+            "offsets": {
+              "c2": [3, -2]
+            },
+            "nextId": 13,
+            "transforms": {
+              "c2": {
+                "rotation": 8,
+                "scale": 1.1
+              }
+            },
+            "styles": {
+              "c1": {
+                "width": 1.3,
+                "baselineShift": 3
+              },
+              "c4": {
+                "tracking": 8
+              },
+              "c5": {
+                "width": 1.5
+              }
+            }
+          }
+        },
+        {
+          "id": "node-16d31c08-acad-41f9-afba-98186ea603cf",
+          "type": "Curve",
+          "name": "Curved baseline",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "closed": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [
+            {
+              "id": "point-ed59dac6-553e-4c35-afb0-acb8c8ba7d25",
+              "position": {
+                "type": "Vector2",
+                "value": [70, 240],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [150, -230],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "point-d9871f7c-f341-4b1f-9410-1c30f6811006",
+              "position": {
+                "type": "Vector2",
+                "value": [730, 240],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [-150, -230],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            }
+          ],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-a30ea468-3300-416f-8909-780d8e774b97",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [660, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-ab904d28-449d-478d-8575-b691f85a0342"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#6554c0",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-45bbc1a7-5fcc-49ac-b411-f1199957e986",
+          "type": "Output",
+          "name": "Output",
+          "position": [970, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-a30ea468-3300-416f-8909-780d8e774b97"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-45bbc1a7-5fcc-49ac-b411-f1199957e986"
+    }
+  ]
+}

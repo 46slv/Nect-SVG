@@ -1,0 +1,410 @@
+{
+  "schemaVersion": 2,
+  "name": "Artwork bounds snapping · move the blue circle",
+  "width": 960,
+  "height": 540,
+  "layers": [
+    {
+      "id": "layer-04a09346-7042-4bec-80eb-6a369c0d6f54",
+      "name": "Move Null origin · blue circle follows",
+      "visible": true,
+      "locked": false,
+      "fill": "#4b8aff",
+      "nodes": [
+        {
+          "id": "snap-origin",
+          "type": "Null",
+          "name": "Drag onto artwork edges / centers",
+          "position": [40, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [160, 220],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "snap-circle",
+          "type": "Circle",
+          "name": "Circle",
+          "position": [370, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [350, 250],
+              "expression": "",
+              "locked": false,
+              "source": "snap-origin"
+            },
+            "radius": {
+              "type": "Scalar",
+              "value": 30,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "snap-origin-fill",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [700, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "snap-circle"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#4b8aff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "snap-output",
+          "type": "Output",
+          "name": "Output",
+          "position": [1030, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "snap-origin-fill"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "snap-output"
+    },
+    {
+      "id": "layer-snap-reference",
+      "name": "Locked card · edges X400/580 Y160/340, center 490/250",
+      "visible": true,
+      "locked": true,
+      "fill": "#dce5f0",
+      "nodes": [
+        {
+          "id": "snap-reference",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [40, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [490, 250],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [180, 180],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "snap-reference-fill",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [370, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "snap-reference"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#dce5f0",
+                "alpha": 0.3
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "snap-reference-output",
+          "type": "Output",
+          "name": "Output",
+          "position": [700, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "snap-reference-fill"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "snap-reference-output"
+    },
+    {
+      "id": "layer-snap-text",
+      "name": "Locked typography · outline bounds",
+      "visible": true,
+      "locked": true,
+      "fill": "#18243c",
+      "nodes": [
+        {
+          "id": "snap-text",
+          "type": "Text",
+          "name": "Text",
+          "position": [40, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [660, 160],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 48,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "TYPE",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "snap-text-fill",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [370, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "snap-text"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#18243c",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "snap-text-output",
+          "type": "Output",
+          "name": "Output",
+          "position": [700, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "snap-text-fill"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "snap-text-output"
+    },
+    {
+      "id": "layer-snap-image",
+      "name": "Locked image · bounds include transparency",
+      "visible": true,
+      "locked": true,
+      "fill": "#ff4444",
+      "nodes": [
+        {
+          "id": "snap-image",
+          "type": "Image",
+          "name": "Image",
+          "position": [40, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [660, 300],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [140, 90],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "asset": "image-snap-asset"
+        },
+        {
+          "id": "snap-image-output",
+          "type": "Image Output",
+          "name": "Image Output",
+          "position": [370, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Image",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "snap-image"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "snap-image-output"
+    }
+  ],
+  "editor": {
+    "guides": [],
+    "visible": true,
+    "locked": false,
+    "gridVisible": false,
+    "gridSize": 8,
+    "snap": true,
+    "snapGuides": true,
+    "snapArtboard": false,
+    "snapGrid": false,
+    "snapArtwork": true
+  },
+  "imageAssets": {
+    "image-snap-asset": {
+      "name": "red.png",
+      "mime": "image/png",
+      "width": 1,
+      "height": 1,
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGN45xCRAAAFjQHndWiFIQAAAABJRU5ErkJggg=="
+    }
+  }
+}

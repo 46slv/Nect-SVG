@@ -1,0 +1,30 @@
+{
+  "name": "nect-svg",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "test": "node --test tests/*.test.js",
+    "test:e2e": "npm run test:csp && node tests/blank-artwork.e2e.js && node tests/pen-artwork.e2e.js && node tests/artwork-workflow.e2e.js && node tests/artwork-multi-move.e2e.js && node tests/artwork-alignment.e2e.js && node tests/artwork-distribution.e2e.js && node tests/artwork-gap-distribution.e2e.js && node tests/artwork-deletion.e2e.js && node tests/artwork-duplication.e2e.js && node tests/artwork-multi-duplication.e2e.js && node tests/artwork-ordering.e2e.js && node tests/editor.e2e.js && node tests/text.e2e.js && node tests/system-font.e2e.js && node tests/guides.e2e.js && node tests/layout-guides.e2e.js && node tests/images.e2e.js && node tests/color.e2e.js && node tests/graph-navigation.e2e.js && node tests/view-navigation.e2e.js && node tests/paint.e2e.js && node tests/linear-gradient.e2e.js && node tests/radial-gradient.e2e.js && node tests/closed-offset.e2e.js && node tests/text-path.e2e.js && node tests/math.e2e.js && node tests/wiring.e2e.js && node tests/creation.e2e.js && node tests/join-stroke.e2e.js && node tests/polygon-star.e2e.js && node tests/transform-anchor.e2e.js && node tests/position-reference.e2e.js && node tests/numeric-scrub.e2e.js && node tests/artboard-pan.e2e.js && node tests/text-position-output.e2e.js && node tests/character-position.e2e.js && node tests/null-position.e2e.js && node tests/vector-position.e2e.js && node tests/transform-handles.e2e.js && node tests/artwork-snap.e2e.js && node tests/vector-reference.e2e.js && node tests/character-transform.e2e.js && node tests/object-resize.e2e.js && node tests/rich-text.e2e.js && node tests/text-wrap.e2e.js && node tests/axis-drag.e2e.js && node tests/character-numeric-scrub.e2e.js && node tests/pair-kerning.e2e.js && node tests/editor-names-bypass.e2e.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run format:check && npm test && npm run build",
+    "desktop:dev": "npx @tauri-apps/cli@2 dev",
+    "desktop:build": "npx @tauri-apps/cli@2 build",
+    "test:csp": "npm run build && node tests/production-csp.e2e.js"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.0",
+    "clipper2-ts": "2.0.1-18",
+    "opentype.js": "1.3.4",
+    "paper": "0.12.18"
+  },
+  "devDependencies": {
+    "happy-dom": "^20.8.9",
+    "playwright-core": "1.56.1",
+    "prettier": "^3.6.2",
+    "vite": "7.3.7"
+  }
+}

@@ -1,0 +1,240 @@
+{
+  "schemaVersion": 2,
+  "name": "Right-aligned typography group",
+  "width": 960,
+  "height": 540,
+  "layers": [
+    {
+      "id": "layer-5c01e724-5087-43dd-bb2c-ade525770b47",
+      "name": "Composition 1",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-b8ec177d-30b8-450a-8ab8-db38101f015b",
+          "type": "Text",
+          "name": "Text",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": true,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [780, 260],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 160,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "end",
+          "kerning": true,
+          "rawPath": "",
+          "referenceBounds": "visible",
+          "crossAlignment": "origin"
+        },
+        {
+          "id": "node-9f1f9bf3-9428-459b-8d57-27d3e4493f95",
+          "type": "Text",
+          "name": "Text",
+          "position": [40, 430],
+          "width": 264,
+          "collapsed": true,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [780, 310],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 24,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "GRAPHICS + TYPOGRAPHY",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "end",
+          "kerning": true,
+          "rawPath": "",
+          "referenceBounds": "visible",
+          "crossAlignment": "origin"
+        },
+        {
+          "id": "node-46cb1c07-6686-42ff-82cf-2e9b21bb9abe",
+          "type": "Join Geometry",
+          "name": "Join Geometry",
+          "position": [370, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "a": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-b8ec177d-30b8-450a-8ab8-db38101f015b"
+            },
+            "b": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-9f1f9bf3-9428-459b-8d57-27d3e4493f95"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-47341ff7-f4ce-4754-9afe-f936bb1e3b50",
+          "type": "Transform",
+          "name": "Shared typography parent",
+          "position": [690, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-46cb1c07-6686-42ff-82cf-2e9b21bb9abe"
+            },
+            "anchor": {
+              "type": "Vector2",
+              "value": [780, 310],
+              "expression": "",
+              "locked": false
+            },
+            "offset": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            },
+            "scale": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            },
+            "rotation": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-efde891c-d0e0-477b-87ea-e1f0e809caf8",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [1010, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-47341ff7-f4ce-4754-9afe-f936bb1e3b50"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-cf8cb0d4-5a0b-43ea-8198-6c3b8cd8f32f",
+          "type": "Output",
+          "name": "Output",
+          "position": [1330, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-efde891c-d0e0-477b-87ea-e1f0e809caf8"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-cf8cb0d4-5a0b-43ea-8198-6c3b8cd8f32f"
+    }
+  ]
+}

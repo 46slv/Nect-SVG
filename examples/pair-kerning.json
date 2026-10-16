@@ -1,0 +1,1012 @@
+{
+  "schemaVersion": 9,
+  "name": "Manual pair kerning comparisons",
+  "width": 1100,
+  "height": 850,
+  "layers": [
+    {
+      "id": "layer-389f4fc9-ab74-4ec7-8ed4-45ed60f31387",
+      "name": "Inherited font spacing",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-b3c5ea9a-628e-4a1d-9dfe-036b3a5a694b",
+          "type": "Text",
+          "name": "Inherited font spacing",
+          "position": [50, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [100, 100],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 60,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "AVATAR",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "node-d430b1f6-db9c-454b-b38e-f8023da2bcd8",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [380, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-b3c5ea9a-628e-4a1d-9dfe-036b3a5a694b"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-d5894a2b-428d-46e3-82be-f42d3f96bb8a",
+          "type": "Output",
+          "name": "Output",
+          "position": [710, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-d430b1f6-db9c-454b-b38e-f8023da2bcd8"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-d5894a2b-428d-46e3-82be-f42d3f96bb8a"
+    },
+    {
+      "id": "layer-03b724af-b190-4a14-b799-050ee276c87b",
+      "name": "Manual zero",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-f53f3b0d-20c7-4b1a-837f-81413e06d2b0",
+          "type": "Text",
+          "name": "Manual zero",
+          "position": [50, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [100, 200],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 60,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "AVATAR",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": "",
+          "characterPositions": {
+            "version": 5,
+            "basis": "AVATAR",
+            "units": [
+              {
+                "id": "c1",
+                "text": "A"
+              },
+              {
+                "id": "c2",
+                "text": "V"
+              },
+              {
+                "id": "c3",
+                "text": "A"
+              },
+              {
+                "id": "c4",
+                "text": "T"
+              },
+              {
+                "id": "c5",
+                "text": "A"
+              },
+              {
+                "id": "c6",
+                "text": "R"
+              }
+            ],
+            "offsets": {},
+            "nextId": 7,
+            "transforms": {},
+            "styles": {},
+            "kerningPairs": {
+              "c1:c2": 0
+            }
+          }
+        },
+        {
+          "id": "node-abfb00f6-2e02-40a0-936a-fec3dada4029",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [380, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-f53f3b0d-20c7-4b1a-837f-81413e06d2b0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-28339dd5-2418-435f-bdd8-2609eb6c6781",
+          "type": "Output",
+          "name": "Output",
+          "position": [710, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-abfb00f6-2e02-40a0-936a-fec3dada4029"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-28339dd5-2418-435f-bdd8-2609eb6c6781"
+    },
+    {
+      "id": "layer-eecd8922-086e-4f2d-8b1e-3b37cd6d745c",
+      "name": "Manual negative -180",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-553fe831-8300-4cfa-b351-5f1a61c51ce9",
+          "type": "Text",
+          "name": "Manual negative -180",
+          "position": [50, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [100, 300],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 60,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "AVATAR",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": "",
+          "characterPositions": {
+            "version": 5,
+            "basis": "AVATAR",
+            "units": [
+              {
+                "id": "c1",
+                "text": "A"
+              },
+              {
+                "id": "c2",
+                "text": "V"
+              },
+              {
+                "id": "c3",
+                "text": "A"
+              },
+              {
+                "id": "c4",
+                "text": "T"
+              },
+              {
+                "id": "c5",
+                "text": "A"
+              },
+              {
+                "id": "c6",
+                "text": "R"
+              }
+            ],
+            "offsets": {},
+            "nextId": 7,
+            "transforms": {},
+            "styles": {},
+            "kerningPairs": {
+              "c1:c2": -180,
+              "c3:c4": -140
+            }
+          }
+        },
+        {
+          "id": "node-ffc294f2-faab-4608-ba84-742d85b634b9",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [380, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-553fe831-8300-4cfa-b351-5f1a61c51ce9"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-7c2af337-58e4-46f5-a310-93449d0231be",
+          "type": "Output",
+          "name": "Output",
+          "position": [710, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-ffc294f2-faab-4608-ba84-742d85b634b9"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-7c2af337-58e4-46f5-a310-93449d0231be"
+    },
+    {
+      "id": "layer-c112cc0b-0a32-4126-b152-9f52d34b0ceb",
+      "name": "Manual positive +300",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-ba583e07-acd9-4221-978d-345c6c218afb",
+          "type": "Text",
+          "name": "Manual positive +300",
+          "position": [50, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [100, 400],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 60,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "AVATAR",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": "",
+          "characterPositions": {
+            "version": 5,
+            "basis": "AVATAR",
+            "units": [
+              {
+                "id": "c1",
+                "text": "A"
+              },
+              {
+                "id": "c2",
+                "text": "V"
+              },
+              {
+                "id": "c3",
+                "text": "A"
+              },
+              {
+                "id": "c4",
+                "text": "T"
+              },
+              {
+                "id": "c5",
+                "text": "A"
+              },
+              {
+                "id": "c6",
+                "text": "R"
+              }
+            ],
+            "offsets": {},
+            "nextId": 7,
+            "transforms": {},
+            "styles": {},
+            "kerningPairs": {
+              "c1:c2": 300,
+              "c3:c4": 180
+            }
+          }
+        },
+        {
+          "id": "node-5952ad3d-6ed1-46a1-81f5-4b273098da23",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [380, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-ba583e07-acd9-4221-978d-345c6c218afb"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-b85d8166-a4ec-4ffb-8998-5317b743dd9d",
+          "type": "Output",
+          "name": "Output",
+          "position": [710, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-5952ad3d-6ed1-46a1-81f5-4b273098da23"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-b85d8166-a4ec-4ffb-8998-5317b743dd9d"
+    },
+    {
+      "id": "layer-c017227b-0fd0-4830-89e6-d36c1204df3c",
+      "name": "Mixed size; left-owned em",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-217e7615-5b1f-48be-96b0-e63ccc180b08",
+          "type": "Text",
+          "name": "Mixed size; left-owned em",
+          "position": [50, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [100, 530],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 60,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "AVATAR",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": "",
+          "characterPositions": {
+            "version": 5,
+            "basis": "AVATAR",
+            "units": [
+              {
+                "id": "c1",
+                "text": "A"
+              },
+              {
+                "id": "c2",
+                "text": "V"
+              },
+              {
+                "id": "c3",
+                "text": "A"
+              },
+              {
+                "id": "c4",
+                "text": "T"
+              },
+              {
+                "id": "c5",
+                "text": "A"
+              },
+              {
+                "id": "c6",
+                "text": "R"
+              }
+            ],
+            "offsets": {},
+            "nextId": 7,
+            "transforms": {},
+            "styles": {
+              "c1": {
+                "size": 80,
+                "width": 1.2
+              },
+              "c2": {
+                "size": 40,
+                "tracking": 4
+              }
+            },
+            "kerningPairs": {
+              "c1:c2": 150,
+              "c2:c3": -100
+            }
+          }
+        },
+        {
+          "id": "node-8495fa04-3003-4255-aa6d-327eda4d6356",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [380, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-217e7615-5b1f-48be-96b0-e63ccc180b08"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-978de563-802d-40fd-9048-2c2de65363d5",
+          "type": "Output",
+          "name": "Output",
+          "position": [710, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-8495fa04-3003-4255-aa6d-327eda4d6356"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-978de563-802d-40fd-9048-2c2de65363d5"
+    },
+    {
+      "id": "layer-91cb2313-3f20-4830-a0f8-7252aba22708",
+      "name": "Vertical manual pair",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-f4b2e6e7-03f7-4b6e-aa95-f02c14d3e3a2",
+          "type": "Text",
+          "name": "Vertical manual pair",
+          "position": [50, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [760, 100],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 60,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "AV A",
+          "font": "default",
+          "writingMode": "vertical-rl",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": "",
+          "characterPositions": {
+            "version": 5,
+            "basis": "AV A",
+            "units": [
+              {
+                "id": "c1",
+                "text": "A"
+              },
+              {
+                "id": "c2",
+                "text": "V"
+              },
+              {
+                "id": "c3",
+                "text": " "
+              },
+              {
+                "id": "c4",
+                "text": "A"
+              }
+            ],
+            "offsets": {},
+            "nextId": 5,
+            "transforms": {},
+            "styles": {},
+            "kerningPairs": {
+              "c1:c2": -100,
+              "c3:c4": 200
+            }
+          }
+        },
+        {
+          "id": "node-137a8538-3b70-4e75-96dd-5bbcbf8b563b",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [380, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-f4b2e6e7-03f7-4b6e-aa95-f02c14d3e3a2"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-8cac781f-3c1c-4993-99a5-dd7e6e51e83c",
+          "type": "Output",
+          "name": "Output",
+          "position": [710, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-137a8538-3b70-4e75-96dd-5bbcbf8b563b"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-8cac781f-3c1c-4993-99a5-dd7e6e51e83c"
+    },
+    {
+      "id": "layer-358d168f-10fb-4d36-88ed-a313ce6c440a",
+      "name": "Wrap break retains a pair",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-df676c4b-0446-480b-9fbc-4887a593ab8a",
+          "type": "Text",
+          "name": "Wrap break retains a pair",
+          "position": [50, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [650, 570],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 60,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "A V A V",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": "",
+          "characterPositions": {
+            "version": 5,
+            "basis": "A V A V",
+            "units": [
+              {
+                "id": "c1",
+                "text": "A"
+              },
+              {
+                "id": "c2",
+                "text": " "
+              },
+              {
+                "id": "c3",
+                "text": "V"
+              },
+              {
+                "id": "c4",
+                "text": " "
+              },
+              {
+                "id": "c5",
+                "text": "A"
+              },
+              {
+                "id": "c6",
+                "text": " "
+              },
+              {
+                "id": "c7",
+                "text": "V"
+              }
+            ],
+            "offsets": {},
+            "nextId": 8,
+            "transforms": {},
+            "styles": {},
+            "kerningPairs": {
+              "c2:c3": 300
+            }
+          },
+          "textWrap": {
+            "width": 60
+          }
+        },
+        {
+          "id": "node-feed0ebe-20cb-4122-852c-2e28ae281b10",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [380, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-df676c4b-0446-480b-9fbc-4887a593ab8a"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-d60afe0b-2906-4363-8ad2-db13cea2716c",
+          "type": "Output",
+          "name": "Output",
+          "position": [710, 50],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-feed0ebe-20cb-4122-852c-2e28ae281b10"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-d60afe0b-2906-4363-8ad2-db13cea2716c"
+    }
+  ]
+}

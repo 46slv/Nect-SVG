@@ -1,0 +1,7 @@
+node_modules
+dist
+package-lock.json
+public/fonts
+test-results
+src-tauri/target
+.agents/skills/stop-describing-ui/SKILL.md

@@ -1,0 +1,553 @@
+{
+  "schemaVersion": 2,
+  "name": "Linear Gradient Fill — shared spatial ramp",
+  "width": 800,
+  "height": 500,
+  "layers": [
+    {
+      "id": "layer-2db24e4c-bc9a-4644-9dd5-2df0dc5d3b52",
+      "name": "Shared ramp across repeated geometry",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-683be43f-8389-416e-a1ea-15f005df332e",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [100, 100],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [100, 100],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-1ca46bbb-c159-414e-b847-19b1109a0194",
+          "type": "Geometry Repeater",
+          "name": "Geometry Repeater",
+          "position": [360, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-683be43f-8389-416e-a1ea-15f005df332e"
+            },
+            "count": {
+              "type": "Scalar",
+              "value": 5,
+              "expression": "",
+              "locked": false
+            },
+            "step": {
+              "type": "Vector2",
+              "value": [150, 0],
+              "expression": "",
+              "locked": false
+            },
+            "center": {
+              "type": "Vector2",
+              "value": [480, 270],
+              "expression": "",
+              "locked": false
+            },
+            "startAngle": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "angle": {
+              "type": "Scalar",
+              "value": 360,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "linear",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-7d760838-6f81-41d0-9f16-b3597faae768",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [680, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-1ca46bbb-c159-414e-b847-19b1109a0194"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [50, 50],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [750, 50],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ff6b35",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#6554c0",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-0ed50c20-c859-4abf-8661-a028d38f7ce7",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [1000, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-7d760838-6f81-41d0-9f16-b3597faae768"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#26313d",
+                "alpha": 0.8
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-955ed00f-b8c6-4c3f-a74f-35c8d605e928",
+          "type": "Output",
+          "name": "Output",
+          "position": [1320, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-0ed50c20-c859-4abf-8661-a028d38f7ce7"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-955ed00f-b8c6-4c3f-a74f-35c8d605e928"
+    },
+    {
+      "id": "layer-61f6289a-69d7-4b32-ab12-299f0fa9f4d5",
+      "name": "Independent alpha stops",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-91c38ad4-e511-451c-b6cb-48709ff07f53",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [400, 250],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [700, 100],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-6df75e2f-aaa5-4394-b00c-a01f16edd840",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [680, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-91c38ad4-e511-451c-b6cb-48709ff07f53"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [50, 200],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [750, 200],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#12b8a6",
+                "alpha": 0.1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#6554c0",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-a53ad634-599a-440f-9a31-ea24ec34f790",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [1000, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-6df75e2f-aaa5-4394-b00c-a01f16edd840"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#26313d",
+                "alpha": 0.8
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-8fd67b3e-f535-451f-8be7-2111227988ae",
+          "type": "Output",
+          "name": "Output",
+          "position": [1320, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-a53ad634-599a-440f-9a31-ea24ec34f790"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-8fd67b3e-f535-451f-8be7-2111227988ae"
+    },
+    {
+      "id": "layer-b8b10bdb-014b-4226-bbae-6d020101c391",
+      "name": "Diagonal gradient with stroke",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "node-aa614aa3-0c95-4a1b-a3ad-e8bcffd9cbd2",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [400, 400],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [700, 100],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-906d2048-c536-4e54-b557-cc546670aa6f",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [680, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-aa614aa3-0c95-4a1b-a3ad-e8bcffd9cbd2"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [50, 350],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [750, 450],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ff6b35",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#6554c0",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-539f2372-75d6-41fc-bf3c-9bc7a9d24d05",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [1000, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-906d2048-c536-4e54-b557-cc546670aa6f"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#26313d",
+                "alpha": 0.8
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 5,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-cd6b44a8-bd00-4279-9b40-68cbbef89a96",
+          "type": "Output",
+          "name": "Output",
+          "position": [1320, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-539f2372-75d6-41fc-bf3c-9bc7a9d24d05"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-cd6b44a8-bd00-4279-9b40-68cbbef89a96"
+    }
+  ]
+}

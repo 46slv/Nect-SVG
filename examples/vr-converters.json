@@ -1,0 +1,717 @@
+{
+  "schemaVersion": 1,
+  "name": "V/R Converters — editable practice fixture",
+  "width": 960,
+  "height": 540,
+  "layers": [
+    {
+      "id": "layer-f2c3eae2-2206-44ff-ba3a-6f7bb504f59e",
+      "name": "V · Curve",
+      "visible": true,
+      "locked": false,
+      "fill": "#293844",
+      "nodes": [
+        {
+          "id": "node-b885b94c-86db-43c0-a7d5-f68a6bde94d7",
+          "type": "Curve",
+          "name": "V / editable outline",
+          "position": [40, 40],
+          "params": {
+            "closed": {
+              "type": "Boolean",
+              "value": true,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [
+            {
+              "id": "point-d030c126-d1a4-4da9-90b9-b2e958be14d7",
+              "position": {
+                "type": "Vector2",
+                "value": [190, 130],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "point-5bef3aa5-543a-4a8c-89e6-0f2b3705a854",
+              "position": {
+                "type": "Vector2",
+                "value": [235, 130],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "point-6d780332-1890-4a59-9736-b0287a5da84b",
+              "position": {
+                "type": "Vector2",
+                "value": [310, 315],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "point-3556dbcc-2bf8-498a-8fc1-7e5c1caba8b1",
+              "position": {
+                "type": "Vector2",
+                "value": [385, 130],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "point-703a2cb2-5f9d-4645-9f2b-4b9297a2af84",
+              "position": {
+                "type": "Vector2",
+                "value": [430, 130],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "point-5edf8f29-eaa1-41ee-be1a-c6f9ec66d4c8",
+              "position": {
+                "type": "Vector2",
+                "value": [330, 370],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "point-f37f3ad1-d2c9-4848-84be-9601d3c60461",
+              "position": {
+                "type": "Vector2",
+                "value": [290, 370],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            }
+          ],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-0e560f11-2119-42e8-a86f-1fb1a8c22fa0",
+          "type": "Output",
+          "name": "Output",
+          "position": [1150, 80],
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-b885b94c-86db-43c0-a7d5-f68a6bde94d7"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-0e560f11-2119-42e8-a86f-1fb1a8c22fa0"
+    },
+    {
+      "id": "layer-59668cef-d3bf-4614-835a-5c031203730d",
+      "name": "Slash · Transform",
+      "visible": true,
+      "locked": false,
+      "fill": "#718491",
+      "nodes": [
+        {
+          "id": "node-9b1528c0-c3cc-4cc1-8055-8b1a0eb535ab",
+          "type": "Rectangle",
+          "name": "Slash / source rectangle",
+          "position": [40, 40],
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [472, 250],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [24, 290],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-3a49deed-77f8-471f-983e-fc6cddb17cbc",
+          "type": "Transform",
+          "name": "Slash / angle",
+          "position": [350, 40],
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-9b1528c0-c3cc-4cc1-8055-8b1a0eb535ab"
+            },
+            "offset": {
+              "type": "Vector2",
+              "value": [114, -140],
+              "expression": "",
+              "locked": false
+            },
+            "scale": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            },
+            "rotation": {
+              "type": "Scalar",
+              "value": 20,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-0769a006-1a14-4836-9b2b-9ae73b8c3ae2",
+          "type": "Output",
+          "name": "Output",
+          "position": [1150, 80],
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-3a49deed-77f8-471f-983e-fc6cddb17cbc"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-0769a006-1a14-4836-9b2b-9ae73b8c3ae2"
+    },
+    {
+      "id": "layer-89ec140f-16f7-415b-8ee2-b98cd7f6af10",
+      "name": "R · Boolean / Remap",
+      "visible": true,
+      "locked": false,
+      "fill": "#293844",
+      "nodes": [
+        {
+          "id": "node-3be142f4-3991-4de2-b086-fe92121f641f",
+          "type": "Rectangle",
+          "name": "R / stem",
+          "position": [40, 40],
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [580, 250],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [44, 240],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-d048d127-ddec-46a8-9835-318be356f707",
+          "type": "Ellipse",
+          "name": "R / outer bowl",
+          "position": [40, 270],
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [647, 193],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [136, 126],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-4a8e47f7-dd91-4374-a750-bfe1583a7d52",
+          "type": "Boolean",
+          "name": "R / stem + bowl",
+          "position": [350, 40],
+          "params": {
+            "a": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-3be142f4-3991-4de2-b086-fe92121f641f"
+            },
+            "b": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-d048d127-ddec-46a8-9835-318be356f707"
+            }
+          },
+          "points": [],
+          "operation": "union",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-d7194078-b31b-48b4-ab29-9fb1708c49e4",
+          "type": "Ellipse",
+          "name": "R / counter",
+          "position": [350, 300],
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [647, 193],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [68, 48],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-60b7f43a-9e1f-400b-91a7-b9cf73c57e68",
+          "type": "Boolean",
+          "name": "R / subtract counter",
+          "position": [650, 40],
+          "params": {
+            "a": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-4a8e47f7-dd91-4374-a750-bfe1583a7d52"
+            },
+            "b": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-d7194078-b31b-48b4-ab29-9fb1708c49e4"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-ed230b3d-7cab-4bc7-a4fd-782c15258e87",
+          "type": "Curve",
+          "name": "R / diagonal leg",
+          "position": [650, 320],
+          "params": {
+            "closed": {
+              "type": "Boolean",
+              "value": true,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [
+            {
+              "id": "point-b2c8dc68-3f67-4dc5-b6ec-192da22d6b1b",
+              "position": {
+                "type": "Vector2",
+                "value": [604, 242],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "point-fa52e72d-2f27-408e-8b33-8913b37ded14",
+              "position": {
+                "type": "Vector2",
+                "value": [650, 242],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "point-f63fc934-57c8-4ee2-ab53-e6bd7d458687",
+              "position": {
+                "type": "Vector2",
+                "value": [719, 370],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "point-cb5ebcb8-9970-4596-97ad-5d73b9cf39cf",
+              "position": {
+                "type": "Vector2",
+                "value": [669, 370],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            }
+          ],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-9e054127-4ee2-485e-af7b-eb838277e9a8",
+          "type": "Boolean",
+          "name": "R / add leg",
+          "position": [950, 40],
+          "params": {
+            "a": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-60b7f43a-9e1f-400b-91a7-b9cf73c57e68"
+            },
+            "b": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-ed230b3d-7cab-4bc7-a4fd-782c15258e87"
+            }
+          },
+          "points": [],
+          "operation": "union",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-b7b1c03e-022b-4e38-bd2c-3ac81cc47420",
+          "type": "Path Remap",
+          "name": "R / final secondary edits",
+          "position": [1250, 40],
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-9e054127-4ee2-485e-af7b-eb838277e9a8"
+            },
+            "offset": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-40cc9154-5138-4f98-8b3f-3cc866a95e04",
+          "type": "Output",
+          "name": "Output",
+          "position": [1150, 80],
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-b7b1c03e-022b-4e38-bd2c-3ac81cc47420"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-40cc9154-5138-4f98-8b3f-3cc866a95e04"
+    },
+    {
+      "id": "layer-b49fc339-a798-40c4-8ed1-bb9ca5b3d4f1",
+      "name": "CONVERTERS · Text",
+      "visible": true,
+      "locked": false,
+      "fill": "#596e7c",
+      "nodes": [
+        {
+          "id": "node-5ebb4199-ea28-4b3b-a2a7-8837a405c30d",
+          "type": "Text",
+          "name": "Converters / editable text",
+          "position": [40, 40],
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [305, 440],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 43,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "CONVERTERS",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-fd5bfe92-c965-4123-a8a8-0942ddd93e95",
+          "type": "Text to Path",
+          "name": "Text to Path",
+          "position": [350, 40],
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-5ebb4199-ea28-4b3b-a2a7-8837a405c30d"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-a6c5f1c4-b964-413b-aeee-f44467deb8d7",
+          "type": "Output",
+          "name": "Output",
+          "position": [1150, 80],
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-fd5bfe92-c965-4123-a8a8-0942ddd93e95"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-a6c5f1c4-b964-413b-aeee-f44467deb8d7"
+    }
+  ]
+}

@@ -1,0 +1,307 @@
+{
+  "schemaVersion": 2,
+  "name": "Text Position via Reference",
+  "width": 960,
+  "height": 540,
+  "layers": [
+    {
+      "id": "layer-07248ff0-ccc8-4e7a-9919-db3fe93eb1e3",
+      "name": "Same-layer reference demo",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "reference-position",
+          "type": "Reference",
+          "name": "Master Position reference",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {},
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "reference": {
+            "nodeId": "reference-title",
+            "portId": "position"
+          }
+        },
+        {
+          "id": "reference-origin",
+          "type": "Null",
+          "name": "Shared origin",
+          "position": [40, 520],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [170, 200],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "reference-title",
+          "type": "Text",
+          "name": "Master title",
+          "position": [350, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [200, 300],
+              "expression": "",
+              "locked": false,
+              "source": "reference-origin"
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 72,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "ONE ORIGIN",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "reference-offset",
+          "type": "Vector Math",
+          "name": "Caption offset",
+          "position": [660, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "a": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false,
+              "source": "reference-position"
+            },
+            "b": {
+              "type": "Vector2",
+              "value": [0, 90],
+              "expression": "",
+              "locked": false
+            },
+            "scale": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "add",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "reference-caption",
+          "type": "Text",
+          "name": "Caption",
+          "position": [970, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [200, 300],
+              "expression": "",
+              "locked": false,
+              "source": "reference-offset"
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 27,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Reference keeps the source explicit.",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "reference-wired",
+          "type": "Vector Math",
+          "name": "Equivalent wired offset",
+          "position": [660, 550],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "a": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false,
+              "source": "reference-title",
+              "sourcePort": "position"
+            },
+            "b": {
+              "type": "Vector2",
+              "value": [0, 90],
+              "expression": "",
+              "locked": false
+            },
+            "scale": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "add",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "reference-join",
+          "type": "Join Geometry",
+          "name": "Title and caption",
+          "position": [1280, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "a": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "reference-title"
+            },
+            "b": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "reference-caption"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "reference-fill",
+          "type": "Fill",
+          "name": "Ink",
+          "position": [1590, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "reference-join"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "reference-output",
+          "type": "Output",
+          "name": "Output",
+          "position": [1900, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "reference-fill"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "reference-output"
+    }
+  ]
+}
