@@ -194,7 +194,14 @@ try {
   await click('help');
   assert.equal(await deletion(id).isDisabled(), true);
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+  // Native close changes `open` before its queued close-event control refresh.
+  await page.waitForFunction(
+    (id) =>
+      !document.querySelector('dialog[open]') &&
+      document.querySelector(`[data-delete-layer="${id}"]`)?.disabled === false,
+    id,
+    { timeout: 2000 },
+  );
   assert.equal(await deletion(id).isDisabled(), false);
   assert.equal(await snapshot(), before);
 
