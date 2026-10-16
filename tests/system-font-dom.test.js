@@ -35,6 +35,7 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
   for (const name of [
     'artwork-creation',
     'artwork-move-target',
+    'artwork-multi-move',
     'artwork-deletion',
     'artwork-ordering',
     'core',

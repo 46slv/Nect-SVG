@@ -62,8 +62,11 @@ test('Pen draft creation is independent, atomic and interruptible', async (t) =>
     );
   source +=
     '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer}); window.markPenSaved = () => { savedSnapshot = serialize(history.doc); };';
+  // These suites synchronously create/evaluate Text after startup. Await the
+  // font condition inside the test module, rather than racing filesystem I/O.
+  source +=
+    '\nconst fontTestDeadline = Date.now() + 5000; while (!bundledFont) { if (Date.now() >= fontTestDeadline) throw Error("Bundled test font did not finish loading"); await new Promise((r) => setTimeout(r, 10)); }';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-  await new Promise((r) => setTimeout(r, 80));
   flush();
   const $ = (s) => document.querySelector(s),
     stage = () => $('.canvas-stage');

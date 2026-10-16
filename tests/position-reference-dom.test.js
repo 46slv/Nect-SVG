@@ -29,6 +29,10 @@ test('Position reference controls preserve values, history, text edits and conne
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   source = source
     .replace("import './style.css';", '')
+    .replace(
+      "from './artwork-multi-move.js'",
+      `from '${new URL('../src/artwork-multi-move.js', import.meta.url)}'`,
+    )
     .replace("from './images.js'", `from '${new URL('../src/images.js', import.meta.url)}'`)
     .replace("from './raster.js'", `from '${new URL('../src/raster.js', import.meta.url)}'`)
     .replace("from './focus.js'", `from '${new URL('../src/focus.js', import.meta.url)}'`)
@@ -77,7 +81,12 @@ test('Position reference controls preserve values, history, text edits and conne
   l.output = out.id;
   connect(l, t.id, out.id, 'path');
   win.nect.load(JSON.stringify(doc));
-  await tick();
+  // Font I/O/parsing is asynchronous; elapsed time does not prove Text is ready.
+  const readyDeadline = Date.now() + 5000;
+  while (win.nect.evaluate().error !== null) {
+    assert.ok(Date.now() < readyDeadline, win.nect.evaluate().error);
+    await tick();
+  }
   const control = (selector) => document.querySelector('.inspector-body ' + selector);
   const bound = () => pathBounds(win.nect.evaluate().path);
   assert.ok(Math.abs(bound()[0][2] - 500) < 0.00002);

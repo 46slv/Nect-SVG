@@ -53,8 +53,9 @@ export function collectSnapLayerBounds(doc, evaluations, excludedLayer, boundsFo
   const settings = guideSettings(doc),
     result = { guides: [], artwork: [] };
   if (!settings.snap) return result;
+  const excluded = excludedLayer instanceof Set ? excludedLayer : new Set([excludedLayer]);
   for (const [layer, evaluation] of evaluations) {
-    if (!layer.visible || layer.id === excludedLayer || evaluation.error) continue;
+    if (!layer.visible || excluded.has(layer.id) || evaluation.error) continue;
     const key = layer.guide ? 'guides' : 'artwork';
     if (layer.guide ? !settings.snapGuides || !settings.visible : !settings.snapArtwork) continue;
     const path = evaluation.path;

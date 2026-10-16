@@ -11,6 +11,7 @@ import {
   duplicateArtworkLayer,
 } from './artwork-creation.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
+import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
 import { removeArtworkLayer } from './artwork-deletion.js';
 import { moveArtworkLayer, resolveArtworkOrderTarget } from './artwork-ordering.js';
 import {
@@ -120,6 +121,7 @@ let history = new History(newDocument()),
   activeLayer = history.doc.layers[0].id,
   selected = history.doc.layers[0].nodes[0].id,
   artworkTarget = null,
+  artworkSelection = new Set(),
   tool = 'select',
   zoom = 1,
   canvasFit = true,
@@ -159,6 +161,7 @@ function selectionSnapshot(withEditSelection = false) {
     activeLayer,
     selected,
     artworkTarget,
+    artworkSelection: new Set(artworkSelection),
     selection: new Set(selection),
     ...(withEditSelection
       ? {
@@ -178,6 +181,7 @@ function stepHistory(redo = false) {
   const state = selectionHistory.get(history.doc);
   if (state) {
     ({ activeLayer, selected, artworkTarget } = state);
+    artworkSelection = new Set(state.artworkSelection);
     selection = new Set(state.selection);
     characterEdit = state.characterEdit ? structuredClone(state.characterEdit) : null;
     if (state.restoreEditSelection) {
@@ -210,18 +214,36 @@ const canvasLayers = () =>
   penDraft ? [...history.doc.layers, penDraft.layer] : history.doc.layers;
 const selectedNode = () =>
   artworkTarget ? undefined : current().nodes.find((n) => n.id === selected);
-function selectArtwork(layerId) {
-  activeLayer = layerId;
-  artworkTarget = hasEmptyOutput(current()) ? null : layerId;
+function selectArtwork(layerId, { toggle = false, preserve = false } = {}) {
+  if (!artworkTarget) artworkSelection = new Set();
+  if (toggle) {
+    if (artworkSelection.has(layerId)) artworkSelection.delete(layerId);
+    else artworkSelection.add(layerId);
+  } else if (!preserve || !artworkSelection.has(layerId)) artworkSelection = new Set([layerId]);
+  activeLayer = artworkSelection.has(layerId) ? layerId : [...artworkSelection].at(-1) || layerId;
+  artworkTarget = artworkSelection.size ? activeLayer : null;
+  // Retain the established empty-composition UI for a plain single selection.
+  if (!toggle && artworkSelection.size === 1 && hasEmptyOutput(current())) {
+    artworkTarget = null;
+    artworkSelection = new Set();
+  }
   selected = null;
   selection = new Set();
   characterEdit = null;
   selectedGuide = null;
 }
 function artworkMove() {
-  return resolveArtworkMoveTarget(history.doc, artworkTarget, { fonts });
+  return artworkSelection.size === 1
+    ? resolveArtworkMoveTarget(history.doc, artworkTarget, { fonts })
+    : resolveArtworkMoveSelection(history.doc, artworkSelection, { fonts });
 }
 function sameArtworkMove(target, expected) {
+  if (expected.scope === 'artwork-selection')
+    return (
+      target?.scope === expected.scope &&
+      target.targets.length === expected.targets.length &&
+      target.targets.every((t, i) => sameArtworkMove(t, expected.targets[i]))
+    );
   return (
     target?.layerId === expected.layerId &&
     target?.kind === expected.kind &&
@@ -235,48 +257,7 @@ function sameArtworkMove(target, expected) {
   );
 }
 function writeArtworkMove(target, delta) {
-  const l = history.doc.layers.find((l) => l.id === target.layerId),
-    n = l?.nodes.find((n) => n.id === target.nodeId);
-  if (
-    !n ||
-    !Array.isArray(delta) ||
-    delta.length !== 2 ||
-    !Number.isFinite(delta[0]) ||
-    !Number.isFinite(delta[1])
-  )
-    throw Error('Artwork target or delta is unavailable');
-  const batch = target.kind === 'curve-point-positions';
-  if (
-    batch &&
-    (n.points.length !== target.pointIds.length ||
-      n.points.some((pt, i) => pt.id !== target.pointIds[i]))
-  )
-    throw Error('Artwork anchor topology changed');
-  const inputs = batch ? n.points.map((pt) => pt.position) : [n.params[target.parameter]],
-    values = batch ? target.positions : [target.value];
-  // Plan the entire batch before writing. A late invalid anchor/overflow must
-  // never leave earlier Positions moved, including when nudging inside History.
-  if (!Array.isArray(values) || values.length !== inputs.length)
-    throw Error('Artwork translation needs every finite starting position');
-  const next = [];
-  for (let i = 0; i < inputs.length; i++) {
-    const value = values[i];
-    if (
-      !inputs[i] ||
-      !Array.isArray(value) ||
-      value.length !== 2 ||
-      !Number.isFinite(value[0]) ||
-      !Number.isFinite(value[1])
-    )
-      throw Error('Artwork translation needs every finite starting position');
-    const position = [value[0] + delta[0], value[1] + delta[1]];
-    if (!Number.isFinite(position[0]) || !Number.isFinite(position[1]))
-      throw Error('Artwork translation must keep every position finite');
-    next.push(position);
-  }
-  inputs.forEach((q, i) => {
-    q.value = next[i];
-  });
+  translateArtworkTargets(history.doc, target, delta);
 }
 function notify(text, bad = false) {
   message = text;
@@ -331,7 +312,14 @@ function change(fn, text, deferRender = false) {
     notify('Finish or cancel the draft path before editing properties', true);
     return;
   }
-  const previousUI = { selected, activeLayer, artworkTarget, selection: new Set(selection), penId };
+  const previousUI = {
+    selected,
+    activeLayer,
+    artworkTarget,
+    artworkSelection: new Set(artworkSelection),
+    selection: new Set(selection),
+    penId,
+  };
   try {
     if (current().locked) throw Error('Composition is locked');
     const previous = current().nodes.some(
@@ -354,7 +342,7 @@ function change(fn, text, deferRender = false) {
     if (deferRender) scheduleRender();
     else render();
   } catch (e) {
-    ({ selected, activeLayer, artworkTarget, selection, penId } = previousUI);
+    ({ selected, activeLayer, artworkTarget, artworkSelection, selection, penId } = previousUI);
     notify(e.message, true);
     if (deferRender) scheduleRender();
     else render();
@@ -902,8 +890,10 @@ function render(resetView = false, artworkResolution = null) {
       );
   for (const el of document.querySelectorAll('.graph details[data-detail]'))
     detailsState.set(`${el.closest('.node').dataset.id}/${el.dataset.detail}`, el.open);
-  if (artworkTarget && !history.doc.layers.some((l) => l.id === artworkTarget))
+  if (artworkTarget && !history.doc.layers.some((l) => l.id === artworkTarget)) {
     artworkTarget = null;
+    artworkSelection = new Set();
+  }
   if (selected && !current().nodes.some((n) => n.id === selected)) selected = null;
   if (penId && !current().nodes.some((n) => n.id === penId && n.type === 'Curve')) penId = null;
   if (!selection.has(selected)) selection = new Set(selected ? [selected] : []);
@@ -927,10 +917,18 @@ function render(resetView = false, artworkResolution = null) {
   // One synchronous status resolution for both hint and Inspector; callers may
   // reuse a just-resolved unchanged document, never a persistent cached target.
   const move = artworkTarget ? artworkResolution || artworkMove() : null;
-  const duplication = artworkTarget
-    ? resolveArtworkDuplicateTarget(doc, artworkTarget, { fonts }, move)
-    : null;
-  snapLayerBounds = collectSnapLayerBounds(doc, results, l.id, pathBounds);
+  const duplication =
+    artworkSelection.size > 1
+      ? { supported: false, reason: 'Select one artwork to duplicate in place.' }
+      : artworkTarget
+        ? resolveArtworkDuplicateTarget(doc, artworkTarget, { fonts }, move)
+        : null;
+  snapLayerBounds = collectSnapLayerBounds(
+    doc,
+    results,
+    artworkTarget ? artworkSelection : l.id,
+    pathBounds,
+  );
   app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New</button><button data-action="open">Open</button><button data-action="import-svg">Import SVG</button><button data-action="import-image">Import image</button><button data-action="save">Save JSON</button><button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -951,7 +949,7 @@ function render(resetView = false, artworkResolution = null) {
     .map(([x, r]) => layerShape(x, r.path))
     .join(
       '',
-    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen: click for corners, drag for handles; click first point to close. Enter / Escape: finish · Cancel path: discard.' : artworkTarget ? `Artwork · ${esc(l.name)} · ${esc(move.supported ? 'Drag to move · Arrow: 1 unit · Shift+Arrow: 10' : move.reason)}` : n ? `Node · ${esc(n.name)} · ${n.type === 'Transform' ? 'Selected Transform output · ' : ''}before downstream nodes${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork on the canvas or a layer; select a graph node for source-stage editing'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node" ${penDraft ? 'disabled' : ''}><option value="">+ Add node</option>${Object.keys(
+    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen: click for corners, drag for handles; click first point to close. Enter / Escape: finish · Cancel path: discard.' : artworkTarget ? `Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)} · ${esc(move.supported ? 'Shift-click: add/remove; drag to move · Arrow: 1 unit · Shift+Arrow: 10' : move.reason)}` : n ? `Node · ${esc(n.name)} · ${n.type === 'Transform' ? 'Selected Transform output · ' : ''}before downstream nodes${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork on the canvas or a layer; select a graph node for source-stage editing'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node" ${penDraft ? 'disabled' : ''}><option value="">+ Add node</option>${Object.keys(
     definitions,
   )
     .filter((x) => !['Output', 'Image Output', 'Image'].includes(x))
@@ -964,7 +962,7 @@ function render(resetView = false, artworkResolution = null) {
     .reverse()
     .map(
       (x) =>
-        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${x.id === l.id ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" title="Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
+        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
     )
     .join(
       '',
@@ -980,7 +978,7 @@ function render(resetView = false, artworkResolution = null) {
           .map(([k, q]) => field(n, k, q))
           .join('')}`
       : artworkTarget
-        ? `<h3>Artwork · ${esc(l.name)}</h3><p>Final evaluated Output in artboard coordinates.</p><p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : move.reason)}</p><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create an independent layer immediately above this artwork at the same coordinates (Undo available)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? 'Independent whole-layer copy at the same coordinates. Initial support requires a complete movable route with no extra nodes; Curve: 2–128 anchors.' : duplication.reason)}</p>`
+        ? `<h3>Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)}</h3><p>Final evaluated Output in artboard coordinates.${artworkSelection.size > 1 ? ` Active layer: ${esc(l.name)}.` : ''}</p><p>Shift-click artwork or Layers names to add/remove. Click selected artwork to drag the selection together.</p><p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move. Arrow keys: 1 unit; Shift+Arrow: 10 units. Select a graph node to edit its source stage.' : move.reason)}</p><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create an independent layer immediately above this artwork at the same coordinates (Undo available)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? 'Independent whole-layer copy at the same coordinates. Initial support requires a complete movable route with no extra nodes; Curve: 2–128 anchors.' : duplication.reason)}</p>`
         : hasEmptyOutput(l)
           ? '<h3>Empty composition</h3><p>Add independent artwork with a toolbar tool, or add graph nodes and explicitly Use as output. The empty Output renders nothing.</p>'
           : '<p>Select artwork or a graph node.</p>'
@@ -1634,15 +1632,21 @@ function transformOverlay(n, result) {
 function canvasOverlay(n, result) {
   if (characterEdit) return characterOverlay(result);
   if (artworkTarget) {
-    if (
-      !layerShown(current()) ||
-      !result.path ||
-      result.error ||
-      (result.path.kind !== 'image' && !result.path.contours.some((c) => c.points.length))
-    )
-      return '';
-    const b = pathBounds(result.path);
-    return `<rect class="guide artwork-selection" x="${b[0][0]}" y="${b[1][0]}" width="${b[0][2] - b[0][0]}" height="${b[1][2] - b[1][0]}" stroke-dasharray="5 4"/>`;
+    return [...artworkSelection]
+      .map((id) => {
+        const l = history.doc.layers.find((l) => l.id === id);
+        if (!l || !layerShown(l)) return '';
+        const r = id === activeLayer ? result : evaluate(l, fonts, history.doc.imageAssets);
+        if (
+          !r.path ||
+          r.error ||
+          (r.path.kind !== 'image' && !r.path.contours.some((c) => c.points.length))
+        )
+          return '';
+        const b = pathBounds(r.path);
+        return `<rect class="guide artwork-selection" data-artwork-selection="${esc(id)}" x="${b[0][0]}" y="${b[1][0]}" width="${b[0][2] - b[0][0]}" height="${b[1][2] - b[1][0]}" stroke-dasharray="5 4"/>`;
+      })
+      .join('');
   }
   if (!n || !layerShown(current()) || n.bypassed) return '';
   let path;
@@ -1924,6 +1928,7 @@ function addNode(type) {
     selected = n.id;
     selection = new Set([n.id]);
     artworkTarget = null;
+    artworkSelection = new Set();
   }, `Added ${type}`);
   if (selected) revealNode(selected);
 }
@@ -1994,6 +1999,7 @@ function deleteArtwork(layerId) {
     activeLayer = deleted.nextLayerId;
     selected = null;
     artworkTarget = null;
+    artworkSelection = new Set();
     selection = new Set();
     tool = 'select';
     selectionHistory.set(history.past.at(-1), priorUI);
@@ -2010,7 +2016,13 @@ function deleteArtwork(layerId) {
 function duplicateArtwork(layerId) {
   // A stale/forced click must not finish a draft, cancel a gesture, or duplicate
   // whichever layer happens to be active after the original button was rendered.
-  if (deletionBusy() || artworkTarget !== layerId || activeLayer !== layerId) return;
+  if (
+    deletionBusy() ||
+    artworkSelection.size !== 1 ||
+    artworkTarget !== layerId ||
+    activeLayer !== layerId
+  )
+    return;
   try {
     const priorUI = selectionSnapshot(true);
     let created;
@@ -2062,6 +2074,7 @@ function createArtwork(type) {
 // Pen previews stay detached from history.doc. Only Finish appends a layer.
 function restorePenSelection(state) {
   ({ activeLayer, selected, artworkTarget } = state);
+  artworkSelection = new Set(state.artworkSelection);
   selection = new Set(state.selection);
 }
 function releasePenPointer() {
@@ -2223,6 +2236,7 @@ app.addEventListener('click', async (e) => {
       }
       if (!ids.length) throw Error('Highlight one or more complete characters in Text first');
       artworkTarget = null;
+      artworkSelection = new Set();
       selected = target.id;
       selection = new Set([target.id]);
       characterEdit = {
@@ -2265,6 +2279,7 @@ app.addEventListener('click', async (e) => {
   if (d.characterMode) {
     cancelInteraction();
     artworkTarget = null;
+    artworkSelection = new Set();
     selected = d.characterMode;
     selection = new Set([selected]);
     if (characterEdit?.node === d.characterMode) characterEdit = null;
@@ -2284,6 +2299,7 @@ app.addEventListener('click', async (e) => {
   }
   if (d.editText) {
     artworkTarget = null;
+    artworkSelection = new Set();
     selected = d.editText;
     selection = new Set([selected]);
     characterEdit = null;
@@ -2475,6 +2491,7 @@ app.addEventListener('click', async (e) => {
               activeLayer = next.layers[0].id;
               selected = current().nodes[0]?.id;
               artworkTarget = null;
+              artworkSelection = new Set();
               savedSnapshot = serialize(next);
               render(true);
               notify('Project restored');
@@ -2490,6 +2507,7 @@ app.addEventListener('click', async (e) => {
           activeLayer = history.doc.layers[0].id;
           selected = null;
           artworkTarget = null;
+          artworkSelection = new Set();
           selection = new Set();
           tool = 'select';
           selectionHistory.set(history.past.at(-1), priorUI);
@@ -2510,6 +2528,7 @@ app.addEventListener('click', async (e) => {
           activeLayer = created.layerId;
           selected = null;
           artworkTarget = null;
+          artworkSelection = new Set();
           selection = new Set();
           tool = 'select';
           selectionHistory.set(history.past.at(-1), priorUI);
@@ -2526,6 +2545,7 @@ app.addEventListener('click', async (e) => {
             activeLayer = l.id;
             selected = l.nodes[0].id;
             artworkTarget = null;
+            artworkSelection = new Set();
             selection = new Set([selected]);
           });
           render(true);
@@ -2635,11 +2655,16 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.selectLayer) {
-    if (lastNameClick?.layerId === d.selectLayer && nameClicked(d.selectLayer, null, e)) return;
+    if (
+      !e.shiftKey &&
+      lastNameClick?.layerId === d.selectLayer &&
+      nameClicked(d.selectLayer, null, e)
+    )
+      return;
     resetTransient();
-    selectArtwork(d.selectLayer);
+    selectArtwork(d.selectLayer, { toggle: e.shiftKey });
     render();
-    nameClicked(d.selectLayer, null, e);
+    if (!e.shiftKey) nameClicked(d.selectLayer, null, e);
     if (!nameEdit) document.querySelector('.canvas-stage').focus({ preventScroll: true });
     return;
   }
@@ -2737,6 +2762,7 @@ app.addEventListener('click', async (e) => {
     const ref = current().nodes.find((n) => n.id === d.referenceJump);
     try {
       artworkTarget = null;
+      artworkSelection = new Set();
       selected = referenceTarget(current(), ref).id;
       selection = new Set([selected]);
       render();
@@ -2756,6 +2782,7 @@ app.addEventListener('click', async (e) => {
         copies = duplicateNodes(current(), ids);
       if (position) copies[0].position = position;
       artworkTarget = null;
+      artworkSelection = new Set();
       selected = copies[0].id;
       selection = new Set(copies.map((n) => n.id));
     }, 'Nodes duplicated');
@@ -3234,6 +3261,7 @@ app.addEventListener('change', async (e) => {
       activeLayer = history.doc.layers.at(-1).id;
       selected = current().nodes[0].id;
       artworkTarget = null;
+      artworkSelection = new Set();
       selection = new Set([selected]);
       notify(`Imported ${asset.name} · embedded PNG; JSON keeps the editable image`);
       render(true);
@@ -3289,6 +3317,7 @@ app.addEventListener('change', async (e) => {
       activeLayer = next.layers[0].id;
       selected = current().nodes[0]?.id;
       artworkTarget = null;
+      artworkSelection = new Set();
       if (el.id === 'open-file') savedSnapshot = serialize(next);
       notify('Project restored');
       render(true);
@@ -3974,6 +4003,7 @@ app.addEventListener('pointerdown', (e) => {
   let head = e.target.closest('.node-head');
   if (head && !e.target.closest('button') && !control) {
     artworkTarget = null;
+    artworkSelection = new Set();
     selectedGuide = null;
     let id = head.closest('.node').dataset.id;
     if (e.shiftKey) {
@@ -4053,30 +4083,52 @@ app.addEventListener('pointerdown', (e) => {
     '[data-object-resize],[data-transform-handle],[data-position-handle],[data-point],[data-node-stage-move]',
   );
   if (tool === 'select' && !dedicated) {
+    if (document.querySelector('dialog[open]')) return;
     const layerId = e.target.closest('[data-layer]')?.dataset.layer;
     stage.focus({ preventScroll: true });
     if (!layerId) {
       artworkTarget = null;
+      artworkSelection = new Set();
       selected = null;
       selection = new Set();
       render();
       document.querySelector('.canvas-stage').focus({ preventScroll: true });
       return;
     }
-    selectArtwork(layerId);
+    const toggleOnClick = e.shiftKey && artworkTarget && artworkSelection.has(layerId);
+    selectArtwork(layerId, { toggle: e.shiftKey && !toggleOnClick, preserve: true });
     const resolved = artworkMove();
     render(false, resolved);
     const capture = document.querySelector('.canvas-stage');
     capture.focus({ preventScroll: true });
     if (!resolved.supported) {
-      notify(resolved.reason, true);
+      if (toggleOnClick) {
+        selectArtwork(layerId, { toggle: true });
+        render();
+        document.querySelector('.canvas-stage').focus({ preventScroll: true });
+      } else notify(resolved.reason, true);
       return;
     }
     const target = resolved.target,
-      b = pathBounds(evaluate(current(), fonts, history.doc.imageAssets).path);
+      bounds = [...artworkSelection].map((id) =>
+        pathBounds(
+          evaluate(
+            history.doc.layers.find((l) => l.id === id),
+            fonts,
+            history.doc.imageAssets,
+          ).path,
+        ),
+      ),
+      b = [0, 1].map((axis) => {
+        const min = Math.min(...bounds.map((b) => b[axis][0])),
+          max = Math.max(...bounds.map((b) => b[axis][2]));
+        return [min, (min + max) / 2, max];
+      });
     drag = {
       type: 'artwork',
       target,
+      selectionBefore: selectionSnapshot(),
+      toggleOnClick: toggleOnClick ? layerId : null,
       start: canvasPoint(e),
       started: false,
       anchors: b.map((axis) => [...axis]),
@@ -4118,6 +4170,7 @@ app.addEventListener('pointerdown', (e) => {
         penId = layer.nodes[0].id;
         activeLayer = layer.id;
         artworkTarget = null;
+        artworkSelection = new Set();
         selected = penId;
         selection = new Set([selected]);
         pt = layer.nodes[0].points[0];
@@ -4886,9 +4939,15 @@ document.addEventListener('pointerup', (e) => {
         return;
       }
       history.record(d.before);
+      if (d.type === 'artwork') {
+        selectionHistory.set(d.before, d.selectionBefore);
+        selectionHistory.set(history.doc, selectionSnapshot());
+      }
       notify('Updated');
     }
-    render(false, d.type === 'artwork' ? artworkResolution : null);
+    const toggledArtwork = d.type === 'artwork' && d.toggleOnClick && !d.started;
+    if (toggledArtwork) selectArtwork(d.toggleOnClick, { toggle: true });
+    render(false, d.type === 'artwork' && !toggledArtwork ? artworkResolution : null);
   }
 });
 app.addEventListener('contextmenu', (e) => {
@@ -4947,7 +5006,8 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'F2' && artworkTarget && e.target.matches?.('.canvas-stage')) {
     e.preventDefault();
-    beginNameEdit(artworkTarget);
+    if (artworkSelection.size > 1) notify('Select one artwork to rename.', true);
+    else beginNameEdit(artworkTarget);
     return;
   }
   if (e.key === 'F2' || (e.key === 'Enter' && e.target.matches?.('[data-rename-node]'))) {
@@ -5116,6 +5176,7 @@ document.addEventListener('keydown', (e) => {
     !e.metaKey &&
     !e.altKey &&
     !characterEdit &&
+    !document.querySelector('dialog[open]') &&
     !navigationBusy()
   ) {
     if (!artworkTarget) return;
@@ -5132,7 +5193,13 @@ document.addEventListener('keydown', (e) => {
       ];
     // No asynchronous work or document mutation intervenes before this write.
     // The next preview/key/commit still resolves independently from live state.
+    const priorUI = selectionSnapshot();
+    const oldPast = history.past.at(-1);
     change(() => writeArtworkMove(resolved.target, delta), 'Artwork position updated');
+    if (history.past.at(-1) !== oldPast) {
+      selectionHistory.set(history.past.at(-1), priorUI);
+      selectionHistory.set(history.doc, selectionSnapshot());
+    }
     document.querySelector('.canvas-stage').focus({ preventScroll: true });
     return;
   }
@@ -5176,7 +5243,9 @@ document.addEventListener('keydown', (e) => {
     // Clearing selection after success prevents a held/repeated Delete cascading.
     if (e.target.matches?.('.canvas-stage') && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
-      if (!e.repeat) deleteArtwork(artworkTarget);
+      if (artworkSelection.size > 1)
+        notify('Select one artwork to delete, or use an explicit Delete layer row action.', true);
+      else if (!e.repeat) deleteArtwork(artworkTarget);
     }
     return;
   }
@@ -5276,6 +5345,7 @@ window.nect = {
     activeLayer = d.layers[0].id;
     selected = current().nodes[0]?.id;
     artworkTarget = null;
+    artworkSelection = new Set();
     render(true);
   },
   export: () => exportSVG(history.doc, fonts),

@@ -62,8 +62,11 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
     );
   source +=
     '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer, dirty: serialize(history.doc) !== savedSnapshot}); window.markPenSaved = () => { savedSnapshot = serialize(history.doc); };';
+  // These suites synchronously create/evaluate Text after startup. Await the
+  // font condition inside the test module, rather than racing filesystem I/O.
+  source +=
+    '\nconst fontTestDeadline = Date.now() + 5000; while (!bundledFont) { if (Date.now() >= fontTestDeadline) throw Error("Bundled test font did not finish loading"); await new Promise((r) => setTimeout(r, 10)); }';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-  await new Promise((r) => setTimeout(r, 80));
   flush();
   const $ = (s) => document.querySelector(s),
     stage = () => $('.canvas-stage');
@@ -213,7 +216,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
   );
   await t.test(
     'all toolbar shapes and Pen work independently from New and restore exact blank state',
-    () => {
+    async () => {
       for (const tool of ['Circle', 'Rectangle', 'Polygon', 'Star', 'Text', 'pen']) {
         const before = newDoc(),
           empty = structuredClone(win.nect.document.layers[0]);
@@ -222,6 +225,14 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
           penPoint([250, 100]);
           penPoint([420, 160]);
           key(stage(), 'Enter');
+        }
+        if (tool === 'Text') {
+          const readyDeadline = Date.now() + 5000;
+          while (win.nect.evaluate().error !== null) {
+            assert.ok(Date.now() < readyDeadline, win.nect.evaluate().error);
+            await new Promise((r) => setTimeout(r, 10));
+            flush();
+          }
         }
         const after = saved();
         assert.equal(win.nect.document.layers.length, 2);

@@ -58,8 +58,11 @@ test('whole-artwork layer deletion is exact, undoable and safely scoped in the e
     );
   source +=
     '\nwindow.deletionUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], characterEdit: characterEdit ? { ...characterEdit, selected: [...characterEdit.selected] } : null, selectedGuide, remapBatches: [...remapBatches].map(([id, batch]) => [id, { selected: [...batch.selected], delta: [...batch.delta] }]), past: history.past.length, future: history.future.length, drag: drag?.type, wiring: !!wiring, draft: penDraft?.layer}); window.testDeleteLayer = deleteArtwork; window.testCharacterChooser = () => { const c = characterContext(); const hit = { glyph: c.layout.characters[0], occurrence: c.editable[0], instance: 0 }; selectOverlappingCharacters([hit, { ...hit, instance: 1 }]); };';
+  // These suites synchronously create/evaluate Text after startup. Await the
+  // font condition inside the test module, rather than racing filesystem I/O.
+  source +=
+    '\nconst fontTestDeadline = Date.now() + 5000; while (!bundledFont) { if (Date.now() >= fontTestDeadline) throw Error("Bundled test font did not finish loading"); await new Promise((r) => setTimeout(r, 10)); }';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-  await new Promise((r) => setTimeout(r, 80));
   flush();
   const waitFor = async (condition, message) => {
     const deadline = Date.now() + 2000;

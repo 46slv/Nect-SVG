@@ -29,6 +29,10 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   source = source
     .replace("import './style.css';", '')
+    .replace(
+      "from './artwork-multi-move.js'",
+      `from '${new URL('../src/artwork-multi-move.js', import.meta.url)}'`,
+    )
     .replace("from './images.js'", `from '${new URL('../src/images.js', import.meta.url)}'`)
     .replace("from './raster.js'", `from '${new URL('../src/raster.js', import.meta.url)}'`)
     .replace("from './focus.js'", `from '${new URL('../src/focus.js', import.meta.url)}'`)

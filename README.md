@@ -92,3 +92,5 @@ Add **Reference** to reuse a Text Position, Null or other Vector2 output without
 ### Per-character shape editing
 
 In **Character position**, adjust **Rotate °** and **Scale ×** alongside XY without changing font size, advances or Text Position. Drag inside any of these four numeric fields in the floating palette or Inspector; click to type. Selected typography and leading/wrap width numbers also support dragging. [Numeric drag behavior](docs/numeric-scrubbing.md). Mixed selections use each character’s fixed cell pivot; separate XY/shape resets keep intent clear. Try [the editable character-shape sample](examples/character-transform.json) and see [pivot, schema4 and verification boundaries](docs/character-transform.md).
+
+Independent artwork multi-selection: Shift-click canvas artwork or Layers names, then drag a selected member or use focused-artboard arrows to translate the entire set in one Undo step. Any unsupported member blocks the complete move with a named reason. See [practice sample and operation contract](docs/multi-artwork-movement.md).

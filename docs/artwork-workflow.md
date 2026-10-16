@@ -40,3 +40,5 @@ Select final artwork and choose **Duplicate in place** in the Inspector to creat
 ## Safe layer ordering
 
 Use each Layers row's **Forward / Backward** to move that exact layer one paint position. This preserves the current selection and every graph/asset record; it is independent of whole-artwork movement eligibility. Locked targets and active edits are blocked. See the [full ordering contract](artwork-layer-ordering.md).
+
+Independent artwork multi-selection: Shift-click canvas artwork or Layers names, then drag a selected member or use focused-artboard arrows to translate the entire set in one Undo step. Any unsupported member blocks the complete move with a named reason. See [practice sample and operation contract](multi-artwork-movement.md).
