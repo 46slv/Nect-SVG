@@ -186,7 +186,7 @@ try {
   assert.equal(await page.locator('.shape').getAttribute('d'), initial);
   await page.getByTitle('Ctrl+Shift+Z', { exact: true }).click();
   assert.notEqual(await page.locator('.shape').getAttribute('d'), initial);
-  for (const action of ['Open', 'Import SVG', 'New']) {
+  for (const action of ['Open JSON', 'Import SVG', 'New document']) {
     const beforeCancel = await page.evaluate(() => JSON.stringify(window.nect.document));
     page.once('dialog', (dialog) => dialog.dismiss());
     await page.getByRole('button', { name: action, exact: true }).click();
