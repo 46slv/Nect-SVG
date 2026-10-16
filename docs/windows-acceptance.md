@@ -8,6 +8,10 @@ The development installer is retained in a short-lived CI artifact, not a releas
 
 ## Preconditions
 
+For a disposable standalone run, first follow the process-local storage contract in
+[Isolated native acceptance build](native-acceptance-build.md). Its unit/build evidence does not
+establish native app acceptance.
+
 Use an authorized, available Windows test environment and a new temporary test directory. Preserve existing work. Use only disposable copies for overwrite tests. Do not change system security, permissions, authentication or billing. Stop at an unexpected OS permission/security prompt and obtain the required approval. No automatic update or public distribution is configured.
 
 ## Main native flow
